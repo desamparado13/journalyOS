@@ -7,11 +7,46 @@ Premium trading journal for FX execution review.
 - Vite
 - React
 - TypeScript
+- Supabase Auth
+- Supabase Postgres
 - Lucide React icons
-- LocalStorage persistence for immediate offline use
-- Local signup/login with per-user journal storage
+- Journaly V2 ZIP importer
+- Journaly V2 backtesting ZIP importer
 - Screenshot upload stored with each trade
 - Light and dark themes
+
+## Supabase Setup
+
+The local app reads Supabase config from `.env.local`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+```
+
+Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades` table and row-level security policies.
+
+If you already created the table before the importer existed, run the latest `supabase-schema.sql` again. It includes additive `alter table ... add column if not exists` statements for Journaly V2 import metadata.
+
+## Import Journaly V2 Trades
+
+1. Sign in to Journaly OS.
+2. Open **View trades**.
+3. Use **Import Journaly V2** and select the ZIP export.
+
+The trade importer reads `trades.json`, imports post-trade screenshots from `images/post-trade/`, normalizes old setup names, and skips duplicate rows using `source_app = Journaly V2` plus `legacy_id`.
+
+## Backtesting Module
+
+The Backtesting module includes:
+
+- Analytics: total backtests, total R, win rate, profit factor, expectancy, max drawdown, average win, average loss
+- Manual create/edit form
+- Backtest trade list with screenshots and actions
+- Filters for year, month, pair, setup, and result
+- Journaly V2 backtesting ZIP import from `backtests.json` and `images/backtests/`
+
+Run the latest `supabase-schema.sql` before using Backtesting. It creates the `backtests` table, row-level security policies, and a duplicate-safe import key.
 
 ## Trade Fields
 
@@ -39,25 +74,6 @@ Build for production:
 npm.cmd run build
 ```
 
-## Future Supabase Schema
+## Notes
 
-Auth should move to Supabase Auth before production. The current local auth flow mirrors the expected shape by storing a user id and email in session state.
-
-```sql
-create table trades (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users(id),
-  trade_date date not null,
-  trade_time time not null,
-  pair text not null,
-  setup text not null,
-  direction text not null,
-  mae numeric default 0,
-  pnl_r numeric default 0,
-  result text not null,
-  notes text,
-  screenshot_url text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-```
+Screenshots are currently saved as data URLs in the `trades.screenshot_url` field. For production, move screenshots to Supabase Storage and save the public or signed URL in this column.
