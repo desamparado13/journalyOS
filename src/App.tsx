@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
-import { supabase } from "./supabaseClient";
+import { supabase, supabaseConfig } from "./supabaseClient";
 
 const THEME_KEY = "journaly-os-theme";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
@@ -1063,6 +1063,11 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    if (!supabase) {
+      setIsBooting(false);
+      return;
+    }
+
     let mounted = true;
 
     supabase.auth.getSession().then(({ data }) => {
@@ -1541,7 +1546,7 @@ export default function App() {
   }
 
   async function loadTrades() {
-    if (!currentUser) return;
+    if (!currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -1563,7 +1568,7 @@ export default function App() {
   }
 
   async function loadBacktests() {
-    if (!currentUser) return;
+    if (!currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -1588,6 +1593,11 @@ export default function App() {
     event.preventDefault();
     setAuthMessage("");
 
+    if (!supabase) {
+      setAuthMessage("Supabase is not configured yet. Add the Vercel environment variables and redeploy.");
+      return;
+    }
+
     const email = normalizeEmail(authForm.email);
     const password = authForm.password;
     const response =
@@ -1607,7 +1617,7 @@ export default function App() {
 
   async function handleTradeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -1668,7 +1678,7 @@ export default function App() {
   }
 
   async function handleImportZip(file: File | null) {
-    if (!file || !currentUser) return;
+    if (!file || !currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -1792,7 +1802,7 @@ export default function App() {
 
   async function handleBacktestSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!currentUser) return;
+    if (!currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -1840,7 +1850,7 @@ export default function App() {
   }
 
   async function handleBacktestImportZip(file: File | null) {
-    if (!file || !currentUser) return;
+    if (!file || !currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -1961,6 +1971,8 @@ export default function App() {
   }
 
   async function logout() {
+    if (!supabase) return;
+
     await supabase.auth.signOut();
     setCurrentUser(null);
     setTrades([]);
@@ -1991,6 +2003,8 @@ export default function App() {
   }
 
   async function deleteTrade(trade: Trade) {
+    if (!supabase) return;
+
     setIsSyncing(true);
     setSyncMessage("");
     setPendingDeleteTrade(null);
@@ -2037,6 +2051,8 @@ export default function App() {
   }
 
   async function deleteBacktest(id: string) {
+    if (!supabase) return;
+
     setIsSyncing(true);
     setSyncMessage("");
 
@@ -2049,6 +2065,10 @@ export default function App() {
     }
 
     setBacktests(backtests.filter((item) => item.id !== id));
+  }
+
+  if (!supabaseConfig.isConfigured) {
+    return <MissingConfigScreen missing={supabaseConfig.missing} />;
   }
 
   if (isBooting) {
@@ -3820,6 +3840,44 @@ function ConfirmDialog({
         </div>
       </section>
     </div>
+  );
+}
+
+function MissingConfigScreen({ missing }: { missing: string[] }) {
+  return (
+    <section className="auth-screen config-screen">
+      <Brand className="auth-brand" />
+      <div className="auth-layout">
+        <div className="auth-copy">
+          <p className="eyebrow">Vercel setup needed</p>
+          <h1>Your app is deployed, but the database keys are missing.</h1>
+          <p>
+            Add the required environment variables in Vercel, then redeploy Journaly OS.
+            The app will connect to Supabase as soon as those values are available.
+          </p>
+        </div>
+
+        <article className="auth-card config-card">
+          <div className="auth-card-header">
+            <p className="eyebrow">Missing config</p>
+            <h2>Environment variables</h2>
+          </div>
+
+          <div className="config-list">
+            {missing.map((key) => (
+              <code key={key}>{key}</code>
+            ))}
+          </div>
+
+          <div className="config-steps">
+            <p>In Vercel, open Project Settings, then Environment Variables.</p>
+            <p>Add the Supabase URL and publishable key for Production, Preview, and Development.</p>
+            <p>Add OPENAI_API_KEY too if you want Dara and AI Coach to work after deploy.</p>
+            <p>Redeploy the project after saving the variables.</p>
+          </div>
+        </article>
+      </div>
+    </section>
   );
 }
 
