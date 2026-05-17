@@ -40,6 +40,7 @@ import {
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
+import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
@@ -3890,7 +3891,7 @@ function MissingConfigScreen({ missing }: { missing: string[] }) {
 function Brand({ className, onHome }: { className: string; onHome?: () => void }) {
   return (
     <a className={className} href="#" aria-label="Journaly OS home" onClick={onHome}>
-      <img src="/assets/logo.svg" alt="" />
+      <img src={logoUrl} alt="" />
       <span>
         <strong>Journaly OS</strong>
         <small>Trading journal</small>
