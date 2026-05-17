@@ -31,7 +31,6 @@ import {
   Sparkles,
   Sun,
   Trash2,
-  Upload,
   FlaskConical,
   TriangleAlert,
   Target,
@@ -2261,15 +2260,16 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
+      <aside className="topbar">
         <Brand className="brand" onHome={() => setActiveView("dashboard")} />
 
-        <nav className="topnav" aria-label="Primary">
+        <nav className="sidebar-nav" aria-label="Primary">
           <button
             className={activeView === "dashboard" ? "is-active" : ""}
             type="button"
             onClick={() => setActiveView("dashboard")}
           >
+            <Activity size={18} />
             Dashboard
           </button>
           <button
@@ -2277,6 +2277,7 @@ export default function App() {
             type="button"
             onClick={() => setActiveView("add-trade")}
           >
+            <Plus size={18} />
             Add trade
           </button>
           <button
@@ -2294,6 +2295,7 @@ export default function App() {
             type="button"
             onClick={() => setActiveView("trade-analytics")}
           >
+            <BarChart3 size={18} />
             Trades
           </button>
           <button
@@ -2307,6 +2309,7 @@ export default function App() {
             type="button"
             onClick={() => setActiveView("backtesting-analytics")}
           >
+            <FlaskConical size={18} />
             Backtesting
           </button>
           <button
@@ -2314,6 +2317,7 @@ export default function App() {
             type="button"
             onClick={() => setActiveView("ai-coach")}
           >
+            <Brain size={18} />
             AI Coach
           </button>
         </nav>
@@ -2335,11 +2339,12 @@ export default function App() {
             Log out
           </button>
         </div>
-      </header>
+      </aside>
 
-      {toast ? <Toast toast={toast} onClose={() => setToast(null)} /> : null}
+      <div className="app-main">
+        {toast ? <Toast toast={toast} onClose={() => setToast(null)} /> : null}
 
-      <main>
+        <main>
         {syncMessage ? <p className="sync-message">{syncMessage}</p> : null}
         {isSyncing ? <p className="sync-message">Syncing with Supabase...</p> : null}
 
@@ -2960,36 +2965,11 @@ export default function App() {
                 options={["All", ...pairs]}
                 onChange={setPairFilter}
               />
-              <label className="import-field">
-                <span>Import Journaly V2</span>
-                <input
-                  type="file"
-                  accept=".zip,application/zip"
-                  disabled={isSyncing}
-                  onChange={(event) => {
-                    handleImportZip(event.target.files?.[0] || null);
-                    event.target.value = "";
-                  }}
-                />
-                <Upload size={18} />
-              </label>
               <button className="secondary-action toolbar-action" type="button" onClick={() => setActiveView("trade-images")}>
                 <ImagePlus size={18} />
                 Open images
               </button>
             </div>
-
-            {importSummary ? (
-              <div className="import-summary" aria-live="polite">
-                <strong>Import summary</strong>
-                <span>Trades in export: {importSummary.exportTrades}</span>
-                <span>Imported: {importSummary.imported}</span>
-                <span>Skipped duplicates: {importSummary.skipped}</span>
-                <span>Images imported: {importSummary.imagesImported}</span>
-                <span>Images missing: {importSummary.imagesMissing}</span>
-                <span>Failed rows: {importSummary.failed}</span>
-              </div>
-            ) : null}
 
             <div className="trade-list" aria-live="polite">
               {filteredTrades.length === 0 ? (
@@ -3301,38 +3281,13 @@ export default function App() {
                 options={["All", ...results]}
                 onChange={(value) => setBacktestResultFilter(value as "All" | Result)}
               />
-              <label className="import-field">
-                <span>Import backtests</span>
-                <input
-                  type="file"
-                  accept=".zip,application/zip"
-                  disabled={isSyncing}
-                  onChange={(event) => {
-                    handleBacktestImportZip(event.target.files?.[0] || null);
-                    event.target.value = "";
-                  }}
-                />
-                <Upload size={18} />
-              </label>
             </div>
-
-            {importSummary ? (
-              <div className="import-summary" aria-live="polite">
-                <strong>Backtest import</strong>
-                <span>Backtests in export: {importSummary.exportTrades}</span>
-                <span>Imported: {importSummary.imported}</span>
-                <span>Skipped duplicates: {importSummary.skipped}</span>
-                <span>Screenshots imported: {importSummary.imagesImported}</span>
-                <span>Screenshots missing: {importSummary.imagesMissing}</span>
-                <span>Failed rows: {importSummary.failed}</span>
-              </div>
-            ) : null}
 
             <div className="trade-list" aria-live="polite">
               {filteredBacktests.length === 0 ? (
                 <div className="empty-state">
                   <strong>No backtests yet</strong>
-                  <p>Import Journaly V2 history or log a fresh backtest sample.</p>
+                  <p>Log a fresh backtest sample to start building your review data.</p>
                 </div>
               ) : (
                 filteredBacktests.map((backtest) => (
@@ -3420,7 +3375,8 @@ export default function App() {
             onConfirm={() => deleteTrade(pendingDeleteTrade)}
           />
         ) : null}
-      </main>
+        </main>
+      </div>
       <DaraMiniChatbar context={daraContext} onOpenCoach={() => setActiveView("ai-coach")} />
     </div>
   );

@@ -69,6 +69,18 @@ a {
   margin: 0 auto;
 }
 
+.app-shell {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  padding: 18px 0 70px;
+}
+
+.app-main {
+  min-width: 0;
+}
+
 .auth-screen {
   min-height: 100vh;
   padding: 28px 0 56px;
@@ -295,58 +307,64 @@ label span,
   top: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: 24px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 18px;
+  min-height: calc(100vh - 36px);
   isolation: isolate;
-  padding: 14px 0;
+  padding: 18px;
 }
 
 .topbar::before {
   position: absolute;
-  inset: 0 -22px;
+  inset: 0;
   z-index: -1;
-  border-bottom: 1px solid var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--brand) 10%, transparent), transparent 34%),
-    color-mix(in srgb, var(--bg) 92%, var(--surface-strong));
-  box-shadow: 0 18px 46px rgba(3, 16, 26, 0.14);
+    linear-gradient(180deg, color-mix(in srgb, var(--brand) 12%, transparent), transparent 24rem),
+    var(--surface);
+  box-shadow: var(--shadow);
   backdrop-filter: blur(22px) saturate(1.18);
   content: "";
 }
 
-.topnav {
-  display: flex;
-  align-items: center;
+.sidebar-nav {
+  display: grid;
   gap: 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 5px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  align-content: start;
 }
 
-.topnav button {
-  border-radius: 999px;
+.sidebar-nav button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  border-radius: 8px;
   border: 0;
   background: transparent;
-  padding: 9px 14px;
+  padding: 10px 12px;
   color: var(--muted);
   cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 750;
+  font-size: 0.94rem;
+  font-weight: 800;
+  text-align: left;
 }
 
-.topnav button:hover,
-.topnav button.is-active {
+.sidebar-nav button svg {
+  color: currentColor;
+}
+
+.sidebar-nav button:hover,
+.sidebar-nav button.is-active {
   background: rgba(14, 165, 233, 0.12);
   color: var(--text);
 }
 
 .top-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
+  display: grid;
+  align-self: end;
   gap: 10px;
 }
 
@@ -2289,8 +2307,7 @@ textarea:focus {
   position: relative;
 }
 
-.file-field svg,
-.import-field svg {
+.file-field svg {
   position: absolute;
   right: 14px;
   bottom: 13px;
@@ -2317,33 +2334,6 @@ textarea:focus {
 .toolbar-action {
   align-self: end;
   min-height: 44px;
-}
-
-.import-field {
-  position: relative;
-}
-
-.import-field input {
-  cursor: pointer;
-  padding-right: 42px;
-}
-
-.import-summary {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  margin-bottom: 18px;
-  padding: 14px;
-  color: var(--muted);
-  font-size: 0.88rem;
-  font-weight: 800;
-}
-
-.import-summary strong {
-  color: var(--text);
 }
 
 .trade-list {
@@ -2695,21 +2685,28 @@ textarea:focus {
 }
 
 @media (max-width: 860px) {
-  .topbar {
+  .app-shell {
     grid-template-columns: 1fr;
+    padding-top: 10px;
   }
 
-  .topnav {
-    grid-column: 1 / -1;
-    justify-content: center;
-    order: 3;
+  .topbar {
+    grid-template-rows: auto auto auto;
+    min-height: auto;
+  }
+
+  .sidebar-nav {
+    display: flex;
     overflow-x: auto;
   }
 
+  .sidebar-nav button {
+    min-width: max-content;
+  }
+
   .top-actions {
-    grid-column: 1 / -1;
-    justify-content: space-between;
-    order: 2;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
   }
 
   .session-badge {
