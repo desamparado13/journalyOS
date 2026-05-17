@@ -63,22 +63,25 @@ a {
   text-decoration: none;
 }
 
-.auth-screen,
-.app-shell {
+.auth-screen {
   width: min(1180px, calc(100% - 32px));
   margin: 0 auto;
 }
 
 .app-shell {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: 270px minmax(0, 1fr);
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  gap: 0;
   align-items: start;
-  padding: 18px 0 70px;
 }
 
 .app-main {
   min-width: 0;
+  width: min(1180px, 100%);
+  padding: 18px 24px 70px;
 }
 
 .auth-screen {
@@ -310,7 +313,7 @@ label span,
   grid-template-rows: auto minmax(0, 1fr) auto;
   align-content: start;
   gap: 18px;
-  min-height: calc(100vh - 36px);
+  min-height: 100vh;
   isolation: isolate;
   padding: 18px;
 }
@@ -320,7 +323,8 @@ label span,
   inset: 0;
   z-index: -1;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-left: 0;
+  border-radius: 0 8px 8px 0;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--brand) 12%, transparent), transparent 24rem),
     var(--surface);
@@ -2687,12 +2691,20 @@ textarea:focus {
 @media (max-width: 860px) {
   .app-shell {
     grid-template-columns: 1fr;
-    padding-top: 10px;
+  }
+
+  .app-main {
+    padding: 10px 10px 70px;
   }
 
   .topbar {
     grid-template-rows: auto auto auto;
     min-height: auto;
+  }
+
+  .topbar::before {
+    border-right: 0;
+    border-radius: 0 0 8px 8px;
   }
 
   .sidebar-nav {
