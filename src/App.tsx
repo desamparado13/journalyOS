@@ -2817,6 +2817,19 @@ export default function App() {
                   <CalendarClock size={18} />
                   {tradeForm.id ? "Update trade" : "Save trade"}
                 </button>
+                {tradeForm.id ? (
+                  <button
+                    className="secondary-action"
+                    type="button"
+                    onClick={() => {
+                      setTradeForm(todayDefaults());
+                      setActiveView("view-trades");
+                    }}
+                  >
+                    <ChevronLeft size={18} />
+                    Back to trades
+                  </button>
+                ) : null}
                 <button className="ghost-action" type="button" onClick={() => setTradeForm(todayDefaults())}>
                   <RefreshCcw size={18} />
                   Clear
@@ -2867,14 +2880,14 @@ export default function App() {
                 type="button"
                 onClick={() => setActiveView("view-trades")}
               >
-                View trades
+                Trades
               </button>
               <button
                 className={activeView === "trade-images" ? "is-active" : ""}
                 type="button"
                 onClick={() => setActiveView("trade-images")}
               >
-                Image view
+                Images
               </button>
               <button
                 className={activeView === "trade-calendar" ? "is-active" : ""}
@@ -2888,7 +2901,7 @@ export default function App() {
                 type="button"
                 onClick={() => setActiveView("monthly-heatmap")}
               >
-                Monthly heatmap
+                Heatmap
               </button>
               <button
                 className={activeView === "trade-performance" ? "is-active" : ""}
@@ -2902,7 +2915,7 @@ export default function App() {
                 type="button"
                 onClick={() => setActiveView("yearly-comparison")}
               >
-                Yearly compare
+                Yearly
               </button>
             </div>
 
@@ -2960,6 +2973,10 @@ export default function App() {
                 />
                 <Upload size={18} />
               </label>
+              <button className="secondary-action toolbar-action" type="button" onClick={() => setActiveView("trade-images")}>
+                <ImagePlus size={18} />
+                Open images
+              </button>
             </div>
 
             {importSummary ? (

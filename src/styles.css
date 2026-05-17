@@ -2029,11 +2029,12 @@ button.yearly-row.is-active {
   background: var(--surface);
   margin-bottom: 18px;
   padding: 6px;
-  width: fit-content;
+  width: 100%;
   box-shadow: var(--shadow);
 }
 
 .module-tabs button {
+  flex: 1 1 112px;
   min-height: 38px;
   border: 0;
   border-radius: 6px;
@@ -2311,6 +2312,11 @@ textarea:focus {
 
 .journal-toolbar label {
   min-width: min(260px, 100%);
+}
+
+.toolbar-action {
+  align-self: end;
+  min-height: 44px;
 }
 
 .import-field {
