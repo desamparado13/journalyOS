@@ -5,6 +5,8 @@ import {
   Brain,
   CalendarClock,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   CircleSlash2,
   CircleDollarSign,
@@ -72,6 +74,7 @@ type AppView =
   | "position-sizing"
   | "trade-analytics"
   | "view-trades"
+  | "trade-images"
   | "trade-calendar"
   | "monthly-heatmap"
   | "trade-performance"
@@ -296,6 +299,19 @@ type ToastState = {
   tone: "success" | "error" | "info";
   title: string;
   message: string;
+};
+
+type ImageViewerItem = {
+  id: string;
+  src: string;
+  alt: string;
+  title: string;
+  meta: string;
+};
+
+type ImageViewerState = {
+  items: ImageViewerItem[];
+  index: number;
 };
 
 type MarketSessionState = {
@@ -1044,6 +1060,10 @@ export default function App() {
   const [backtests, setBacktests] = useState<Backtest[]>([]);
   const [resultFilter, setResultFilter] = useState<"All" | Result>("All");
   const [pairFilter, setPairFilter] = useState("All");
+  const [imagePairFilter, setImagePairFilter] = useState("All");
+  const [imageSetupFilter, setImageSetupFilter] = useState("All");
+  const [imageResultFilter, setImageResultFilter] = useState<"All" | Result>("All");
+  const [imageDirectionFilter, setImageDirectionFilter] = useState<"All" | Direction>("All");
   const [tradeCalendarMonth, setTradeCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [yearlyCompareYear, setYearlyCompareYear] = useState(() => new Date().getFullYear().toString());
   const [backtestResultFilter, setBacktestResultFilter] = useState<"All" | Result>("All");
@@ -1052,7 +1072,7 @@ export default function App() {
   const [backtestYearFilter, setBacktestYearFilter] = useState("All");
   const [backtestMonthFilter, setBacktestMonthFilter] = useState("All");
   const [activeView, setActiveView] = useState<AppView>("dashboard");
-  const [imageViewer, setImageViewer] = useState<{ src: string; alt: string } | null>(null);
+  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [pendingDeleteTrade, setPendingDeleteTrade] = useState<Trade | null>(null);
   const [sessionNow, setSessionNow] = useState(() => new Date());
@@ -1125,6 +1145,20 @@ export default function App() {
         setImageViewer(null);
         setPendingDeleteTrade(null);
       }
+
+      if (event.key === "ArrowLeft") {
+        setImageViewer((viewer) =>
+          viewer && viewer.items.length > 1
+            ? { ...viewer, index: (viewer.index - 1 + viewer.items.length) % viewer.items.length }
+            : viewer,
+        );
+      }
+
+      if (event.key === "ArrowRight") {
+        setImageViewer((viewer) =>
+          viewer && viewer.items.length > 1 ? { ...viewer, index: (viewer.index + 1) % viewer.items.length } : viewer,
+        );
+      }
     }
 
     window.addEventListener("keydown", closeOnEscape);
@@ -1165,6 +1199,53 @@ export default function App() {
       .filter((trade) => pairFilter === "All" || trade.pair === pairFilter)
       .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
   }, [pairFilter, resultFilter, trades]);
+
+  const tradeImageItems = useMemo(() => {
+    return trades
+      .filter((trade) => Boolean(trade.screenshot))
+      .filter((trade) => imagePairFilter === "All" || trade.pair === imagePairFilter)
+      .filter((trade) => imageSetupFilter === "All" || trade.setup === imageSetupFilter)
+      .filter((trade) => imageResultFilter === "All" || trade.result === imageResultFilter)
+      .filter((trade) => imageDirectionFilter === "All" || trade.direction === imageDirectionFilter)
+      .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
+      .map((trade) => ({
+        id: trade.id,
+        src: trade.screenshot,
+        alt: `${trade.pair} ${trade.setup} screenshot`,
+        title: `${trade.pair} ${trade.direction} - ${formatMonthDayYear(trade.date)}`,
+        meta: `${trade.setup} / ${trade.result} / ${formatNumber(trade.pnl)}R`,
+      }));
+  }, [imageDirectionFilter, imagePairFilter, imageResultFilter, imageSetupFilter, trades]);
+
+  const filteredTradeImageItems = useMemo(() => {
+    return filteredTrades
+      .filter((trade) => Boolean(trade.screenshot))
+      .map((trade) => ({
+        id: trade.id,
+        src: trade.screenshot,
+        alt: `${trade.pair} ${trade.setup} screenshot`,
+        title: `${trade.pair} ${trade.direction} - ${formatMonthDayYear(trade.date)}`,
+        meta: `${trade.setup} / ${trade.result} / ${formatNumber(trade.pnl)}R`,
+      }));
+  }, [filteredTrades]);
+
+  const tradeImageStats = useMemo(() => {
+    const imageTrades = trades.filter((trade) => Boolean(trade.screenshot));
+    const setupsCovered = new Set(imageTrades.map((trade) => trade.setup)).size;
+    const pairsCovered = new Set(imageTrades.map((trade) => trade.pair)).size;
+    const filteredR = tradeImageItems.reduce((sum, item) => {
+      const trade = trades.find((candidate) => candidate.id === item.id);
+      return sum + Number(trade?.pnl || 0);
+    }, 0);
+
+    return {
+      totalImages: imageTrades.length,
+      visibleImages: tradeImageItems.length,
+      setupsCovered,
+      pairsCovered,
+      filteredR,
+    };
+  }, [tradeImageItems, trades]);
 
   const recentTrades = useMemo(() => {
     return [...trades]
@@ -1544,6 +1625,19 @@ export default function App() {
 
   function showToast(nextToast: ToastState) {
     setToast(nextToast);
+  }
+
+  function openImageViewer(items: ImageViewerItem[], index: number) {
+    if (items.length === 0) return;
+    setImageViewer({ items, index });
+  }
+
+  function moveImageViewer(direction: -1 | 1) {
+    setImageViewer((viewer) =>
+      viewer && viewer.items.length > 1
+        ? { ...viewer, index: (viewer.index + direction + viewer.items.length) % viewer.items.length }
+        : viewer,
+    );
   }
 
   async function loadTrades() {
@@ -2189,6 +2283,7 @@ export default function App() {
             className={
               activeView === "trade-analytics" ||
               activeView === "view-trades" ||
+              activeView === "trade-images" ||
               activeView === "trade-calendar" ||
               activeView === "monthly-heatmap" ||
               activeView === "trade-performance" ||
@@ -2734,6 +2829,7 @@ export default function App() {
 
         {activeView === "trade-analytics" ||
         activeView === "view-trades" ||
+        activeView === "trade-images" ||
         activeView === "trade-calendar" ||
         activeView === "monthly-heatmap" ||
         activeView === "trade-performance" ||
@@ -2744,6 +2840,8 @@ export default function App() {
               <h2>
                 {activeView === "trade-analytics"
                   ? "Trade analytics"
+                  : activeView === "trade-images"
+                    ? "Image view"
                   : activeView === "trade-calendar"
                     ? "Calendar view"
                   : activeView === "monthly-heatmap"
@@ -2770,6 +2868,13 @@ export default function App() {
                 onClick={() => setActiveView("view-trades")}
               >
                 View trades
+              </button>
+              <button
+                className={activeView === "trade-images" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveView("trade-images")}
+              >
+                Image view
               </button>
               <button
                 className={activeView === "trade-calendar" ? "is-active" : ""}
@@ -2876,21 +2981,44 @@ export default function App() {
                   <p>Your best review data starts with the next clean entry.</p>
                 </div>
               ) : (
-                filteredTrades.map((trade) => (
+                filteredTrades.map((trade) => {
+                  const imageIndex = filteredTradeImageItems.findIndex((item) => item.id === trade.id);
+
+                  return (
                   <TradeCard
                     key={trade.id}
                     trade={trade}
                     onEdit={() => editTrade(trade)}
                     onDelete={() => setPendingDeleteTrade(trade)}
-                    onViewImage={() =>
-                      trade.screenshot &&
-                      setImageViewer({ src: trade.screenshot, alt: `${trade.pair} trade screenshot` })
-                    }
+                    onViewImage={() => imageIndex >= 0 && openImageViewer(filteredTradeImageItems, imageIndex)}
                   />
-                ))
+                  );
+                })
               )}
             </div>
             </>
+            ) : null}
+
+            {activeView === "trade-images" ? (
+              <TradeImageGallery
+                items={tradeImageItems}
+                stats={tradeImageStats}
+                pairFilter={imagePairFilter}
+                setupFilter={imageSetupFilter}
+                resultFilter={imageResultFilter}
+                directionFilter={imageDirectionFilter}
+                onPairFilterChange={setImagePairFilter}
+                onSetupFilterChange={setImageSetupFilter}
+                onResultFilterChange={(value) => setImageResultFilter(value as "All" | Result)}
+                onDirectionFilterChange={(value) => setImageDirectionFilter(value as "All" | Direction)}
+                onReset={() => {
+                  setImagePairFilter("All");
+                  setImageSetupFilter("All");
+                  setImageResultFilter("All");
+                  setImageDirectionFilter("All");
+                }}
+                onOpenImage={(index) => openImageViewer(tradeImageItems, index)}
+              />
             ) : null}
 
             {activeView === "trade-calendar" ? (
@@ -2901,7 +3029,18 @@ export default function App() {
                 onMonthChange={setTradeCalendarMonth}
                 onViewImage={(trade) =>
                   trade.screenshot &&
-                  setImageViewer({ src: trade.screenshot, alt: `${trade.pair} trade screenshot` })
+                  openImageViewer(
+                    [
+                      {
+                        id: trade.id,
+                        src: trade.screenshot,
+                        alt: `${trade.pair} ${trade.setup} screenshot`,
+                        title: `${trade.pair} ${trade.direction} - ${formatMonthDayYear(trade.date)}`,
+                        meta: `${trade.setup} / ${trade.result} / ${formatNumber(trade.pnl)}R`,
+                      },
+                    ],
+                    0,
+                  )
                 }
               />
             ) : null}
@@ -3187,7 +3326,18 @@ export default function App() {
                     onDelete={() => deleteBacktest(backtest.id)}
                     onViewImage={() =>
                       backtest.screenshot &&
-                      setImageViewer({ src: backtest.screenshot, alt: `${backtest.pair} backtest screenshot` })
+                      openImageViewer(
+                        [
+                          {
+                            id: backtest.id,
+                            src: backtest.screenshot,
+                            alt: `${backtest.pair} ${backtest.setup} backtest screenshot`,
+                            title: `${backtest.pair} ${backtest.direction} - ${formatMonthDayYear(backtest.date)}`,
+                            meta: `${backtest.setup} / ${backtest.result} / ${formatNumber(backtest.pnl)}R`,
+                          },
+                        ],
+                        0,
+                      )
                     }
                   />
                 ))
@@ -3202,6 +3352,33 @@ export default function App() {
           <div className="image-viewer" role="dialog" aria-modal="true" aria-label="Screenshot viewer">
             <button className="image-viewer-backdrop" type="button" onClick={() => setImageViewer(null)} />
             <div className="image-viewer-panel">
+              <div className="image-viewer-info">
+                <strong>{imageViewer.items[imageViewer.index]?.title}</strong>
+                <span>
+                  {imageViewer.items[imageViewer.index]?.meta}
+                  {imageViewer.items.length > 1 ? ` / ${imageViewer.index + 1} of ${imageViewer.items.length}` : ""}
+                </span>
+              </div>
+              {imageViewer.items.length > 1 ? (
+                <>
+                  <button
+                    className="icon-button square image-viewer-nav image-viewer-prev"
+                    type="button"
+                    aria-label="Previous screenshot"
+                    onClick={() => moveImageViewer(-1)}
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+                  <button
+                    className="icon-button square image-viewer-nav image-viewer-next"
+                    type="button"
+                    aria-label="Next screenshot"
+                    onClick={() => moveImageViewer(1)}
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </>
+              ) : null}
               <button
                 className="icon-button square image-viewer-close"
                 type="button"
@@ -3210,7 +3387,7 @@ export default function App() {
               >
                 <X size={18} />
               </button>
-              <img src={imageViewer.src} alt={imageViewer.alt} />
+              <img src={imageViewer.items[imageViewer.index]?.src} alt={imageViewer.items[imageViewer.index]?.alt} />
             </div>
           </div>
         ) : null}
@@ -4133,6 +4310,85 @@ function EquityCurve({ points }: { points: Array<{ label: string; value: number 
             })}
           </svg>
         </>
+      )}
+    </section>
+  );
+}
+
+function TradeImageGallery({
+  items,
+  stats,
+  pairFilter,
+  setupFilter,
+  resultFilter,
+  directionFilter,
+  onPairFilterChange,
+  onSetupFilterChange,
+  onResultFilterChange,
+  onDirectionFilterChange,
+  onReset,
+  onOpenImage,
+}: {
+  items: ImageViewerItem[];
+  stats: { totalImages: number; visibleImages: number; setupsCovered: number; pairsCovered: number; filteredR: number };
+  pairFilter: string;
+  setupFilter: string;
+  resultFilter: "All" | Result;
+  directionFilter: "All" | Direction;
+  onPairFilterChange: (value: string) => void;
+  onSetupFilterChange: (value: string) => void;
+  onResultFilterChange: (value: string) => void;
+  onDirectionFilterChange: (value: string) => void;
+  onReset: () => void;
+  onOpenImage: (index: number) => void;
+}) {
+  return (
+    <section className="image-gallery-panel">
+      <div className="gallery-toolbar">
+        <SelectField label="Pair" value={pairFilter} options={["All", ...pairs]} onChange={onPairFilterChange} />
+        <SelectField label="Setup" value={setupFilter} options={["All", ...setups]} onChange={onSetupFilterChange} />
+        <SelectField
+          label="Result"
+          value={resultFilter}
+          options={["All", ...results]}
+          onChange={onResultFilterChange}
+        />
+        <SelectField
+          label="Direction"
+          value={directionFilter}
+          options={["All", "Long", "Short"]}
+          onChange={onDirectionFilterChange}
+        />
+        <button className="ghost-action gallery-reset" type="button" onClick={onReset}>
+          <RefreshCcw size={18} />
+          Reset
+        </button>
+      </div>
+
+      <div className="gallery-stats">
+        <Stat label="Visible images" value={`${stats.visibleImages} / ${stats.totalImages}`} />
+        <Stat label="Filtered R" value={`${formatNumber(stats.filteredR)}R`} />
+        <Stat label="Setups covered" value={String(stats.setupsCovered)} />
+        <Stat label="Pairs covered" value={String(stats.pairsCovered)} />
+      </div>
+
+      {items.length === 0 ? (
+        <div className="empty-state">
+          <strong>No screenshots match these filters</strong>
+          <p>Add trade screenshots or loosen the filters to review your setup images.</p>
+        </div>
+      ) : (
+        <div className="image-gallery-grid" aria-live="polite">
+          {items.map((item, index) => (
+            <button className="gallery-card" key={item.id} type="button" onClick={() => onOpenImage(index)}>
+              <img src={item.src} alt={item.alt} />
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.meta}</small>
+              </span>
+            </button>
+          ))}
+        </div>
       )}
     </section>
   );

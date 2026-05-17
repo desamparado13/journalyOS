@@ -2443,6 +2443,89 @@ textarea:focus {
   transform: scale(1.02);
 }
 
+.image-gallery-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.gallery-toolbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr)) auto;
+  gap: 14px;
+  align-items: end;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.gallery-reset {
+  min-height: 44px;
+}
+
+.gallery-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.image-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+
+.gallery-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.12), transparent 48%),
+    var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  cursor: zoom-in;
+  padding: 10px;
+  text-align: left;
+}
+
+.gallery-card img {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-strong);
+  object-fit: cover;
+  transition:
+    border-color 180ms ease,
+    transform 180ms ease;
+}
+
+.gallery-card:hover img {
+  border-color: var(--brand);
+  transform: translateY(-2px);
+}
+
+.gallery-card span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gallery-card strong,
+.gallery-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gallery-card small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .image-viewer {
   position: fixed;
   inset: 0;
@@ -2467,6 +2550,28 @@ textarea:focus {
   max-height: 90vh;
 }
 
+.image-viewer-info {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  max-width: min(620px, calc(100% - 92px));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(3, 16, 26, 0.72);
+  color: #ecfeff;
+  padding: 10px 12px;
+  backdrop-filter: blur(12px);
+}
+
+.image-viewer-info span {
+  color: rgba(236, 254, 255, 0.72);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .image-viewer-panel img {
   display: block;
   width: 100%;
@@ -2483,6 +2588,21 @@ textarea:focus {
   top: 12px;
   right: 12px;
   z-index: 2;
+}
+
+.image-viewer-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+}
+
+.image-viewer-prev {
+  left: 12px;
+}
+
+.image-viewer-next {
+  right: 12px;
 }
 
 .confirm-dialog {
@@ -2613,6 +2733,8 @@ textarea:focus {
   .performance-grid,
   .yearly-grid,
   .yearly-detail-grid,
+  .gallery-toolbar,
+  .gallery-stats,
   .month-heatmap-grid,
   .quarter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2672,6 +2794,19 @@ textarea:focus {
 
   .confirm-actions {
     flex-direction: column-reverse;
+  }
+
+  .gallery-toolbar,
+  .gallery-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .image-viewer-info {
+    bottom: 12px;
+    left: 12px;
+    max-width: calc(100% - 24px);
+    right: 12px;
+    top: auto;
   }
 
   .trade-form,
