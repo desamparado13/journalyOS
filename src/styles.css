@@ -139,6 +139,11 @@ label span,
   min-height: calc(100vh - 150px);
 }
 
+.landing-layout {
+  align-items: start;
+  padding-top: 44px;
+}
+
 .auth-copy h1,
 .hero-copy h1 {
   max-width: 760px;
@@ -154,6 +159,137 @@ label span,
   color: var(--muted);
   font-size: 1.08rem;
   line-height: 1.7;
+}
+
+.landing-copy {
+  display: grid;
+  gap: 20px;
+}
+
+.landing-copy h1 {
+  max-width: 820px;
+}
+
+.landing-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.landing-feature {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(125, 211, 252, 0.12), rgba(20, 184, 166, 0.04)),
+    var(--surface);
+  color: var(--text);
+  padding: 14px;
+  box-shadow: var(--shadow);
+}
+
+.landing-feature svg {
+  color: var(--brand-strong);
+  margin-top: 2px;
+}
+
+.landing-feature span {
+  font-weight: 820;
+  line-height: 1.45;
+}
+
+.landing-pricing {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 26%, var(--line));
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at top right, rgba(14, 165, 233, 0.22), transparent 18rem),
+    var(--surface);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.landing-pricing-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.landing-pricing-header span,
+.pricing-plan span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.landing-pricing-header strong {
+  color: var(--brand-strong);
+  font-size: 0.92rem;
+  font-weight: 900;
+  text-align: right;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pricing-plan {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.34);
+  padding: 14px;
+}
+
+:root[data-theme="dark"] .pricing-plan {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pricing-plan.is-featured {
+  border-color: color-mix(in srgb, var(--brand) 46%, var(--line));
+  background: linear-gradient(145deg, rgba(14, 165, 233, 0.16), rgba(20, 184, 166, 0.08));
+}
+
+.pricing-plan strong {
+  display: block;
+  margin: 8px 0;
+  color: var(--text);
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.pricing-plan p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 760;
+  line-height: 1.45;
+}
+
+.landing-contact {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--brand), var(--accent));
+  color: var(--ink);
+  padding: 0 16px;
+  font-weight: 900;
+  width: fit-content;
+}
+
+.activation-layout {
+  align-items: center;
 }
 
 .auth-card,
@@ -230,6 +366,84 @@ label span,
   margin: 18px 0 0;
   padding: 12px 14px;
   font-weight: 800;
+}
+
+.license-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  font-weight: 850;
+  box-shadow: var(--shadow);
+}
+
+.license-banner svg {
+  color: var(--brand-strong);
+  flex: 0 0 auto;
+}
+
+.license-banner span {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.license-banner button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--brand-strong);
+  cursor: pointer;
+  padding: 7px 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.data-loading-shell {
+  position: relative;
+}
+
+.data-loading-overlay {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--brand-strong);
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  font-weight: 900;
+  box-shadow: var(--shadow);
+  text-transform: uppercase;
+}
+
+.data-loading-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--brand-strong);
+  padding: 14px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.data-loading-overlay svg,
+.data-loading-row svg {
+  animation: dataSpin 900ms linear infinite;
 }
 
 .toast {
@@ -3192,6 +3406,12 @@ button.yearly-row.is-active {
   }
 }
 
+@keyframes dataSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .workspace-band,
 .journal-band {
   padding: 66px 0;
@@ -3245,15 +3465,84 @@ button.yearly-row.is-active {
   padding: 20px;
 }
 
+.trade-entry-form {
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.65fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.trade-form-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 18%, var(--line));
+  border-radius: 8px;
+  background:
+    linear-gradient(145deg, rgba(125, 211, 252, 0.06), rgba(20, 184, 166, 0.025)),
+    rgba(255, 255, 255, 0.02);
+  padding: 16px;
+}
+
+.trade-form-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.trade-form-section-title span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.trade-form-section-title strong {
+  color: var(--brand-strong);
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-align: right;
+}
+
+.trade-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.trade-entry-grid label:nth-child(1),
+.trade-entry-grid label:nth-child(2),
+.trade-entry-grid label:nth-child(3),
+.trade-entry-grid label:nth-child(6),
+.trade-entry-grid label:nth-child(7),
+.trade-entry-grid label:nth-child(8) {
+  grid-column: span 1;
+}
+
+.trade-entry-grid label:nth-child(4),
+.trade-entry-grid label:nth-child(5) {
+  grid-column: span 2;
+}
+
+.trade-journal-section {
+  align-self: stretch;
+}
+
+.trade-journal-section textarea {
+  min-height: 180px;
+}
+
 .spread-notice {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
+  gap: 10px;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.36);
-  padding: 14px;
+  padding: 12px;
 }
 
 :root[data-theme="dark"] .spread-notice {
@@ -3276,8 +3565,8 @@ button.yearly-row.is-active {
 
 .spread-notice-icon {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   border: 1px solid currentColor;
   border-radius: 8px;
@@ -3304,14 +3593,14 @@ button.yearly-row.is-active {
   display: block;
   margin-top: 3px;
   color: var(--text);
-  font-size: 1rem;
+  font-size: 0.96rem;
 }
 
 .spread-notice p {
-  margin: 6px 0;
+  margin: 5px 0;
   color: var(--muted);
   font-weight: 760;
-  line-height: 1.45;
+  line-height: 1.38;
 }
 
 .spread-notice small {
@@ -4123,6 +4412,18 @@ textarea:focus {
   text-transform: none;
 }
 
+.license-panel {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.license-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
 .password-panel {
   border-top: 1px solid var(--line);
   padding-top: 16px;
@@ -4235,6 +4536,11 @@ textarea:focus {
     padding-top: 56px;
   }
 
+  .landing-feature-grid,
+  .pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .dashboard-view {
     min-height: auto;
   }
@@ -4268,6 +4574,15 @@ textarea:focus {
   .month-heatmap-grid,
   .quarter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trade-entry-form,
+  .trade-entry-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-entry-grid label:nth-child(n) {
+    grid-column: span 1;
   }
 
   .trader-add-form {
@@ -4312,6 +4627,27 @@ textarea:focus {
   .hero-copy h1,
   .auth-copy h1 {
     font-size: 3rem;
+  }
+
+  .landing-feature-grid,
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .landing-pricing-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .landing-pricing-header strong {
+    text-align: left;
+  }
+
+  .license-banner,
+  .license-form {
+    align-items: stretch;
+    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .user-pill {

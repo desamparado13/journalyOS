@@ -74,6 +74,37 @@ const learnVideos = [
   },
 ] as const;
 
+const landingFeatures = [
+  "Smart trade journal with R tracking, equity curve, calendars, and image review",
+  "Edge analytics across sessions, pairs, setups, time windows, and backtests",
+  "Dara AI coach, research lab, prop firm calculator, and protected lesson hub",
+] as const;
+
+const pricingPlans = [
+  { name: "1 Month", price: "$199", note: "Full access for focused review sprints" },
+  { name: "6 Months", price: "$999", note: "Best for challenge season and refinement" },
+  { name: "1 Year", price: "$1999", note: "Long-term journaling and edge building" },
+  { name: "Lifetime", price: "$4999", note: "Own your trading operating system" },
+] as const;
+
+const licenseTokens = [
+  { tier: "Lifetime", months: null, hash: "0c7ebacd62456bbecaaa929c87f99bccae245a2587dfe19327d3dc6223622817" },
+  { tier: "Lifetime", months: null, hash: "94cb9186e6385a1146e94c6257bdd073315d474034178de8d69a1947749539d1" },
+  { tier: "Lifetime", months: null, hash: "6d8b0e966293ac134c82ff27c7a5093bf5ebc79f96f8bafce53866b5fc3bbac3" },
+  { tier: "Lifetime", months: null, hash: "60e9403ffac8c83dc12fab270f3a7809698fd2cf42652fbedcce0d9c926465c1" },
+  { tier: "Lifetime", months: null, hash: "3af4e4978976759ec0ed189005f1b74ec286c4347e4ab3bfd9d8ba244108edf3" },
+  { tier: "1 Year", months: 12, hash: "6f00f16d7b7339e3d159f2b0279b44c3e9d70bf0c1ba535db82b9968d9d50d73" },
+  { tier: "1 Year", months: 12, hash: "78eb89fcebbac8fcc88676e39fe9b5b89247927c8bcca4c67906e426de973e6e" },
+  { tier: "1 Year", months: 12, hash: "c3411647e88d753300ae0a04406e1273abb99ce0132acc7980e2a4ed6ec864ea" },
+  { tier: "1 Year", months: 12, hash: "fead0c5892175397e371ace73d9eee5d24f00c9cc9b1cb4a0624778e34a4d343" },
+  { tier: "1 Year", months: 12, hash: "a3ae3833c9d514702c7d5e3b55d93e332c291278665ccd5f331baeb6f15d4582" },
+  { tier: "1 Year", months: 12, hash: "d1904bdcbeb169c5c4cf14b3cf55741468b1dbc3757b23d4fcf9f161d31ca2bf" },
+  { tier: "1 Year", months: 12, hash: "7bf37c393b383445e6944c973d930f2b1c45be1d76e81fc5c5510408896c89fd" },
+  { tier: "1 Year", months: 12, hash: "6606d7408edfe6db82d23c62a40389fd3c9f7ef2dfc2b2fe5253cb49e2dfbb6f" },
+  { tier: "1 Year", months: 12, hash: "ff5e17fa16c11cc0b244af5913c7b130574e1390b9c8380eda0d4b3d334c4ac8" },
+  { tier: "1 Year", months: 12, hash: "44fda97a241444667b72bb0cc81285609f27e73cdd765ecebcfb4f95d8b362ac" },
+] as const;
+
 const pairs = ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD"] as const;
 const setups = [
   "REVERSAL",
@@ -85,6 +116,78 @@ const setups = [
   "EU timed entry",
 ] as const;
 const results = ["Win", "Loss", "Breakeven"] as const;
+
+function defaultStopLossForSetup(setup: string) {
+  return ["REVERSAL", "Flag", "Break and retest", "Flag+", "EU timed entry"].includes(setup) ? "14" : "";
+}
+
+type LicenseTokenMatch = (typeof licenseTokens)[number];
+
+function normalizeToken(token: string) {
+  return token.trim().toUpperCase();
+}
+
+async function hashToken(token: string) {
+  const bytes = new TextEncoder().encode(normalizeToken(token));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function findLicenseToken(token: string): Promise<LicenseTokenMatch | null> {
+  if (!token.trim()) return null;
+  const tokenHash = await hashToken(token);
+  return licenseTokens.find((license) => license.hash === tokenHash) || null;
+}
+
+function buildLicenseMetadata(match: LicenseTokenMatch) {
+  const activatedAt = new Date();
+  const expiresAt = match.months === null ? null : new Date(activatedAt.setMonth(activatedAt.getMonth() + match.months)).toISOString();
+
+  return {
+    journaly_license_activated_at: new Date().toISOString(),
+    journaly_license_expires_at: expiresAt,
+    journaly_license_tier: match.tier,
+    journaly_license_hash: match.hash,
+  };
+}
+
+function normalizeSessionUser(user: any): SessionUser | null {
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email || "",
+    createdAt: user.created_at || new Date().toISOString(),
+    metadata: user.user_metadata || {},
+  };
+}
+
+function getLicenseState(user: SessionUser | null) {
+  if (!user) {
+    return { isActivated: false, isExpired: false, isInGrace: false, daysLeft: 0, tier: "", expiresAt: "" };
+  }
+
+  const now = Date.now();
+  const metadata = user.metadata || {};
+  const expiresAt = metadata.journaly_license_expires_at || "";
+  const activatedAt = metadata.journaly_license_activated_at || "";
+  const isLifetime = Boolean(activatedAt && !expiresAt);
+  const isActiveTerm = Boolean(activatedAt && expiresAt && new Date(expiresAt).getTime() > now);
+  const graceExpiresAt = new Date(user.createdAt);
+  graceExpiresAt.setDate(graceExpiresAt.getDate() + 30);
+  const graceMsLeft = graceExpiresAt.getTime() - now;
+  const daysLeft = Math.max(0, Math.ceil(graceMsLeft / (24 * 60 * 60 * 1000)));
+
+  return {
+    isActivated: isLifetime || isActiveTerm,
+    isExpired: Boolean(activatedAt && expiresAt && new Date(expiresAt).getTime() <= now) || (!activatedAt && graceMsLeft <= 0),
+    isInGrace: !activatedAt && graceMsLeft > 0,
+    daysLeft,
+    tier: metadata.journaly_license_tier || (activatedAt ? "Active" : "Trial"),
+    expiresAt,
+  };
+}
 
 type AuthMode = "login" | "signup";
 type Direction = "Long" | "Short";
@@ -158,6 +261,8 @@ type AppView =
 type SessionUser = {
   id: string;
   email: string;
+  createdAt: string;
+  metadata: Record<string, any>;
 };
 
 type Trade = {
@@ -440,6 +545,7 @@ type TradeFormState = {
   pair: string;
   setup: string;
   direction: Direction;
+  stopLossPips: string;
   mae: string;
   pnl: string;
   result: Result;
@@ -485,6 +591,7 @@ type BacktestFormState = {
 type AuthFormState = {
   email: string;
   password: string;
+  token: string;
 };
 
 function normalizeEmail(email: string) {
@@ -501,9 +608,10 @@ function todayDefaults(): TradeFormState {
     pair: pairs[0],
     setup: setups[0],
     direction: "Long",
+    stopLossPips: defaultStopLossForSetup(setups[0]),
     mae: "0",
     pnl: "0",
-    result: "Win",
+    result: "Breakeven",
     notes: "",
     screenshotFile: null,
   };
@@ -1408,7 +1516,7 @@ function chunkRows<T>(rows: T[], size: number) {
 
 export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "" });
+  const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "", token: "" });
   const [authMessage, setAuthMessage] = useState("");
   const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
   const [accountProfile, setAccountProfile] = useState<AccountProfile>(defaultAccountProfile());
@@ -1460,8 +1568,12 @@ export default function App() {
   const [traderTrades, setTraderTrades] = useState<Record<string, Trade[]>>({});
   const [traderMessages, setTraderMessages] = useState<Record<string, string>>({});
   const [pendingDeleteTrade, setPendingDeleteTrade] = useState<Trade | null>(null);
+  const [pendingTradeLock, setPendingTradeLock] = useState<TradeFormState | null>(null);
+  const [licenseTokenInput, setLicenseTokenInput] = useState("");
+  const [licenseMessage, setLicenseMessage] = useState("");
   const [sessionNow, setSessionNow] = useState(() => new Date());
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
+  const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -1479,7 +1591,7 @@ export default function App() {
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
       const user = data.session?.user;
-      setCurrentUser(user ? { id: user.id, email: user.email || "" } : null);
+      setCurrentUser(normalizeSessionUser(user));
       setIsBooting(false);
     });
 
@@ -1487,8 +1599,8 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       const user = session?.user;
-      setCurrentUser(user ? { id: user.id, email: user.email || "" } : null);
-      setAuthForm({ email: "", password: "" });
+      setCurrentUser(normalizeSessionUser(user));
+      setAuthForm({ email: "", password: "", token: "" });
       setAuthMessage("");
     });
 
@@ -2181,6 +2293,32 @@ export default function App() {
     updateAccountProfile({ ...accountProfile, avatar: await blobToDataUrl(file) });
   }
 
+  async function activateLicense(token = licenseTokenInput) {
+    if (!supabase || !currentUser) return;
+    setLicenseMessage("");
+    const licenseMatch = await findLicenseToken(token);
+
+    if (!licenseMatch) {
+      setLicenseMessage("Invalid token. Check the token and try again.");
+      return;
+    }
+
+    const nextMetadata = {
+      ...currentUser.metadata,
+      ...buildLicenseMetadata(licenseMatch),
+    };
+    const { data, error } = await supabase.auth.updateUser({ data: nextMetadata });
+
+    if (error) {
+      setLicenseMessage(error.message);
+      return;
+    }
+
+    setCurrentUser(normalizeSessionUser(data.user));
+    setLicenseTokenInput("");
+    setLicenseMessage(`${licenseMatch.tier} access activated.`);
+  }
+
   async function handlePasswordUpdate() {
     if (!supabase) return;
     setProfileMessage("");
@@ -2220,7 +2358,7 @@ export default function App() {
     setIsSyncing(false);
 
     if (error) {
-      setSyncMessage(`Supabase sync error: ${error.message}`);
+      setSyncMessage(`Could not load trades: ${error.message}`);
       return;
     }
 
@@ -2242,7 +2380,7 @@ export default function App() {
     setIsSyncing(false);
 
     if (error) {
-      setSyncMessage(`Backtesting sync error: ${error.message}`);
+      setSyncMessage(`Could not load backtests: ${error.message}`);
       return;
     }
 
@@ -2260,12 +2398,20 @@ export default function App() {
 
     const email = normalizeEmail(authForm.email);
     const password = authForm.password;
+    const licenseMatch = authMode === "signup" ? await findLicenseToken(authForm.token) : null;
+
+    if (authMode === "signup" && !licenseMatch) {
+      setAuthMessage("Enter a valid Journaly OS access token before creating an account.");
+      return;
+    }
+
     const response =
       authMode === "signup"
         ? await supabase.auth.signUp({
             email,
             password,
             options: {
+              data: buildLicenseMetadata(licenseMatch!),
               emailRedirectTo: window.location.origin,
             },
           })
@@ -2284,25 +2430,31 @@ export default function App() {
   async function handleTradeSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!currentUser || !supabase) return;
+    setPendingTradeLock({ ...tradeForm });
+  }
+
+  async function saveLockedTrade(form: TradeFormState) {
+    if (!currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
+    setPendingTradeLock(null);
 
-    const existing = trades.find((trade) => trade.id === tradeForm.id);
-    const uploadedShot = await fileToDataUrl(tradeForm.screenshotFile);
+    const existing = trades.find((trade) => trade.id === form.id);
+    const uploadedShot = await fileToDataUrl(form.screenshotFile);
     const payload = {
       user_id: currentUser.id,
-      trade_date: tradeForm.date,
-      trade_time: tradeForm.time,
-      pair: tradeForm.pair,
-      setup: tradeForm.setup,
-      direction: tradeForm.direction,
-      mae: Number(tradeForm.mae || 0),
+      trade_date: form.date,
+      trade_time: form.time,
+      pair: form.pair,
+      setup: form.setup,
+      direction: form.direction,
+      mae: Number(form.mae || 0),
       mae_pips: null,
-      stop_loss_pips: null,
-      pnl_r: Number(tradeForm.pnl || 0),
-      result: tradeForm.result,
-      notes: tradeForm.notes.trim(),
+      stop_loss_pips: form.stopLossPips ? Number(form.stopLossPips) : null,
+      pnl_r: Number(form.pnl || 0),
+      result: form.result,
+      notes: form.notes.trim(),
       screenshot_url: uploadedShot || existing?.screenshot || "",
       source_app: existing?.sourceApp || null,
       legacy_id: existing?.legacyId || null,
@@ -2654,6 +2806,7 @@ export default function App() {
       pair: trade.pair,
       setup: trade.setup,
       direction: trade.direction,
+      stopLossPips: trade.stopLossPips === null ? defaultStopLossForSetup(trade.setup) : String(trade.stopLossPips),
       mae: String(trade.mae),
       pnl: String(trade.pnl),
       result: trade.result,
@@ -2758,14 +2911,42 @@ export default function App() {
       <section className="auth-screen">
         <Brand className="auth-brand" />
 
-        <div className="auth-layout">
-          <div className="auth-copy">
-            <p className="eyebrow">Supabase secured workspace</p>
-            <h1>Sign in before the market teaches the lesson twice.</h1>
+        <div className="auth-layout landing-layout">
+          <div className="auth-copy landing-copy">
+            <p className="eyebrow">Journaly OS Trading Journal</p>
+            <h1>Build, track, and protect your trading edge.</h1>
             <p>
-              Journaly OS now uses Supabase Auth, so your account is ready for Vercel,
-              Postgres, and scalable cloud storage.
+              A premium trading operating system for serious journaling, session analysis, AI coaching,
+              prop firm planning, research, and execution review.
             </p>
+
+            <div className="landing-feature-grid">
+              {landingFeatures.map((feature) => (
+                <div className="landing-feature" key={feature}>
+                  <CheckCircle2 size={17} />
+                  <span>{feature}</span>
+                </div>
+              ))}
+            </div>
+
+            <section className="landing-pricing" aria-label="Journaly OS pricing">
+              <div className="landing-pricing-header">
+                <span>Pricing</span>
+                <strong>Message journalyos@gmail.com to avail</strong>
+              </div>
+              <div className="pricing-grid">
+                {pricingPlans.map((plan) => (
+                  <article className={plan.name === "Lifetime" ? "pricing-plan is-featured" : "pricing-plan"} key={plan.name}>
+                    <span>{plan.name}</span>
+                    <strong>{plan.price}</strong>
+                    <p>{plan.note}</p>
+                  </article>
+                ))}
+              </div>
+              <a className="landing-contact" href="mailto:journalyos@gmail.com?subject=Journaly%20OS%20Access">
+                Message journalyos@gmail.com
+              </a>
+            </section>
           </div>
 
           <form className="auth-card" onSubmit={handleAuth}>
@@ -2804,6 +2985,21 @@ export default function App() {
               />
             </label>
 
+            {isSignup ? (
+              <label>
+                <span>Access token</span>
+                <input
+                  value={authForm.token}
+                  name="access-token"
+                  type="text"
+                  autoComplete="off"
+                  placeholder="Enter your Journaly OS token"
+                  required
+                  onChange={(event) => setAuthForm({ ...authForm, token: event.target.value })}
+                />
+              </label>
+            ) : null}
+
             <button className="primary-action" type="submit">
               {isSignup ? "Create account" : "Log in"}
             </button>
@@ -2821,6 +3017,19 @@ export default function App() {
           </form>
         </div>
       </section>
+    );
+  }
+
+  if (licenseState.isExpired) {
+    return (
+      <LicenseActivationScreen
+        email={currentUser.email}
+        token={licenseTokenInput}
+        message={licenseMessage}
+        onTokenChange={setLicenseTokenInput}
+        onActivate={() => activateLicense()}
+        onLogout={logout}
+      />
     );
   }
 
@@ -2955,7 +3164,15 @@ export default function App() {
 
         <main>
         {syncMessage ? <p className="sync-message">{syncMessage}</p> : null}
-        {isSyncing ? <p className="sync-message">Syncing with Supabase...</p> : null}
+        {licenseState.isInGrace ? (
+          <div className="license-banner">
+            <ShieldCheck size={17} />
+            <span>{licenseState.daysLeft} days left to activate Journaly OS.</span>
+            <button type="button" onClick={() => setIsProfileOpen(true)}>
+              Activate in profile
+            </button>
+          </div>
+        ) : null}
 
         {activeView === "dashboard" ? (
           <section className="dashboard-view">
@@ -2979,6 +3196,7 @@ export default function App() {
             </div>
 
             <section className="market-panel" aria-label="Performance summary">
+              {isSyncing ? <DataLoadingOverlay label="Loading journal data" /> : null}
               <div className="panel-header">
                 <span>Journal health</span>
                 <strong>
@@ -3528,125 +3746,147 @@ export default function App() {
             ) : null}
 
             {activeView === "add-trade" ? (
-            <form className="trade-form" onSubmit={handleTradeSubmit}>
-              <label>
-                <span>Date</span>
-                <input
-                  value={tradeForm.date}
-                  type="date"
-                  required
-                  onChange={(event) => setTradeForm({ ...tradeForm, date: event.target.value })}
-                />
-              </label>
+            <form className="trade-form trade-entry-form" onSubmit={handleTradeSubmit}>
+              <section className="trade-form-section">
+                <div className="trade-entry-grid">
+                  <label>
+                    <span>Date</span>
+                    <input
+                      value={tradeForm.date}
+                      type="date"
+                      required
+                      onChange={(event) => setTradeForm({ ...tradeForm, date: event.target.value })}
+                    />
+                  </label>
 
-              <label>
-                <span>Time</span>
-                <input
-                  value={tradeForm.time}
-                  type="time"
-                  required
-                  onChange={(event) => setTradeForm({ ...tradeForm, time: event.target.value })}
-                />
-              </label>
+                  <label>
+                    <span>Time</span>
+                    <input
+                      value={tradeForm.time}
+                      type="time"
+                      required
+                      onChange={(event) => setTradeForm({ ...tradeForm, time: event.target.value })}
+                    />
+                  </label>
 
-              <SelectField
-                label="Pair"
-                value={tradeForm.pair}
-                options={pairs}
-                onChange={(value) => setTradeForm({ ...tradeForm, pair: value })}
-              />
+                  <SelectField
+                    label="Pair"
+                    value={tradeForm.pair}
+                    options={pairs}
+                    onChange={(value) => setTradeForm({ ...tradeForm, pair: value })}
+                  />
 
-              <SpreadNotice pair={tradeForm.pair} time={tradeForm.time} />
+                  <SelectField
+                    label="Setup"
+                    value={tradeForm.setup}
+                    options={setups}
+                    onChange={(value) =>
+                      setTradeForm({ ...tradeForm, setup: value, stopLossPips: defaultStopLossForSetup(value) })
+                    }
+                  />
+                  <SelectField
+                    label="Direction"
+                    value={tradeForm.direction}
+                    options={["Long", "Short"]}
+                    onChange={(value) => setTradeForm({ ...tradeForm, direction: value as Direction })}
+                  />
+                  <SelectField
+                    label="Result"
+                    value={tradeForm.result}
+                    options={results}
+                    onChange={(value) => setTradeForm({ ...tradeForm, result: value as Result })}
+                  />
 
-              <SelectField
-                label="Setup"
-                value={tradeForm.setup}
-                options={setups}
-                onChange={(value) => setTradeForm({ ...tradeForm, setup: value })}
-              />
-              <SelectField
-                label="Direction"
-                value={tradeForm.direction}
-                options={["Long", "Short"]}
-                onChange={(value) => setTradeForm({ ...tradeForm, direction: value as Direction })}
-              />
+                  <label>
+                    <span>Stop loss pips</span>
+                    <input
+                      value={tradeForm.stopLossPips}
+                      type="text"
+                      inputMode="decimal"
+                      pattern="[0-9]*[.]?[0-9]*"
+                      placeholder="14"
+                      onChange={(event) => setTradeForm({ ...tradeForm, stopLossPips: event.target.value })}
+                    />
+                  </label>
 
-              <label>
-                <span>MAE</span>
-                <input
-                  value={tradeForm.mae}
-                  type="text"
-                  inputMode="decimal"
-                  pattern="[0-9]*[.]?[0-9]*"
-                  required
-                  onChange={(event) => setTradeForm({ ...tradeForm, mae: event.target.value })}
-                />
-              </label>
+                  <label>
+                    <span>MAE</span>
+                    <input
+                      value={tradeForm.mae}
+                      type="text"
+                      inputMode="decimal"
+                      pattern="[0-9]*[.]?[0-9]*"
+                      required
+                      onChange={(event) => setTradeForm({ ...tradeForm, mae: event.target.value })}
+                    />
+                  </label>
 
-              <label>
-                <span>PnL in R</span>
-                <input
-                  value={tradeForm.pnl}
-                  type="text"
-                  inputMode="decimal"
-                  pattern="-?[0-9]*[.]?[0-9]*"
-                  required
-                  onChange={(event) => setTradeForm({ ...tradeForm, pnl: event.target.value })}
-                />
-              </label>
+                  <label>
+                    <span>PnL in R</span>
+                    <input
+                      value={tradeForm.pnl}
+                      type="text"
+                      inputMode="decimal"
+                      pattern="-?[0-9]*[.]?[0-9]*"
+                      required
+                      onChange={(event) => setTradeForm({ ...tradeForm, pnl: event.target.value })}
+                    />
+                  </label>
+                </div>
+                <SpreadNotice pair={tradeForm.pair} time={tradeForm.time} />
+              </section>
 
-              <SelectField
-                label="Result"
-                value={tradeForm.result}
-                options={results}
-                onChange={(value) => setTradeForm({ ...tradeForm, result: value as Result })}
-              />
+              <section className="trade-form-section trade-journal-section">
+                <div className="trade-form-section-title">
+                  <span>Review notes</span>
+                  <strong>Screenshot & lesson</strong>
+                </div>
+                <label className="file-field">
+                  <span>Screenshot</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) =>
+                      setTradeForm({ ...tradeForm, screenshotFile: event.target.files?.[0] || null })
+                    }
+                  />
+                  <ImagePlus size={18} />
+                </label>
 
-              <label className="wide-field file-field">
-                <span>Screenshot</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(event) =>
-                    setTradeForm({ ...tradeForm, screenshotFile: event.target.files?.[0] || null })
-                  }
-                />
-                <ImagePlus size={18} />
-              </label>
+                <label>
+                  <span>Notes</span>
+                  <textarea
+                    value={tradeForm.notes}
+                    rows={5}
+                    placeholder="What was the thesis, trigger, management, and lesson?"
+                    onChange={(event) => setTradeForm({ ...tradeForm, notes: event.target.value })}
+                  />
+                </label>
 
-              <label className="wide-field">
-                <span>Notes</span>
-                <textarea
-                  value={tradeForm.notes}
-                  rows={5}
-                  placeholder="What was the thesis, trigger, management, and lesson?"
-                  onChange={(event) => setTradeForm({ ...tradeForm, notes: event.target.value })}
-                />
-              </label>
-
-              <div className="form-actions wide-field">
-                <button className="primary-action" type="submit" disabled={isSyncing}>
-                  <CalendarClock size={18} />
-                  {tradeForm.id ? "Update trade" : "Save trade"}
-                </button>
-                {tradeForm.id ? (
-                  <button
-                    className="secondary-action"
-                    type="button"
-                    onClick={() => {
-                      setTradeForm(todayDefaults());
-                      setActiveView("view-trades");
-                    }}
-                  >
-                    <ChevronLeft size={18} />
-                    Back to trades
+                <div className="form-actions">
+                  <button className="primary-action" type="submit" disabled={isSyncing}>
+                    <CalendarClock size={18} />
+                    {tradeForm.id ? "Update trade" : "Save trade"}
                   </button>
-                ) : null}
-                <button className="ghost-action" type="button" onClick={() => setTradeForm(todayDefaults())}>
-                  <RefreshCcw size={18} />
-                  Clear
-                </button>
-              </div>
+                  {tradeForm.id ? (
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() => {
+                        setTradeForm(todayDefaults());
+                        setActiveView("view-trades");
+                      }}
+                    >
+                      <ChevronLeft size={18} />
+                      Back to trades
+                    </button>
+                  ) : null}
+                  <button className="ghost-action" type="button" onClick={() => setTradeForm(todayDefaults())}>
+                    <RefreshCcw size={18} />
+                    Clear
+                  </button>
+                </div>
+              </section>
             </form>
             ) : null}
           </section>
@@ -3733,7 +3973,10 @@ export default function App() {
 
             {activeView === "trade-analytics" ? (
               <>
-                <EquityCurve points={tradeAnalytics.equityPoints} />
+                <div className="data-loading-shell">
+                  {isSyncing ? <DataLoadingOverlay label="Loading equity curve" /> : null}
+                  <EquityCurve points={tradeAnalytics.equityPoints} />
+                </div>
                 <section className="market-panel backtest-panel" aria-label="Trade advanced analytics">
                   <div className="panel-header">
                     <span>Advanced analytics</span>
@@ -3785,6 +4028,7 @@ export default function App() {
             </div>
 
             <div className="trade-list" aria-live="polite">
+              {isSyncing ? <DataLoadingRow label="Loading trades" /> : null}
               {filteredTrades.length === 0 ? (
                 <div className="empty-state">
                   <strong>No trades logged yet</strong>
@@ -4097,6 +4341,7 @@ export default function App() {
             </div>
 
             <div className="trade-list" aria-live="polite">
+              {isSyncing ? <DataLoadingRow label="Loading backtests" /> : null}
               {filteredBacktests.length === 0 ? (
                 <div className="empty-state">
                   <strong>No backtests yet</strong>
@@ -4177,6 +4422,21 @@ export default function App() {
           </div>
         ) : null}
 
+        {pendingTradeLock ? (
+          <ConfirmDialog
+            title={pendingTradeLock.id ? "Lock in trade update?" : "Lock in this trade?"}
+            message={`${pendingTradeLock.pair} ${pendingTradeLock.direction.toLowerCase()} at ${formatTime12(
+              pendingTradeLock.time,
+            )}, ${pendingTradeLock.result.toLowerCase()}, ${pendingTradeLock.pnl || 0}R, SL ${
+              pendingTradeLock.stopLossPips || "-"
+            } pips. Confirm before saving to your journal.`}
+            confirmLabel={pendingTradeLock.id ? "Update trade" : "Lock in trade"}
+            tone="primary"
+            onCancel={() => setPendingTradeLock(null)}
+            onConfirm={() => saveLockedTrade(pendingTradeLock)}
+          />
+        ) : null}
+
         {pendingDeleteTrade ? (
           <ConfirmDialog
             title="Delete this trade?"
@@ -4184,6 +4444,7 @@ export default function App() {
               pendingDeleteTrade.date,
             )} will be removed from your journal.`}
             confirmLabel="Delete trade"
+            tone="danger"
             onCancel={() => setPendingDeleteTrade(null)}
             onConfirm={() => deleteTrade(pendingDeleteTrade)}
           />
@@ -4195,6 +4456,9 @@ export default function App() {
             profile={accountProfile}
             passwordForm={passwordForm}
             message={profileMessage}
+            licenseState={licenseState}
+            licenseToken={licenseTokenInput}
+            licenseMessage={licenseMessage}
             onClose={() => {
               setIsProfileOpen(false);
               setProfileMessage("");
@@ -4203,6 +4467,8 @@ export default function App() {
             onAvatarChange={updateProfileAvatar}
             onPasswordFormChange={setPasswordForm}
             onPasswordUpdate={handlePasswordUpdate}
+            onLicenseTokenChange={setLicenseTokenInput}
+            onActivateLicense={() => activateLicense()}
           />
         ) : null}
         </main>
@@ -4845,25 +5111,45 @@ function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
   );
 }
 
+function DataLoadingOverlay({ label }: { label: string }) {
+  return (
+    <div className="data-loading-overlay" role="status">
+      <RefreshCcw size={16} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function DataLoadingRow({ label }: { label: string }) {
+  return (
+    <div className="data-loading-row" role="status">
+      <RefreshCcw size={16} />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function ConfirmDialog({
   title,
   message,
   confirmLabel,
+  tone = "danger",
   onCancel,
   onConfirm,
 }: {
   title: string;
   message: string;
   confirmLabel: string;
+  tone?: "primary" | "danger";
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   return (
     <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
-      <button className="confirm-backdrop" type="button" aria-label="Cancel delete" onClick={onCancel} />
+      <button className="confirm-backdrop" type="button" aria-label="Cancel confirmation" onClick={onCancel} />
       <section className="confirm-panel">
         <div className="confirm-icon">
-          <TriangleAlert size={22} />
+          {tone === "danger" ? <TriangleAlert size={22} /> : <ClipboardCheck size={22} />}
         </div>
         <div>
           <h2 id="confirm-title">{title}</h2>
@@ -4873,7 +5159,7 @@ function ConfirmDialog({
           <button className="secondary-action" type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button className="primary-action danger-action" type="button" onClick={onConfirm}>
+          <button className={`primary-action ${tone === "danger" ? "danger-action" : ""}`} type="button" onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>
@@ -4887,21 +5173,31 @@ function AccountProfileDialog({
   profile,
   passwordForm,
   message,
+  licenseState,
+  licenseToken,
+  licenseMessage,
   onClose,
   onProfileChange,
   onAvatarChange,
   onPasswordFormChange,
   onPasswordUpdate,
+  onLicenseTokenChange,
+  onActivateLicense,
 }: {
   email: string;
   profile: AccountProfile;
   passwordForm: { password: string; confirmPassword: string };
   message: string;
+  licenseState: ReturnType<typeof getLicenseState>;
+  licenseToken: string;
+  licenseMessage: string;
   onClose: () => void;
   onProfileChange: (profile: AccountProfile) => void;
   onAvatarChange: (file: File | null) => void;
   onPasswordFormChange: (form: { password: string; confirmPassword: string }) => void;
   onPasswordUpdate: () => void;
+  onLicenseTokenChange: (token: string) => void;
+  onActivateLicense: () => void;
 }) {
   return (
     <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-title">
@@ -4953,6 +5249,27 @@ function AccountProfileDialog({
           </div>
         </div>
 
+        <section className="license-panel">
+          <div className="panel-header">
+            <span>Access</span>
+            <strong>
+              {licenseState.isActivated
+                ? `${licenseState.tier}${licenseState.expiresAt ? ` / expires ${formatOrdinalDate(licenseState.expiresAt.slice(0, 10))}` : ""}`
+                : `${licenseState.daysLeft} day grace`}
+            </strong>
+          </div>
+          <div className="license-form">
+            <label>
+              <span>Activation token</span>
+              <input value={licenseToken} placeholder="Paste token" onChange={(event) => onLicenseTokenChange(event.target.value)} />
+            </label>
+            <button className="primary-action" type="button" onClick={onActivateLicense}>
+              Activate
+            </button>
+          </div>
+          {licenseMessage ? <p className="profile-message">{licenseMessage}</p> : null}
+        </section>
+
         <details className="password-panel">
           <summary className="panel-header">
             <span>Security</span>
@@ -4985,6 +5302,62 @@ function AccountProfileDialog({
         </details>
       </section>
     </div>
+  );
+}
+
+function LicenseActivationScreen({
+  email,
+  token,
+  message,
+  onTokenChange,
+  onActivate,
+  onLogout,
+}: {
+  email: string;
+  token: string;
+  message: string;
+  onTokenChange: (token: string) => void;
+  onActivate: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <section className="auth-screen">
+      <Brand className="auth-brand" />
+      <div className="auth-layout activation-layout">
+        <div className="auth-copy">
+          <p className="eyebrow">Activation required</p>
+          <h1>Your Journaly OS access needs a token.</h1>
+          <p>
+            This account is past the 30-day grace period or its license has expired. Enter an activation token to
+            continue, or message journalyos@gmail.com to avail access.
+          </p>
+        </div>
+
+        <article className="auth-card">
+          <div className="auth-card-header">
+            <p className="eyebrow">Account locked</p>
+            <h2>Activate access</h2>
+          </div>
+          <p className="auth-message" role="status">
+            {message}
+          </p>
+          <label>
+            <span>Email</span>
+            <input value={email} disabled />
+          </label>
+          <label>
+            <span>Activation token</span>
+            <input value={token} autoComplete="off" placeholder="Paste your token" onChange={(event) => onTokenChange(event.target.value)} />
+          </label>
+          <button className="primary-action" type="button" onClick={onActivate}>
+            Activate Journaly OS
+          </button>
+          <button className="text-action" type="button" onClick={onLogout}>
+            Log out
+          </button>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -7047,6 +7420,7 @@ function TradeCard({
         <div className="trade-meta">
           <Meta label="Date" value={formatOrdinalDate(trade.date)} />
           <Meta label="Time" value={formatTime12(trade.time)} />
+          <Meta label="SL" value={trade.stopLossPips === null ? "-" : `${formatNumber(trade.stopLossPips)} pips`} />
           <Meta label="MAE" value={`${formatNumber(trade.mae)}R`} />
           <Meta label="PnL" value={`${formatNumber(trade.pnl)}R`} />
           <Meta label="Logged" value={formatOrdinalDate(trade.createdAt.slice(0, 10))} />
