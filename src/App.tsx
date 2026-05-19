@@ -39,12 +39,13 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { Fragment, FormEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
+const ACTIVE_VIEW_KEY = "journaly-os-active-view";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
 const ACCOUNT_PROFILE_KEY = "journaly-os-account-profile";
 const AI_COACH_USAGE_KEY = "journaly-os-ai-coach-usage";
@@ -119,6 +120,13 @@ const results = ["Win", "Loss", "Breakeven"] as const;
 
 function defaultStopLossForSetup(setup: string) {
   return ["REVERSAL", "Flag", "Break and retest", "Flag+", "EU timed entry"].includes(setup) ? "14" : "";
+}
+
+function resultFromPnl(pnl: string | number): Result {
+  const value = Number(pnl || 0);
+  if (value > 0) return "Win";
+  if (value < 0) return "Loss";
+  return "Breakeven";
 }
 
 type LicenseTokenMatch = (typeof licenseTokens)[number];
@@ -257,6 +265,28 @@ type AppView =
   | "backtesting-analytics"
   | "add-backtest"
   | "view-backtests";
+
+const appViews: readonly AppView[] = [
+  "dashboard",
+  "add-trade",
+  "edge",
+  "learn",
+  "prop-firms",
+  "research",
+  "traders",
+  "position-sizing",
+  "trade-analytics",
+  "view-trades",
+  "trade-images",
+  "trade-calendar",
+  "monthly-heatmap",
+  "trade-performance",
+  "yearly-comparison",
+  "ai-coach",
+  "backtesting-analytics",
+  "add-backtest",
+  "view-backtests",
+];
 
 type SessionUser = {
   id: string;
@@ -1148,6 +1178,11 @@ function getPreferredTheme(): Theme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+function readActiveView(): AppView {
+  const stored = localStorage.getItem(ACTIVE_VIEW_KEY);
+  return appViews.includes(stored as AppView) ? (stored as AppView) : "dashboard";
+}
+
 function readProfileRows() {
   try {
     const rows = JSON.parse(localStorage.getItem(PROFILE_SIZING_KEY) || "");
@@ -1549,7 +1584,7 @@ export default function App() {
   const [backtestSetupFilter, setBacktestSetupFilter] = useState("All");
   const [backtestYearFilter, setBacktestYearFilter] = useState("All");
   const [backtestMonthFilter, setBacktestMonthFilter] = useState("All");
-  const [activeView, setActiveView] = useState<AppView>("dashboard");
+  const [activeView, setActiveView] = useState<AppView>(readActiveView);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [clockPeriod, setClockPeriod] = useState<ClockPeriod>("AM");
@@ -1572,13 +1607,20 @@ export default function App() {
   const [licenseTokenInput, setLicenseTokenInput] = useState("");
   const [licenseMessage, setLicenseMessage] = useState("");
   const [sessionNow, setSessionNow] = useState(() => new Date());
+  const lastLoadedUserId = useRef<string | null>(null);
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
+  const editingTrade = tradeForm.id ? trades.find((trade) => trade.id === tradeForm.id) || null : null;
+  const isFinalizingTrade = Boolean(editingTrade && !editingTrade.finalizedAt);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_VIEW_KEY, activeView);
+  }, [activeView]);
 
   useEffect(() => {
     if (!supabase) {
@@ -1612,6 +1654,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser) {
+      lastLoadedUserId.current = null;
       setTrades([]);
       setBacktests([]);
       setSyncMessage("");
@@ -1620,9 +1663,12 @@ export default function App() {
     }
 
     setAccountProfile(readAccountProfile(currentUser.id, currentUser.email));
-    loadTrades();
-    setTradeForm(todayDefaults());
-    setBacktestForm(backtestDefaults());
+    if (lastLoadedUserId.current !== currentUser.id) {
+      lastLoadedUserId.current = currentUser.id;
+      loadTrades();
+      setTradeForm(todayDefaults());
+      setBacktestForm(backtestDefaults());
+    }
   }, [currentUser]);
 
   useEffect(() => {
@@ -2442,6 +2488,31 @@ export default function App() {
 
     const existing = trades.find((trade) => trade.id === form.id);
     const uploadedShot = await fileToDataUrl(form.screenshotFile);
+
+    if (existing?.finalizedAt) {
+      setIsSyncing(false);
+      setSyncMessage("This trade is already finalized and can no longer be edited.");
+      showToast({
+        tone: "error",
+        title: "Trade locked",
+        message: "Finalized trades are read-only to protect journal integrity.",
+      });
+      return;
+    }
+
+    if (existing && !(uploadedShot || existing.screenshot)) {
+      setIsSyncing(false);
+      setSyncMessage("Add a screenshot before finalizing this trade.");
+      showToast({
+        tone: "error",
+        title: "Screenshot required",
+        message: "Finalizing a trade requires an image for review integrity.",
+      });
+      return;
+    }
+
+    const finalizingAt = existing ? new Date().toISOString() : null;
+    const normalizedResult = existing ? resultFromPnl(form.pnl) : form.result;
     const payload = {
       user_id: currentUser.id,
       trade_date: form.date,
@@ -2453,13 +2524,13 @@ export default function App() {
       mae_pips: null,
       stop_loss_pips: form.stopLossPips ? Number(form.stopLossPips) : null,
       pnl_r: Number(form.pnl || 0),
-      result: form.result,
+      result: normalizedResult,
       notes: form.notes.trim(),
       screenshot_url: uploadedShot || existing?.screenshot || "",
       source_app: existing?.sourceApp || null,
       legacy_id: existing?.legacyId || null,
       duration_minutes: existing?.durationMinutes || null,
-      finalized_at: existing?.finalizedAt || null,
+      finalized_at: finalizingAt,
       updated_at: new Date().toISOString(),
     };
 
@@ -2799,6 +2870,15 @@ export default function App() {
   }
 
   function editTrade(trade: Trade) {
+    if (trade.finalizedAt) {
+      showToast({
+        tone: "info",
+        title: "Trade locked",
+        message: "This trade has already been finalized and is now read-only.",
+      });
+      return;
+    }
+
     setTradeForm({
       id: trade.id,
       date: trade.date,
@@ -2816,8 +2896,8 @@ export default function App() {
     setActiveView("add-trade");
     showToast({
       tone: "info",
-      title: "Editing trade",
-      message: `${trade.pair} from ${formatMonthDayYear(trade.date)} is ready to update.`,
+      title: "Finalize trade",
+      message: `${trade.pair} from ${formatMonthDayYear(trade.date)} can be updated once with MAE, PnL, image, and notes.`,
     });
   }
 
@@ -3755,6 +3835,7 @@ export default function App() {
                       value={tradeForm.date}
                       type="date"
                       required
+                      disabled={isFinalizingTrade}
                       onChange={(event) => setTradeForm({ ...tradeForm, date: event.target.value })}
                     />
                   </label>
@@ -3765,6 +3846,7 @@ export default function App() {
                       value={tradeForm.time}
                       type="time"
                       required
+                      disabled={isFinalizingTrade}
                       onChange={(event) => setTradeForm({ ...tradeForm, time: event.target.value })}
                     />
                   </label>
@@ -3773,6 +3855,7 @@ export default function App() {
                     label="Pair"
                     value={tradeForm.pair}
                     options={pairs}
+                    disabled={isFinalizingTrade}
                     onChange={(value) => setTradeForm({ ...tradeForm, pair: value })}
                   />
 
@@ -3780,6 +3863,7 @@ export default function App() {
                     label="Setup"
                     value={tradeForm.setup}
                     options={setups}
+                    disabled={isFinalizingTrade}
                     onChange={(value) =>
                       setTradeForm({ ...tradeForm, setup: value, stopLossPips: defaultStopLossForSetup(value) })
                     }
@@ -3788,12 +3872,14 @@ export default function App() {
                     label="Direction"
                     value={tradeForm.direction}
                     options={["Long", "Short"]}
+                    disabled={isFinalizingTrade}
                     onChange={(value) => setTradeForm({ ...tradeForm, direction: value as Direction })}
                   />
                   <SelectField
                     label="Result"
-                    value={tradeForm.result}
+                    value={isFinalizingTrade ? resultFromPnl(tradeForm.pnl) : tradeForm.result}
                     options={results}
+                    disabled={isFinalizingTrade}
                     onChange={(value) => setTradeForm({ ...tradeForm, result: value as Result })}
                   />
 
@@ -3805,6 +3891,7 @@ export default function App() {
                       inputMode="decimal"
                       pattern="[0-9]*[.]?[0-9]*"
                       placeholder="14"
+                      disabled={isFinalizingTrade}
                       onChange={(event) => setTradeForm({ ...tradeForm, stopLossPips: event.target.value })}
                     />
                   </label>
@@ -3816,7 +3903,6 @@ export default function App() {
                       type="text"
                       inputMode="decimal"
                       pattern="[0-9]*[.]?[0-9]*"
-                      required
                       onChange={(event) => setTradeForm({ ...tradeForm, mae: event.target.value })}
                     />
                   </label>
@@ -3839,10 +3925,15 @@ export default function App() {
               <section className="trade-form-section trade-journal-section">
                 <div className="trade-form-section-title">
                   <span>Review notes</span>
-                  <strong>Screenshot & lesson</strong>
+                  <strong>{isFinalizingTrade ? "Final update only" : "Screenshot & lesson"}</strong>
                 </div>
+                {isFinalizingTrade ? (
+                  <p className="integrity-note">
+                    Integrity mode: entry details are locked. You can finalize once with MAE, required PnL, required image, and optional notes.
+                  </p>
+                ) : null}
                 <label className="file-field">
-                  <span>Screenshot</span>
+                  <span>{isFinalizingTrade ? "Final image required" : "Screenshot"}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -3866,7 +3957,7 @@ export default function App() {
                 <div className="form-actions">
                   <button className="primary-action" type="submit" disabled={isSyncing}>
                     <CalendarClock size={18} />
-                    {tradeForm.id ? "Update trade" : "Save trade"}
+                    {tradeForm.id ? "Finalize trade" : "Save trade"}
                   </button>
                   {tradeForm.id ? (
                     <button
@@ -4424,13 +4515,17 @@ export default function App() {
 
         {pendingTradeLock ? (
           <ConfirmDialog
-            title={pendingTradeLock.id ? "Lock in trade update?" : "Lock in this trade?"}
+            title={pendingTradeLock.id ? "Finalize this trade?" : "Lock in this trade?"}
             message={`${pendingTradeLock.pair} ${pendingTradeLock.direction.toLowerCase()} at ${formatTime12(
               pendingTradeLock.time,
             )}, ${pendingTradeLock.result.toLowerCase()}, ${pendingTradeLock.pnl || 0}R, SL ${
               pendingTradeLock.stopLossPips || "-"
-            } pips. Confirm before saving to your journal.`}
-            confirmLabel={pendingTradeLock.id ? "Update trade" : "Lock in trade"}
+            } pips. ${
+              pendingTradeLock.id
+                ? "This is the only allowed outcome update. After this, the trade becomes read-only."
+                : "Entry details become locked after saving. You can finalize outcome once later."
+            }`}
+            confirmLabel={pendingTradeLock.id ? "Finalize trade" : "Lock in trade"}
             tone="primary"
             onCancel={() => setPendingTradeLock(null)}
             onConfirm={() => saveLockedTrade(pendingTradeLock)}
@@ -6770,17 +6865,19 @@ function SelectField({
   label,
   value,
   options,
+  disabled = false,
   onChange,
 }: {
   label: string;
   value: string;
   options: readonly string[];
+  disabled?: boolean;
   onChange: (value: string) => void;
 }) {
   return (
     <label>
       <span>{label}</span>
-      <select value={value} required onChange={(event) => onChange(event.target.value)}>
+      <select value={value} required disabled={disabled} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => (
           <option key={option} value={option}>
             {option === "All" && label === "Filter pair" ? "All pairs" : option}
@@ -7405,6 +7502,7 @@ function TradeCard({
           <span className="chip">{trade.direction}</span>
           <span className={`chip ${trade.result.toLowerCase()}`}>{trade.result}</span>
           <span className="chip">{trade.setup}</span>
+          <span className="chip">{trade.finalizedAt ? "Locked" : "Pending final"}</span>
         </header>
 
         <div className="trade-card-title">
@@ -7429,10 +7527,17 @@ function TradeCard({
         {trade.notes ? <p className="trade-notes">{trade.notes}</p> : null}
 
         <div className="trade-actions">
-          <button className="icon-button" type="button" onClick={onEdit}>
-            <Pencil size={16} />
-            Edit
-          </button>
+          {trade.finalizedAt ? (
+            <span className="integrity-lock">
+              <ShieldCheck size={15} />
+              Finalized
+            </span>
+          ) : (
+            <button className="icon-button" type="button" onClick={onEdit}>
+              <Pencil size={16} />
+              Finalize
+            </button>
+          )}
           <button className="icon-button danger" type="button" onClick={onDelete}>
             <Trash2 size={16} />
             Delete
