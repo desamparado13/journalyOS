@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
 const DEFAULT_MODEL = "gpt-4.1-mini";
+const FALLBACK_MODELS = ["gpt-4.1-mini", "gpt-4o-mini"];
 const INPUT_COST_PER_1M = 0.4;
 const OUTPUT_COST_PER_1M = 1.6;
 
@@ -48,33 +49,51 @@ export default defineConfig(({ mode }) => {
 
             try {
               const { question, context } = JSON.parse(await readRequestBody(req));
-              const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${apiKey}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  model: env.OPENAI_COACH_MODEL || process.env.OPENAI_COACH_MODEL || DEFAULT_MODEL,
-                  temperature: 0.35,
-                  max_tokens: 1200,
-                  messages: [
-                    {
-                      role: "system",
-                      content:
-                        "You are Dara, the Journaly AI Coach and the user's trading companion. You are a direct but supportive trading mentor. Use the provided full compact journal rows, monthly projection data, and aggregate statistics to answer questions about live trades and backtests. Calculate from the data when needed, cite the relevant metric, and distinguish live trading from backtesting when useful. Give practical coaching with no financial advice guarantees. Focus on discipline, process, risk, behavior, expectancy, pairs, setups, sessions, drawdown, and consistency.",
-                    },
-                    {
-                      role: "user",
-                      content: JSON.stringify({ question, context }),
-                    },
-                  ],
-                }),
-              });
-              const payload = await openAiResponse.json();
+              const configuredModel = env.OPENAI_COACH_MODEL || process.env.OPENAI_COACH_MODEL || DEFAULT_MODEL;
+              const modelsToTry = Array.from(new Set([configuredModel, ...FALLBACK_MODELS]));
+              let openAiResponse: Response | null = null;
+              let payload: any = null;
+              let model = configuredModel;
 
-              if (!openAiResponse.ok) {
-                res.statusCode = openAiResponse.status;
+              for (const candidateModel of modelsToTry) {
+                openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${apiKey}`,
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model: candidateModel,
+                    temperature: 0.35,
+                    max_tokens: 1200,
+                    messages: [
+                      {
+                        role: "system",
+                        content:
+                          "You are Dara, the Journaly AI Coach and the user's trading companion. You are a direct but supportive trading mentor. Use the provided full compact journal rows, monthly projection data, and aggregate statistics to answer questions about live trades and backtests. Calculate from the data when needed, cite the relevant metric, and distinguish live trading from backtesting when useful. Give practical coaching with no financial advice guarantees. Focus on discipline, process, risk, behavior, expectancy, pairs, setups, sessions, drawdown, and consistency.",
+                      },
+                      {
+                        role: "user",
+                        content: JSON.stringify({ question, context }),
+                      },
+                    ],
+                  }),
+                });
+                payload = await openAiResponse.json();
+                model = candidateModel;
+
+                const errorCode = payload?.error?.code || payload?.error?.type;
+                const errorMessage = String(payload?.error?.message || "").toLowerCase();
+                const shouldRetryModel =
+                  !openAiResponse.ok &&
+                  candidateModel !== modelsToTry.at(-1) &&
+                  (errorCode === "model_not_found" || errorCode === "invalid_request_error" || errorMessage.includes("model"));
+
+                if (!shouldRetryModel) break;
+              }
+
+              if (!openAiResponse || !openAiResponse.ok) {
+                res.statusCode = openAiResponse?.status || 500;
                 res.setHeader("Content-Type", "application/json");
                 res.end(JSON.stringify({ error: payload?.error?.message || "OpenAI request failed." }));
                 return;
@@ -87,7 +106,7 @@ export default defineConfig(({ mode }) => {
               res.end(
                 JSON.stringify({
                   answer: payload.choices?.[0]?.message?.content || "No coaching response returned.",
-                  model: env.OPENAI_COACH_MODEL || process.env.OPENAI_COACH_MODEL || DEFAULT_MODEL,
+                  model,
                   usage: {
                     inputTokens,
                     outputTokens,

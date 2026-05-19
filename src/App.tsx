@@ -7710,10 +7710,12 @@ function TradeCard({
               Finalize
             </button>
           )}
-          <button className="icon-button danger" type="button" onClick={onDelete}>
-            <Trash2 size={16} />
-            Delete
-          </button>
+          {!trade.finalizedAt ? (
+            <button className="icon-button danger" type="button" onClick={onDelete}>
+              <Trash2 size={16} />
+              Delete
+            </button>
+          ) : null}
         </div>
       </div>
 
