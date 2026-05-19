@@ -57,6 +57,7 @@ const LEARN_RESUME_KEY = "journaly-os-learn-resume";
 const PROP_FIRMS_KEY = "journaly-os-prop-firms";
 const RESEARCH_IDEAS_KEY = "journaly-os-research-ideas";
 const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
+const GOALS_KEY = "journaly-os-goals";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
 
@@ -217,6 +218,17 @@ type PropFirmAccount = {
   riskPercent: string;
   traderSplit: string;
 };
+type GoalCategory = "Prop firm" | "Travel" | "Trading" | "Personal";
+type GoalItem = {
+  id: string;
+  title: string;
+  category: GoalCategory;
+  targetDate: string;
+  notes: string;
+  isDone: boolean;
+  createdAt: string;
+  completedAt: string | null;
+};
 type AccountProfile = {
   displayName: string;
   bio: string;
@@ -251,6 +263,7 @@ type AppView =
   | "edge"
   | "learn"
   | "prop-firms"
+  | "goals"
   | "research"
   | "traders"
   | "position-sizing"
@@ -272,6 +285,7 @@ const appViews: readonly AppView[] = [
   "edge",
   "learn",
   "prop-firms",
+  "goals",
   "research",
   "traders",
   "position-sizing",
@@ -1274,6 +1288,15 @@ function readResearchIdeas() {
   }
 }
 
+function readGoals(): GoalItem[] {
+  try {
+    const rows = JSON.parse(localStorage.getItem(GOALS_KEY) || "");
+    return Array.isArray(rows) ? (rows as GoalItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function readTraderFriends(): TraderFriend[] {
   try {
     const friends = JSON.parse(localStorage.getItem(TRADER_FRIENDS_KEY) || "");
@@ -1596,6 +1619,8 @@ export default function App() {
   const [learnTimestamp, setLearnTimestamp] = useState("");
   const [learnNoteText, setLearnNoteText] = useState("");
   const [propFirmAccounts, setPropFirmAccounts] = useState<PropFirmAccount[]>(readPropFirmAccounts);
+  const [goals, setGoals] = useState<GoalItem[]>(readGoals);
+  const [goalForm, setGoalForm] = useState({ title: "", category: "Prop firm" as GoalCategory, targetDate: "", notes: "" });
   const [researchIdeas, setResearchIdeas] = useState<ResearchIdea[]>(readResearchIdeas);
   const [activeResearchIdeaId, setActiveResearchIdeaId] = useState("");
   const [traderFriends, setTraderFriends] = useState<TraderFriend[]>(readTraderFriends);
@@ -2264,6 +2289,41 @@ export default function App() {
   function updatePropFirmAccounts(nextAccounts: PropFirmAccount[]) {
     setPropFirmAccounts(nextAccounts);
     localStorage.setItem(PROP_FIRMS_KEY, JSON.stringify(nextAccounts));
+  }
+
+  function updateGoals(nextGoals: GoalItem[]) {
+    setGoals(nextGoals);
+    localStorage.setItem(GOALS_KEY, JSON.stringify(nextGoals));
+  }
+
+  function addGoal() {
+    const title = goalForm.title.trim();
+    if (!title) return;
+
+    updateGoals([
+      {
+        id: crypto.randomUUID(),
+        title,
+        category: goalForm.category,
+        targetDate: goalForm.targetDate,
+        notes: goalForm.notes.trim(),
+        isDone: false,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      },
+      ...goals,
+    ]);
+    setGoalForm({ title: "", category: goalForm.category, targetDate: "", notes: "" });
+  }
+
+  function toggleGoal(goalId: string) {
+    updateGoals(
+      goals.map((goal) =>
+        goal.id === goalId
+          ? { ...goal, isDone: !goal.isDone, completedAt: goal.isDone ? null : new Date().toISOString() }
+          : goal,
+      ),
+    );
   }
 
   function updateResearchIdeas(nextIdeas: ResearchIdea[]) {
@@ -3178,6 +3238,14 @@ export default function App() {
             Prop firms
           </button>
           <button
+            className={activeView === "goals" ? "is-active" : ""}
+            type="button"
+            onClick={() => setActiveView("goals")}
+          >
+            <Target size={18} />
+            Goals
+          </button>
+          <button
             className={activeView === "research" ? "is-active" : ""}
             type="button"
             onClick={() => setActiveView("research")}
@@ -3480,6 +3548,25 @@ export default function App() {
             </div>
 
             <PropFirmsModule accounts={propFirmAccounts} onChange={updatePropFirmAccounts} />
+          </section>
+        ) : null}
+
+        {activeView === "goals" ? (
+          <section className="workspace-band">
+            <div className="section-heading">
+              <p className="eyebrow">Goal board</p>
+              <h2>Goals</h2>
+              <p>Track prop firm targets, places you want to visit, and personal milestones. Cross them out when done.</p>
+            </div>
+
+            <GoalsModule
+              goals={goals}
+              form={goalForm}
+              onFormChange={setGoalForm}
+              onAddGoal={addGoal}
+              onToggleGoal={toggleGoal}
+              onDeleteGoal={(goalId) => updateGoals(goals.filter((goal) => goal.id !== goalId))}
+            />
           </section>
         ) : null}
 
@@ -7023,6 +7110,91 @@ function formatCurrency(value: number) {
     maximumFractionDigits: 2,
     minimumFractionDigits: 2,
   });
+}
+
+function GoalsModule({
+  goals,
+  form,
+  onFormChange,
+  onAddGoal,
+  onToggleGoal,
+  onDeleteGoal,
+}: {
+  goals: GoalItem[];
+  form: { title: string; category: GoalCategory; targetDate: string; notes: string };
+  onFormChange: (form: { title: string; category: GoalCategory; targetDate: string; notes: string }) => void;
+  onAddGoal: () => void;
+  onToggleGoal: (goalId: string) => void;
+  onDeleteGoal: (goalId: string) => void;
+}) {
+  const completed = goals.filter((goal) => goal.isDone).length;
+  const open = goals.length - completed;
+
+  return (
+    <section className="goals-panel">
+      <div className="stat-grid goals-summary">
+        <Stat label="Open goals" value={String(open)} />
+        <Stat label="Completed" value={String(completed)} />
+        <Stat label="Total goals" value={String(goals.length)} />
+      </div>
+
+      <article className="goal-form-card">
+        <div className="panel-header">
+          <span>New goal</span>
+          <strong>{form.category}</strong>
+        </div>
+        <div className="goal-form-grid">
+          <label>
+            <span>Goal</span>
+            <input value={form.title} placeholder="Pass 100K prop firm or visit Tokyo" onChange={(event) => onFormChange({ ...form, title: event.target.value })} />
+          </label>
+          <SelectField
+            label="Category"
+            value={form.category}
+            options={["Prop firm", "Travel", "Trading", "Personal"]}
+            onChange={(value) => onFormChange({ ...form, category: value as GoalCategory })}
+          />
+          <label>
+            <span>Target date</span>
+            <input value={form.targetDate} type="date" onChange={(event) => onFormChange({ ...form, targetDate: event.target.value })} />
+          </label>
+          <label className="wide-field">
+            <span>Notes</span>
+            <textarea value={form.notes} rows={3} placeholder="Why this matters or what needs to happen." onChange={(event) => onFormChange({ ...form, notes: event.target.value })} />
+          </label>
+          <button className="primary-action" type="button" onClick={onAddGoal}>
+            <Plus size={18} />
+            Add goal
+          </button>
+        </div>
+      </article>
+
+      <div className="goal-list">
+        {goals.length === 0 ? (
+          <div className="empty-state">
+            <strong>No goals yet</strong>
+            <p>Add a prop firm target, travel goal, or milestone you want to finish.</p>
+          </div>
+        ) : (
+          goals.map((goal) => (
+            <article className={goal.isDone ? "goal-card is-done" : "goal-card"} key={goal.id}>
+              <button className="goal-check" type="button" onClick={() => onToggleGoal(goal.id)} aria-label={goal.isDone ? "Mark goal open" : "Mark goal complete"}>
+                {goal.isDone ? <CheckCircle2 size={19} /> : <CircleSlash2 size={19} />}
+              </button>
+              <div>
+                <span>{goal.category}{goal.targetDate ? ` / ${formatOrdinalDate(goal.targetDate)}` : ""}</span>
+                <strong>{goal.title}</strong>
+                {goal.notes ? <p>{goal.notes}</p> : null}
+              </div>
+              <button className="icon-button danger" type="button" onClick={() => onDeleteGoal(goal.id)} aria-label="Delete goal">
+                <Trash2 size={16} />
+              </button>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  );
 }
 
 function ResearchModule({

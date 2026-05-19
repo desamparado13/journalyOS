@@ -2963,6 +2963,86 @@ button.yearly-row.is-active {
   grid-column: 1 / -1;
 }
 
+.goals-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.goals-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.goal-form-card,
+.goal-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.goal-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(160px, 0.6fr) minmax(160px, 0.6fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.goal-list {
+  display: grid;
+  gap: 12px;
+}
+
+.goal-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.goal-card.is-done {
+  opacity: 0.72;
+}
+
+.goal-card.is-done strong,
+.goal-card.is-done p {
+  text-decoration: line-through;
+}
+
+.goal-check {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--line));
+  border-radius: 8px;
+  background: rgba(14, 165, 233, 0.08);
+  color: var(--brand-strong);
+  cursor: pointer;
+}
+
+.goal-card span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.goal-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 1.08rem;
+}
+
+.goal-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-weight: 760;
+  line-height: 1.45;
+}
+
 .research-layout {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
@@ -4579,6 +4659,8 @@ textarea:focus {
   .session-window-grid,
   .edge-grid,
   .learn-layout,
+  .goals-summary,
+  .goal-form-grid,
   .prop-summary-grid,
   .prop-account-card,
   .prop-account-fields,
@@ -4723,6 +4805,9 @@ textarea:focus {
   .session-edge-hero,
   .learn-layout,
   .learn-video-tabs,
+  .goals-summary,
+  .goal-form-grid,
+  .goal-card,
   .prop-summary-grid,
   .prop-account-card,
   .prop-account-fields,
