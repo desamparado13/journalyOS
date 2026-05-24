@@ -1627,11 +1627,13 @@ label span,
 
 .week-edge-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 
 .week-edge-day {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 14px;
   border: 1px solid var(--line);
@@ -1640,14 +1642,47 @@ label span,
   padding: 14px;
 }
 
+.week-edge-day::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--line);
+}
+
 .week-edge-day.is-positive {
   border-color: rgba(14, 165, 233, 0.38);
   background: rgba(14, 165, 233, 0.08);
 }
 
+.week-edge-day.is-positive::before {
+  background: linear-gradient(90deg, var(--brand), var(--accent));
+}
+
 .week-edge-day.is-negative {
   border-color: rgba(251, 113, 133, 0.36);
   background: rgba(251, 113, 133, 0.08);
+}
+
+.week-edge-day.is-negative::before {
+  background: linear-gradient(90deg, #fb7185, #dc2626);
+}
+
+.week-edge-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.week-edge-summary span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 8px 10px;
+  text-transform: uppercase;
 }
 
 .week-edge-day-top,
@@ -1663,6 +1698,30 @@ label span,
 .week-edge-bars {
   display: grid;
   gap: 6px;
+}
+
+.week-edge-day-top > strong {
+  font-size: 1.45rem;
+}
+
+.week-edge-score {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+}
+
+.week-edge-score span {
+  color: var(--text);
+  font-size: clamp(2.1rem, 4vw, 3.2rem);
+  font-weight: 950;
+  line-height: 0.9;
+}
+
+.week-edge-score small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .week-edge-day-top span,

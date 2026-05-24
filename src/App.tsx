@@ -2042,8 +2042,6 @@ export default function App() {
       { label: "Wednesday", shortLabel: "Wed", dayIndex: 3 },
       { label: "Thursday", shortLabel: "Thu", dayIndex: 4 },
       { label: "Friday", shortLabel: "Fri", dayIndex: 5 },
-      { label: "Saturday", shortLabel: "Sat", dayIndex: 6 },
-      { label: "Sunday", shortLabel: "Sun", dayIndex: 0 },
     ];
     const scopedTrades =
       weekEdgeMonth === "All" ? trades : trades.filter((trade) => trade.date.startsWith(weekEdgeMonth));
@@ -2067,17 +2065,11 @@ export default function App() {
       };
     });
     const activeDays = days.filter((day) => day.trades > 0);
-    const totalTrades = scopedTrades.length;
-    const totalR = scopedTrades.reduce((sum, trade) => sum + trade.pnl, 0);
-    const wins = scopedTrades.filter((trade) => trade.pnl > 0).length;
     const successfulDays = activeDays.filter((day) => day.totalR > 0).length;
 
     return {
       days,
       label: weekEdgeMonth === "All" ? "All live trades" : formatMonthLabel(weekEdgeMonth),
-      totalTrades,
-      totalR,
-      winRate: totalTrades === 0 ? 0 : Math.round((wins / totalTrades) * 100),
       successfulDays,
       bestDay: [...activeDays].sort((a, b) => b.totalR - a.totalR)[0],
       mostActiveDay: [...activeDays].sort((a, b) => b.trades - a.trades || b.totalR - a.totalR)[0],
@@ -6600,9 +6592,6 @@ function WeekEdge({
   data: {
     days: WeekEdgeDay[];
     label: string;
-    totalTrades: number;
-    totalR: number;
-    winRate: number;
     successfulDays: number;
     bestDay?: WeekEdgeDay;
     mostActiveDay?: WeekEdgeDay;
@@ -6633,22 +6622,17 @@ function WeekEdge({
         </label>
       </div>
 
-      <div className="stat-grid analytics-grid">
-        <Stat label="Live trades" value={String(data.totalTrades)} />
-        <Stat label="Total R" value={`${formatNumber(data.totalR)}R`} />
-        <WinRateStat rate={data.winRate} />
-        <Stat label="Green days" value={`${data.successfulDays}/7`} />
-        <Stat label="Best day" value={data.bestDay ? `${data.bestDay.label} / ${formatNumber(data.bestDay.totalR)}R` : "-"} />
-        <Stat
-          label="Most active"
-          value={data.mostActiveDay ? `${data.mostActiveDay.label} / ${data.mostActiveDay.trades} trades` : "-"}
-        />
+      <div className="week-edge-summary" aria-label="Week Edge summary">
+        <span>{data.successfulDays}/5 green weekdays</span>
+        <span>Best: {data.bestDay ? `${data.bestDay.label} ${formatNumber(data.bestDay.totalR)}R` : "-"}</span>
+        <span>Most trades: {data.mostActiveDay ? `${data.mostActiveDay.label} (${data.mostActiveDay.trades})` : "-"}</span>
       </div>
 
       <div className="week-edge-grid">
         {data.days.map((day) => {
           const tradeWidth = `${Math.max(day.trades > 0 ? 8 : 0, (day.trades / maxTrades) * 100)}%`;
           const rWidth = `${Math.max(day.trades > 0 ? 8 : 0, (Math.abs(day.totalR) / maxAbsR) * 100)}%`;
+          const outcomeLabel = day.trades === 0 ? "No trades" : day.totalR > 0 ? "Green day" : day.totalR < 0 ? "Red day" : "Flat day";
 
           return (
             <article
@@ -6658,20 +6642,25 @@ function WeekEdge({
               <div className="week-edge-day-top">
                 <div>
                   <strong>{day.label}</strong>
-                  <span>{day.shortLabel}</span>
+                  <span>{outcomeLabel}</span>
                 </div>
                 <strong className={day.totalR >= 0 ? "positive-r" : "negative-r"}>{formatNumber(day.totalR)}R</strong>
               </div>
 
+              <div className="week-edge-score">
+                <span>{day.trades}</span>
+                <small>trades</small>
+              </div>
+
               <div className="week-edge-bars">
                 <div>
-                  <span>Trades</span>
+                  <span>Volume</span>
                   <div className="performance-bar-track">
                     <span className="performance-bar is-neutral" style={{ width: tradeWidth }} />
                   </div>
                 </div>
                 <div>
-                  <span>Net R</span>
+                  <span>Edge strength</span>
                   <div className="performance-bar-track">
                     <span className={`performance-bar ${day.totalR >= 0 ? "is-positive" : "is-negative"}`} style={{ width: rWidth }} />
                   </div>
@@ -6679,7 +6668,6 @@ function WeekEdge({
               </div>
 
               <div className="week-edge-meta">
-                <span>{day.trades} trades</span>
                 <span>{day.winRate}% WR</span>
                 <span>
                   {day.wins}W {day.losses}L {day.breakevens}BE
