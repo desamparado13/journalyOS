@@ -204,7 +204,7 @@ type Result = (typeof results)[number];
 type Theme = "light" | "dark";
 type ClockPeriod = "AM" | "PM";
 type ClockSource = "live" | "backtest";
-type EdgeMode = "clock" | "session";
+type EdgeMode = "clock" | "session" | "week";
 type LearnNote = {
   id: string;
   timestamp: string;
@@ -3491,6 +3491,14 @@ export default function App() {
                   <CalendarClock size={16} />
                   Session Edge
                 </button>
+                <button
+                  className={edgeMode === "week" ? "is-active" : ""}
+                  type="button"
+                  onClick={() => setEdgeMode("week")}
+                >
+                  <CalendarDays size={16} />
+                  Week Edge
+                </button>
               </div>
 
               {edgeMode === "clock" ? (
@@ -3502,8 +3510,15 @@ export default function App() {
                   onPeriodChange={setClockPeriod}
                   onSourceChange={setClockSource}
                 />
-              ) : (
+              ) : edgeMode === "session" ? (
                 <SessionEdge trades={trades} backtests={backtests} source={clockSource} onSourceChange={setClockSource} />
+              ) : (
+                <WeekEdge
+                  data={weekEdge}
+                  month={weekEdgeMonth}
+                  monthOptions={weekEdgeMonthOptions}
+                  onMonthChange={setWeekEdgeMonth}
+                />
               )}
             </section>
           </section>
