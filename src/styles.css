@@ -1487,7 +1487,8 @@ label span,
 
 .calendar-panel,
 .heatmap-panel,
-.heatmap-section {
+.heatmap-section,
+.week-edge-panel {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -1495,7 +1496,8 @@ label span,
   box-shadow: var(--shadow);
 }
 
-.calendar-header {
+.calendar-header,
+.week-edge-header {
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -1503,7 +1505,8 @@ label span,
   margin-bottom: 16px;
 }
 
-.calendar-header h3 {
+.calendar-header h3,
+.week-edge-header h3 {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1534,7 +1537,8 @@ label span,
   text-transform: uppercase;
 }
 
-.calendar-header label {
+.calendar-header label,
+.week-edge-header label {
   min-width: 220px;
 }
 
@@ -1614,6 +1618,65 @@ label span,
 .heatmap-panel {
   display: grid;
   gap: 18px;
+}
+
+.week-edge-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.week-edge-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.week-edge-day {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.week-edge-day.is-positive {
+  border-color: rgba(14, 165, 233, 0.38);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+.week-edge-day.is-negative {
+  border-color: rgba(251, 113, 133, 0.36);
+  background: rgba(251, 113, 133, 0.08);
+}
+
+.week-edge-day-top,
+.week-edge-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.week-edge-day-top div,
+.week-edge-bars {
+  display: grid;
+  gap: 6px;
+}
+
+.week-edge-day-top span,
+.week-edge-bars span,
+.week-edge-meta span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.week-edge-bars > div {
+  display: grid;
+  gap: 6px;
 }
 
 .month-heatmap-grid,
@@ -1735,6 +1798,10 @@ label span,
 
 .performance-bar.is-negative {
   background: linear-gradient(90deg, #fb7185, #dc2626);
+}
+
+.performance-bar.is-neutral {
+  background: linear-gradient(90deg, var(--muted), var(--text));
 }
 
 .performance-row-meta span {
@@ -4680,7 +4747,8 @@ textarea:focus {
   .gallery-toolbar,
   .gallery-stats,
   .month-heatmap-grid,
-  .quarter-grid {
+  .quarter-grid,
+  .week-edge-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4835,6 +4903,7 @@ textarea:focus {
   .yearly-detail-grid,
   .month-heatmap-grid,
   .quarter-grid,
+  .week-edge-grid,
   .recent-trade,
   .trade-card {
     grid-template-columns: 1fr;
