@@ -421,6 +421,7 @@ type WeekEdgeDay = {
   label: string;
   shortLabel: string;
   trades: number;
+  tradeTimes: Array<{ time: string; count: number; totalR: number }>;
   wins: number;
   losses: number;
   breakevens: number;
@@ -2047,6 +2048,15 @@ export default function App() {
       weekEdgeMonth === "All" ? trades : trades.filter((trade) => trade.date.startsWith(weekEdgeMonth));
     const days: WeekEdgeDay[] = weekdayTemplate.map((day) => {
       const dayTrades = scopedTrades.filter((trade) => parseTradeDate(trade).getDay() === day.dayIndex);
+      const tradeTimes = Object.values(
+        dayTrades.reduce<Record<string, { time: string; count: number; totalR: number }>>((grouped, trade) => {
+          const time = trade.time || "--:--";
+          grouped[time] ||= { time, count: 0, totalR: 0 };
+          grouped[time].count += 1;
+          grouped[time].totalR += trade.pnl;
+          return grouped;
+        }, {}),
+      ).sort((a, b) => a.time.localeCompare(b.time));
       const wins = dayTrades.filter((trade) => trade.pnl > 0).length;
       const losses = dayTrades.filter((trade) => trade.pnl < 0).length;
       const breakevens = dayTrades.length - wins - losses;
@@ -2056,6 +2066,7 @@ export default function App() {
         label: day.label,
         shortLabel: day.shortLabel,
         trades: dayTrades.length,
+        tradeTimes,
         wins,
         losses,
         breakevens,
@@ -6633,6 +6644,8 @@ function WeekEdge({
           const tradeWidth = `${Math.max(day.trades > 0 ? 8 : 0, (day.trades / maxTrades) * 100)}%`;
           const rWidth = `${Math.max(day.trades > 0 ? 8 : 0, (Math.abs(day.totalR) / maxAbsR) * 100)}%`;
           const outcomeLabel = day.trades === 0 ? "No trades" : day.totalR > 0 ? "Green day" : day.totalR < 0 ? "Red day" : "Flat day";
+          const visibleTimes = day.tradeTimes.slice(0, 8);
+          const hiddenTimes = Math.max(0, day.tradeTimes.length - visibleTimes.length);
 
           return (
             <article
@@ -6673,6 +6686,27 @@ function WeekEdge({
                   {day.wins}W {day.losses}L {day.breakevens}BE
                 </span>
                 <span>{formatNumber(day.averageR)} avg R</span>
+              </div>
+
+              <div className="week-edge-times">
+                <span>Times taken</span>
+                <div>
+                  {visibleTimes.length === 0 ? (
+                    <small>No entries</small>
+                  ) : (
+                    visibleTimes.map((item) => (
+                      <small
+                        className={item.totalR > 0 ? "is-positive" : item.totalR < 0 ? "is-negative" : ""}
+                        key={item.time}
+                        title={`${item.count} trade${item.count === 1 ? "" : "s"} / ${formatNumber(item.totalR)}R`}
+                      >
+                        {item.time}
+                        {item.count > 1 ? ` x${item.count}` : ""}
+                      </small>
+                    ))
+                  )}
+                  {hiddenTimes > 0 ? <small>+{hiddenTimes} more</small> : null}
+                </div>
               </div>
             </article>
           );
