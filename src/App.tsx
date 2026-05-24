@@ -5339,23 +5339,10 @@ function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: 
           <span className="dara-resize-handle" aria-hidden="true" onPointerDown={startResize} />
         </div>
       ) : (
-        <div className="dara-mini-tab">
-          <button className="dara-mini-brand" type="button" onClick={openDara} aria-label="Open Dara">
-            <Brain size={18} />
-            <span>Dara</span>
-          </button>
-          <input
-            value={question}
-            placeholder="Ask Dara..."
-            onChange={(event) => setQuestion(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") askDara();
-            }}
-          />
-          <button className="dara-mini-send" type="button" disabled={isLoading} onClick={askDara}>
-            {isLoading ? "..." : "Ask"}
-          </button>
-        </div>
+        <button className="dara-mini-tab" type="button" onClick={openDara} aria-label="Open Dara mini coach">
+          <Brain size={18} />
+          <span>Dara</span>
+        </button>
       )}
     </aside>
   );
