@@ -1325,11 +1325,29 @@ label span,
   position: relative;
 }
 
+.equity-hero {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.equity-hero h3 {
+  margin: 4px 0 0;
+  font-size: 1.65rem;
+}
+
+.equity-hero > strong {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 0.9;
+}
+
 .equity-metrics {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin: -8px 0 12px;
+  margin: 0 0 14px;
 }
 
 .equity-metrics span {
@@ -1371,13 +1389,12 @@ label span,
 }
 
 .equity-area {
-  fill: url("#equityAreaGradient");
+  fill-opacity: 1;
 }
 
 .equity-line {
   fill: none;
   filter: drop-shadow(0 8px 16px rgba(14, 165, 233, 0.32));
-  stroke: url("#equityLineGradient");
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 5;
@@ -1392,6 +1409,19 @@ label span,
 .equity-point.is-key {
   fill: var(--surface-strong);
   stroke-width: 4;
+}
+
+.equity-x-label,
+.equity-callout {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.equity-callout {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 5px;
 }
 
 .dynamic-yearly-equity {

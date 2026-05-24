@@ -39,7 +39,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import logoUrl from "../assets/logo.svg";
@@ -6207,25 +6207,31 @@ function EdgeSparkline({ values }: { values: number[] }) {
 }
 
 function EquityCurve({ points }: { points: Array<{ label: string; value: number }> }) {
+  const chartId = useId().replace(/:/g, "");
+  const lineGradientId = `equityLineGradient-${chartId}`;
+  const areaGradientId = `equityAreaGradient-${chartId}`;
   const width = 900;
-  const height = 320;
-  const padding = 38;
-  const values = points.length > 0 ? points.map((point) => point.value) : [0];
+  const height = 360;
+  const padding = 46;
+  const chartPoints = points.length > 0 ? [{ label: "Start", value: 0 }, ...points] : [];
+  const values = chartPoints.length > 0 ? chartPoints.map((point) => point.value) : [0];
   const min = Math.min(0, ...values);
   const max = Math.max(0, ...values);
   const range = max - min || 1;
-  const xStep = points.length <= 1 ? 0 : (width - padding * 2) / (points.length - 1);
+  const xStep = chartPoints.length <= 1 ? 0 : (width - padding * 2) / (chartPoints.length - 1);
   const toY = (value: number) => height - padding - ((value - min) / range) * (height - padding * 2);
   const finalValue = values[values.length - 1] || 0;
   const high = max;
   const low = min;
+  const highIndex = chartPoints.findIndex((point) => point.value === high);
+  const lowIndex = chartPoints.findIndex((point) => point.value === low);
   let runningPeak = 0;
   let largestDrawdown = 0;
   let drawdownStartIndex = 0;
   let drawdownEndIndex = 0;
   let peakIndex = 0;
 
-  points.forEach((point, index) => {
+  chartPoints.forEach((point, index) => {
     if (point.value >= runningPeak) {
       runningPeak = point.value;
       peakIndex = index;
@@ -6240,30 +6246,35 @@ function EquityCurve({ points }: { points: Array<{ label: string; value: number 
   });
 
   const path =
-    points.length === 0
+    chartPoints.length === 0
       ? ""
-      : points
+      : chartPoints
           .map((point, index) => {
             const x = padding + xStep * index;
             const y = toY(point.value);
             return `${index === 0 ? "M" : "L"} ${x} ${y}`;
           })
           .join(" ");
-  const areaPath = points.length
-    ? `${path} L ${padding + xStep * (points.length - 1)} ${height - padding} L ${padding} ${height - padding} Z`
-    : "";
   const zeroY = toY(0);
-  const gridValues = Array.from({ length: 5 }, (_, index) => min + (range / 4) * index);
+  const areaPath = chartPoints.length
+    ? `${path} L ${padding + xStep * (chartPoints.length - 1)} ${zeroY} L ${padding} ${zeroY} Z`
+    : "";
+  const gridValues = Array.from({ length: 5 }, (_, index) => max - (range / 4) * index);
   const drawdownX = padding + xStep * drawdownStartIndex;
   const drawdownWidth = Math.max(0, xStep * (drawdownEndIndex - drawdownStartIndex));
+  const finalX = padding + xStep * Math.max(0, chartPoints.length - 1);
+  const highX = padding + xStep * Math.max(0, highIndex);
+  const lowX = padding + xStep * Math.max(0, lowIndex);
+  const slope = points.length <= 1 ? 0 : finalValue / points.length;
 
   return (
     <section className="equity-card" aria-label="Equity curve">
-      <div className="panel-header">
-        <span>Equity curve</span>
-        <strong className={finalValue >= 0 ? "positive-r" : "negative-r"}>
-          {formatNumber(finalValue)}R
-        </strong>
+      <div className="equity-hero">
+        <div>
+          <p className="eyebrow">Cumulative R</p>
+          <h3>Equity curve</h3>
+        </div>
+        <strong className={finalValue >= 0 ? "positive-r" : "negative-r"}>{formatNumber(finalValue)}R</strong>
       </div>
 
       {points.length === 0 ? (
@@ -6274,16 +6285,17 @@ function EquityCurve({ points }: { points: Array<{ label: string; value: number 
             <span>High {formatNumber(high)}R</span>
             <span>Low {formatNumber(low)}R</span>
             <span>Max DD {formatNumber(largestDrawdown)}R</span>
+            <span>Avg slope {formatNumber(slope)}R/trade</span>
             <span>{points.length} trades</span>
           </div>
           <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Cumulative R equity curve">
             <defs>
-              <linearGradient id="equityLineGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+              <linearGradient id={lineGradientId} x1="0%" x2="100%" y1="0%" y2="0%">
                 <stop offset="0%" stopColor="#38bdf8" />
                 <stop offset="55%" stopColor="#0ea5e9" />
                 <stop offset="100%" stopColor="#5eead4" />
               </linearGradient>
-              <linearGradient id="equityAreaGradient" x1="0%" x2="0%" y1="0%" y2="100%">
+              <linearGradient id={areaGradientId} x1="0%" x2="0%" y1="0%" y2="100%">
                 <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.32" />
                 <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.02" />
               </linearGradient>
@@ -6312,10 +6324,10 @@ function EquityCurve({ points }: { points: Array<{ label: string; value: number 
               />
             ) : null}
             <line className="equity-zero" x1={padding} x2={width - padding} y1={zeroY} y2={zeroY} />
-            <path className="equity-area" d={areaPath} />
-            <path className="equity-line" d={path} />
-            {points.map((point, index) => {
-              const isEndpoint = index === 0 || index === points.length - 1;
+            <path className="equity-area" d={areaPath} fill={`url(#${areaGradientId})`} />
+            <path className="equity-line" d={path} stroke={`url(#${lineGradientId})`} />
+            {chartPoints.map((point, index) => {
+              const isEndpoint = index === 0 || index === chartPoints.length - 1;
               const isHigh = point.value === high;
               const isLow = point.value === low;
 
@@ -6329,6 +6341,18 @@ function EquityCurve({ points }: { points: Array<{ label: string; value: number 
                 />
               );
             })}
+            <text className="equity-x-label" x={padding} y={height - 10}>
+              Start
+            </text>
+            <text className="equity-x-label" x={finalX} y={height - 10} textAnchor="end">
+              Latest
+            </text>
+            <text className="equity-callout" x={Math.min(width - 150, highX + 10)} y={Math.max(20, toY(high) - 10)}>
+              High {formatNumber(high)}R
+            </text>
+            <text className="equity-callout" x={Math.min(width - 150, lowX + 10)} y={Math.min(height - 30, toY(low) + 22)}>
+              Low {formatNumber(low)}R
+            </text>
           </svg>
         </>
       )}
