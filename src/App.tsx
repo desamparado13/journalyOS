@@ -860,17 +860,14 @@ function toJournalItems(trades: Trade[], backtests: Backtest[]): JournalItem[] {
 }
 
 const edgeSessions = [
-  { name: "Sydney", start: 5 * 60, end: 14 * 60 },
-  { name: "Asian", start: 7 * 60, end: 16 * 60 },
+  { name: "Asian / Sydney", start: 5 * 60, end: 16 * 60 },
   { name: "London", start: 15 * 60, end: 24 * 60 },
   { name: "New York", start: 20 * 60, end: 29 * 60 },
 ];
 
 const edgeSessionWindows = [
-  { time: "5:00 AM-7:00 AM", session: "Sydney" },
-  { time: "7:00 AM-2:00 PM", session: "Sydney + Asian" },
-  { time: "2:00 PM-3:00 PM", session: "Asian" },
-  { time: "3:00 PM-4:00 PM", session: "Asian + London" },
+  { time: "5:00 AM-3:00 PM", session: "Asian / Sydney" },
+  { time: "3:00 PM-4:00 PM", session: "Asian / Sydney + London" },
   { time: "4:00 PM-8:00 PM", session: "London" },
   { time: "8:00 PM-12:00 AM", session: "London + New York" },
   { time: "12:00 AM-5:00 AM", session: "New York" },
