@@ -6698,9 +6698,9 @@ function WeekEdge({
                       <small
                         className={item.totalR > 0 ? "is-positive" : item.totalR < 0 ? "is-negative" : ""}
                         key={item.time}
-                        title={`${item.count} trade${item.count === 1 ? "" : "s"} / ${formatNumber(item.totalR)}R`}
+                        title={`${formatTime12(item.time)} / ${item.count} trade${item.count === 1 ? "" : "s"} / ${formatNumber(item.totalR)}R`}
                       >
-                        {item.time}
+                        {formatTime12(item.time)}
                         {item.count > 1 ? ` x${item.count}` : ""}
                       </small>
                     ))
