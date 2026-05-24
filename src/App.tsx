@@ -1365,10 +1365,10 @@ function defaultDaraWindow(): DaraWindowState {
 function normalizeDaraWindow(state: DaraWindowState): DaraWindowState {
   const viewportWidth = typeof window === "undefined" ? 1180 : window.innerWidth;
   const viewportHeight = typeof window === "undefined" ? 760 : window.innerHeight;
-  const minWidth = state.isOpen ? 320 : 112;
-  const minHeight = state.isOpen ? 260 : 48;
-  const width = state.isOpen ? clampNumber(Number(state.width || 360), minWidth, viewportWidth - 24) : 112;
-  const height = state.isOpen ? clampNumber(Number(state.height || 430), minHeight, viewportHeight - 24) : 48;
+  const minWidth = state.isOpen ? 320 : Math.min(360, viewportWidth - 24);
+  const minHeight = state.isOpen ? 260 : 56;
+  const width = state.isOpen ? clampNumber(Number(state.width || 360), minWidth, viewportWidth - 24) : minWidth;
+  const height = state.isOpen ? clampNumber(Number(state.height || 430), minHeight, viewportHeight - 24) : minHeight;
 
   return {
     ...state,
@@ -5178,36 +5178,6 @@ function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: 
     window.addEventListener("pointerup", stopDrag);
   }
 
-  function startMinimizedInteraction(event: React.PointerEvent<HTMLButtonElement>) {
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startState = windowState;
-    let didMove = false;
-
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    function moveTab(moveEvent: PointerEvent) {
-      const deltaX = moveEvent.clientX - startX;
-      const deltaY = moveEvent.clientY - startY;
-      if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) didMove = true;
-
-      updateWindow({
-        ...startState,
-        x: startState.x + deltaX,
-        y: startState.y + deltaY,
-      });
-    }
-
-    function stopTab() {
-      window.removeEventListener("pointermove", moveTab);
-      window.removeEventListener("pointerup", stopTab);
-      if (!didMove) openDara();
-    }
-
-    window.addEventListener("pointermove", moveTab);
-    window.addEventListener("pointerup", stopTab);
-  }
-
   function startResize(event: React.PointerEvent<HTMLSpanElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -5315,12 +5285,16 @@ function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: 
   return (
     <aside
       className={`dara-mini ${windowState.isOpen ? "is-open" : ""} ${windowState.isMaximized ? "is-maximized" : ""}`}
-      style={{
-        left: windowState.x,
-        top: windowState.y,
-        width: windowState.width,
-        height: windowState.height,
-      }}
+      style={
+        windowState.isOpen
+          ? {
+              left: windowState.x,
+              top: windowState.y,
+              width: windowState.width,
+              height: windowState.height,
+            }
+          : undefined
+      }
       aria-label="Dara mini coach"
     >
       {windowState.isOpen ? (
@@ -5365,10 +5339,23 @@ function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: 
           <span className="dara-resize-handle" aria-hidden="true" onPointerDown={startResize} />
         </div>
       ) : (
-        <button className="dara-mini-tab" type="button" onPointerDown={startMinimizedInteraction}>
-          <Brain size={18} />
-          <span>Dara</span>
-        </button>
+        <div className="dara-mini-tab">
+          <button className="dara-mini-brand" type="button" onClick={openDara} aria-label="Open Dara">
+            <Brain size={18} />
+            <span>Dara</span>
+          </button>
+          <input
+            value={question}
+            placeholder="Ask Dara..."
+            onChange={(event) => setQuestion(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") askDara();
+            }}
+          />
+          <button className="dara-mini-send" type="button" disabled={isLoading} onClick={askDara}>
+            {isLoading ? "..." : "Ask"}
+          </button>
+        </div>
       )}
     </aside>
   );
