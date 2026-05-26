@@ -1562,7 +1562,7 @@ function exportPositionSizingPng({
   });
   const width = 1180;
   const rowHeight = 58;
-  const height = 510 + exportRows.length * rowHeight;
+  const height = 420 + exportRows.length * rowHeight;
   const scale = Math.min(2, window.devicePixelRatio || 1);
   const canvas = document.createElement("canvas");
   canvas.width = width * scale;
@@ -1571,43 +1571,45 @@ function exportPositionSizingPng({
   if (!ctx) return;
 
   ctx.scale(scale, scale);
-  ctx.fillStyle = "#07131d";
+  ctx.fillStyle = "#06111a";
   ctx.fillRect(0, 0, width, height);
-  ctx.fillStyle = "#0f2231";
-  roundRect(ctx, 34, 34, width - 68, height - 68, 18);
+  ctx.fillStyle = "#0d1f2d";
+  roundRect(ctx, 32, 32, width - 64, height - 64, 22);
+  ctx.fill();
+
+  const gradient = ctx.createLinearGradient(56, 56, width - 56, 190);
+  gradient.addColorStop(0, "#153246");
+  gradient.addColorStop(0.55, "#0e2737");
+  gradient.addColorStop(1, "#0a1a27");
+  ctx.fillStyle = gradient;
+  roundRect(ctx, 56, 56, width - 112, 138, 18);
   ctx.fill();
 
   ctx.fillStyle = "#7dd3fc";
   ctx.font = "800 22px Inter, Arial";
-  ctx.fillText("Journaly OS", 64, 82);
+  ctx.fillText("Journaly OS", 84, 101);
   ctx.fillStyle = "#ecfeff";
-  ctx.font = "900 42px Inter, Arial";
-  ctx.fillText("Position Sizing Export", 64, 132);
+  ctx.font = "900 40px Inter, Arial";
+  ctx.fillText("Position Sizing Plan", 84, 150);
   ctx.fillStyle = "#9db3c0";
-  ctx.font = "700 18px Inter, Arial";
-  ctx.fillText(new Date().toLocaleString(), 64, 164);
+  ctx.font = "700 16px Inter, Arial";
+  ctx.fillText(new Date().toLocaleString(), 84, 176);
 
-  const topCards = [
+  const tradeFields = [
     ["Pair", calculator.pair || "--"],
     ["Entry", calculator.entryPrice || "--"],
-    ["Stop Loss", calculator.stopLossPrice || "--"],
-    ["Take Profit", calculator.takeProfitPrice || "--"],
+    ["Stop loss", calculator.stopLossPrice || "--"],
+    ["Take profit", calculator.takeProfitPrice || "--"],
     ["Stop", `${formatNumber(summary.stopPips)} pips`],
-    ["Quote rate", quote === "USD" ? "1" : calculator.quoteToUsdRate || "--"],
   ];
-  drawMetricGrid(ctx, topCards, 64, 208, 3);
+  tradeFields.forEach(([label, value], index) => {
+    const fieldWidth = 196;
+    const gap = 18;
+    const x = 64 + index * (fieldWidth + gap);
+    drawExportField(ctx, label, value, x, 226, fieldWidth);
+  });
 
-  const summaryCards = [
-    ["Suggested lots", formatNumber(summary.lots)],
-    ["Risk amount", `$${formatNumber(summary.riskAmount)}`],
-    ["Micro lots", formatNumber(summary.microLots)],
-    ["Mini lots", formatNumber(summary.miniLots)],
-    ["Units", Math.round(summary.units).toLocaleString()],
-    ["Profile mode", profileMode === "half" ? "Half profile" : "Main profile"],
-  ];
-  drawMetricGrid(ctx, summaryCards, 64, 336, 3);
-
-  let y = 482;
+  let y = 344;
   ctx.fillStyle = "#7dd3fc";
   ctx.font = "900 18px Inter, Arial";
   ctx.fillText("Profile Sizing", 64, y);
@@ -1636,22 +1638,19 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: n
   ctx.closePath();
 }
 
-function drawMetricGrid(ctx: CanvasRenderingContext2D, cards: string[][], x: number, y: number, columns: number) {
-  const gap = 14;
-  const cardWidth = (1052 - gap * (columns - 1)) / columns;
-  cards.forEach(([label, value], index) => {
-    const cx = x + (index % columns) * (cardWidth + gap);
-    const cy = y + Math.floor(index / columns) * 86;
-    ctx.fillStyle = "#132b3b";
-    roundRect(ctx, cx, cy, cardWidth, 72, 12);
-    ctx.fill();
-    ctx.fillStyle = "#9db3c0";
-    ctx.font = "800 14px Inter, Arial";
-    ctx.fillText(label.toUpperCase(), cx + 18, cy + 26);
-    ctx.fillStyle = "#ecfeff";
-    ctx.font = "900 23px Inter, Arial";
-    ctx.fillText(value, cx + 18, cy + 55);
-  });
+function drawExportField(ctx: CanvasRenderingContext2D, label: string, value: string, x: number, y: number, width: number) {
+  ctx.fillStyle = "#10283a";
+  roundRect(ctx, x, y, width, 78, 14);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(125, 211, 252, 0.22)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = "#9db3c0";
+  ctx.font = "900 13px Inter, Arial";
+  ctx.fillText(label.toUpperCase(), x + 18, y + 28);
+  ctx.fillStyle = "#ecfeff";
+  ctx.font = "900 24px Inter, Arial";
+  ctx.fillText(value, x + 18, y + 58);
 }
 
 function drawTableHeader(ctx: CanvasRenderingContext2D, y: number) {
