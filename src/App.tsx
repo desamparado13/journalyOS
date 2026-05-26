@@ -860,14 +860,14 @@ function toJournalItems(trades: Trade[], backtests: Backtest[]): JournalItem[] {
 }
 
 const edgeSessions = [
-  { name: "Asian / Sydney", start: 5 * 60, end: 16 * 60 },
+  { name: "Asian", start: 5 * 60, end: 16 * 60 },
   { name: "London", start: 15 * 60, end: 24 * 60 },
   { name: "New York", start: 20 * 60, end: 29 * 60 },
 ];
 
 const edgeSessionWindows = [
-  { time: "5:00 AM-3:00 PM", session: "Asian / Sydney" },
-  { time: "3:00 PM-4:00 PM", session: "Asian / Sydney + London" },
+  { time: "5:00 AM-3:00 PM", session: "Asian" },
+  { time: "3:00 PM-4:00 PM", session: "Asian + London" },
   { time: "4:00 PM-8:00 PM", session: "London" },
   { time: "8:00 PM-12:00 AM", session: "London + New York" },
   { time: "12:00 AM-5:00 AM", session: "New York" },
@@ -1524,6 +1524,164 @@ function getQuoteRateHelp(pair: string) {
   }
 
   return `Enter the current ${quote}USD conversion rate.`;
+}
+
+function exportPositionSizingPng({
+  calculator,
+  profileRows,
+  profileMode,
+}: {
+  calculator: PositionCalculatorState;
+  profileRows: ProfileSizingRow[];
+  profileMode: "main" | "half";
+}) {
+  const quote = getQuoteCurrency(calculator.pair);
+  const quoteToUsdRate = quote === "USD" ? 1 : Number(calculator.quoteToUsdRate || 0);
+  const summary = calculatePositionSize({
+    pair: calculator.pair,
+    balance: Number(calculator.accountBalance || 0),
+    riskPercent: Number(calculator.riskPercent || 0),
+    entryPrice: Number(calculator.entryPrice || 0),
+    stopLossPrice: Number(calculator.stopLossPrice || 0),
+    quoteToUsdRate,
+  });
+  const exportRows = profileRows.map((row) => {
+    const riskPercent = Number(row.riskPercent || 0) * (profileMode === "half" ? 0.5 : 1);
+    return {
+      ...row,
+      effectiveRiskPercent: riskPercent,
+      size: calculatePositionSize({
+        pair: calculator.pair,
+        balance: Number(row.balance || 0),
+        riskPercent,
+        entryPrice: Number(calculator.entryPrice || 0),
+        stopLossPrice: Number(calculator.stopLossPrice || 0),
+        quoteToUsdRate,
+      }),
+    };
+  });
+  const width = 1180;
+  const rowHeight = 58;
+  const height = 510 + exportRows.length * rowHeight;
+  const scale = Math.min(2, window.devicePixelRatio || 1);
+  const canvas = document.createElement("canvas");
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#07131d";
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = "#0f2231";
+  roundRect(ctx, 34, 34, width - 68, height - 68, 18);
+  ctx.fill();
+
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = "800 22px Inter, Arial";
+  ctx.fillText("Journaly OS", 64, 82);
+  ctx.fillStyle = "#ecfeff";
+  ctx.font = "900 42px Inter, Arial";
+  ctx.fillText("Position Sizing Export", 64, 132);
+  ctx.fillStyle = "#9db3c0";
+  ctx.font = "700 18px Inter, Arial";
+  ctx.fillText(new Date().toLocaleString(), 64, 164);
+
+  const topCards = [
+    ["Pair", calculator.pair || "--"],
+    ["Entry", calculator.entryPrice || "--"],
+    ["Stop Loss", calculator.stopLossPrice || "--"],
+    ["Take Profit", calculator.takeProfitPrice || "--"],
+    ["Stop", `${formatNumber(summary.stopPips)} pips`],
+    ["Quote rate", quote === "USD" ? "1" : calculator.quoteToUsdRate || "--"],
+  ];
+  drawMetricGrid(ctx, topCards, 64, 208, 3);
+
+  const summaryCards = [
+    ["Suggested lots", formatNumber(summary.lots)],
+    ["Risk amount", `$${formatNumber(summary.riskAmount)}`],
+    ["Micro lots", formatNumber(summary.microLots)],
+    ["Mini lots", formatNumber(summary.miniLots)],
+    ["Units", Math.round(summary.units).toLocaleString()],
+    ["Profile mode", profileMode === "half" ? "Half profile" : "Main profile"],
+  ];
+  drawMetricGrid(ctx, summaryCards, 64, 336, 3);
+
+  let y = 482;
+  ctx.fillStyle = "#7dd3fc";
+  ctx.font = "900 18px Inter, Arial";
+  ctx.fillText("Profile Sizing", 64, y);
+  y += 28;
+  drawTableHeader(ctx, y);
+  y += 34;
+
+  exportRows.forEach((row, index) => {
+    drawProfileExportRow(ctx, row, y, index);
+    y += rowHeight;
+  });
+
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = `journaly-position-sizing-${calculator.pair || "export"}-${new Date().toISOString().slice(0, 10)}.png`;
+  link.click();
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + width, y, x + width, y + height, radius);
+  ctx.arcTo(x + width, y + height, x, y + height, radius);
+  ctx.arcTo(x, y + height, x, y, radius);
+  ctx.arcTo(x, y, x + width, y, radius);
+  ctx.closePath();
+}
+
+function drawMetricGrid(ctx: CanvasRenderingContext2D, cards: string[][], x: number, y: number, columns: number) {
+  const gap = 14;
+  const cardWidth = (1052 - gap * (columns - 1)) / columns;
+  cards.forEach(([label, value], index) => {
+    const cx = x + (index % columns) * (cardWidth + gap);
+    const cy = y + Math.floor(index / columns) * 86;
+    ctx.fillStyle = "#132b3b";
+    roundRect(ctx, cx, cy, cardWidth, 72, 12);
+    ctx.fill();
+    ctx.fillStyle = "#9db3c0";
+    ctx.font = "800 14px Inter, Arial";
+    ctx.fillText(label.toUpperCase(), cx + 18, cy + 26);
+    ctx.fillStyle = "#ecfeff";
+    ctx.font = "900 23px Inter, Arial";
+    ctx.fillText(value, cx + 18, cy + 55);
+  });
+}
+
+function drawTableHeader(ctx: CanvasRenderingContext2D, y: number) {
+  const headers = ["Balance", "Type", "Platform", "Risk", "Lot size"];
+  const xs = [74, 260, 450, 690, 870];
+  ctx.fillStyle = "#102638";
+  roundRect(ctx, 64, y - 23, 1052, 34, 10);
+  ctx.fill();
+  ctx.fillStyle = "#9db3c0";
+  ctx.font = "900 13px Inter, Arial";
+  headers.forEach((header, index) => ctx.fillText(header.toUpperCase(), xs[index], y));
+}
+
+function drawProfileExportRow(
+  ctx: CanvasRenderingContext2D,
+  row: ProfileSizingRow & { effectiveRiskPercent: number; size: ReturnType<typeof calculatePositionSize> },
+  y: number,
+  index: number,
+) {
+  ctx.fillStyle = index % 2 === 0 ? "#0d2131" : "#102638";
+  roundRect(ctx, 64, y - 22, 1052, 44, 10);
+  ctx.fill();
+  ctx.fillStyle = "#ecfeff";
+  ctx.font = "800 17px Inter, Arial";
+  ctx.fillText(`$${Number(row.balance || 0).toLocaleString()}`, 74, y + 6);
+  ctx.fillText(row.type || "--", 260, y + 6);
+  ctx.fillText(row.platform || "--", 450, y + 6);
+  ctx.fillText(`${formatNumber(row.effectiveRiskPercent)}%`, 690, y + 6);
+  ctx.fillStyle = "#7dd3fc";
+  ctx.fillText(formatNumber(row.size.lots), 870, y + 6);
 }
 
 function getMarketSession(now: Date): MarketSessionState {
@@ -3838,6 +3996,23 @@ export default function App() {
                     <span>Units: {Math.round(positionSize.units).toLocaleString()}</span>
                     <span>Stop: {formatNumber(positionSize.stopPips)} pips</span>
                   </div>
+
+                  <div className="form-actions">
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() =>
+                        exportPositionSizingPng({
+                          calculator: positionCalculator,
+                          profileRows,
+                          profileMode,
+                        })
+                      }
+                    >
+                      <ImagePlus size={18} />
+                      Export PNG
+                    </button>
+                  </div>
                 </section>
 
                 <section className="profile-sizing">
@@ -3871,6 +4046,20 @@ export default function App() {
                         onClick={() => localStorage.setItem(PROFILE_SIZING_KEY, JSON.stringify(profileRows))}
                       >
                         Save Profiles
+                      </button>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() =>
+                          exportPositionSizingPng({
+                            calculator: positionCalculator,
+                            profileRows,
+                            profileMode,
+                          })
+                        }
+                      >
+                        <ImagePlus size={18} />
+                        Export PNG
                       </button>
                     </div>
                   </div>
