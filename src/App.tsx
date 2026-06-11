@@ -1867,11 +1867,6 @@ function chunkRows<T>(rows: T[], size: number) {
   return chunks;
 }
 
-function isFutureJwtError(error: { message?: string } | null | undefined) {
-  const message = error?.message?.toLowerCase() || "";
-  return message.includes("jwt issued at future") || message.includes("token is not valid yet");
-}
-
 export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "", token: "" });
@@ -2630,27 +2625,6 @@ export default function App() {
     );
   }
 
-  async function recoverFutureJwtSession() {
-    if (!supabase) return false;
-
-    const { data, error } = await supabase.auth.refreshSession();
-    if (!error && data.session?.user) {
-      setCurrentUser(normalizeSessionUser(data.session.user));
-      return true;
-    }
-
-    await supabase.auth.signOut();
-    setCurrentUser(null);
-    lastLoadedUserId.current = null;
-    setAuthMessage("Your saved login token was out of sync with Supabase. Please log in again.");
-    showToast({
-      tone: "error",
-      title: "Session expired",
-      message: "Please log in again so Journaly can create a fresh session.",
-    });
-    return false;
-  }
-
   function updateLearnNotes(nextNotes: Record<string, LearnNote[]>) {
     setLearnNotes(nextNotes);
     localStorage.setItem(LEARN_NOTES_KEY, JSON.stringify(nextNotes));
@@ -2861,30 +2835,19 @@ export default function App() {
   async function loadTrades() {
     if (!currentUser || !supabase) return;
 
-    const client = supabase;
     setIsSyncing(true);
     setSyncMessage("");
 
-    const fetchTrades = () =>
-      client
-        .from("trades")
-        .select("*")
-        .order("trade_date", { ascending: false })
-        .order("trade_time", { ascending: false });
-    let { data, error } = await fetchTrades();
-
-    if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-      ({ data, error } = await fetchTrades());
-    }
+    const { data, error } = await supabase
+      .from("trades")
+      .select("*")
+      .order("trade_date", { ascending: false })
+      .order("trade_time", { ascending: false });
 
     setIsSyncing(false);
 
     if (error) {
-      setSyncMessage(
-        isFutureJwtError(error)
-          ? "Could not load trades: your saved login token is out of sync. Please log in again."
-          : `Could not load trades: ${error.message}`,
-      );
+      setSyncMessage(`Could not load trades: ${error.message}`);
       return;
     }
 
@@ -2894,30 +2857,19 @@ export default function App() {
   async function loadTradeDecisions() {
     if (!currentUser || !supabase) return;
 
-    const client = supabase;
     setIsSyncing(true);
     setSyncMessage("");
 
-    const fetchTradeDecisions = () =>
-      client
-        .from("trade_decisions")
-        .select("*")
-        .order("decision_date", { ascending: false })
-        .order("decision_time", { ascending: false });
-    let { data, error } = await fetchTradeDecisions();
-
-    if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-      ({ data, error } = await fetchTradeDecisions());
-    }
+    const { data, error } = await supabase
+      .from("trade_decisions")
+      .select("*")
+      .order("decision_date", { ascending: false })
+      .order("decision_time", { ascending: false });
 
     setIsSyncing(false);
 
     if (error) {
-      setSyncMessage(
-        isFutureJwtError(error)
-          ? "Could not load missed trades: your saved login token is out of sync. Please log in again."
-          : `Could not load missed trades: ${error.message}`,
-      );
+      setSyncMessage(`Could not load decision log: ${error.message}`);
       return;
     }
 
@@ -2927,30 +2879,19 @@ export default function App() {
   async function loadBacktests() {
     if (!currentUser || !supabase) return;
 
-    const client = supabase;
     setIsSyncing(true);
     setSyncMessage("");
 
-    const fetchBacktests = () =>
-      client
-        .from("backtests")
-        .select("*")
-        .order("trade_date", { ascending: false })
-        .order("trade_time", { ascending: false });
-    let { data, error } = await fetchBacktests();
-
-    if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-      ({ data, error } = await fetchBacktests());
-    }
+    const { data, error } = await supabase
+      .from("backtests")
+      .select("*")
+      .order("trade_date", { ascending: false })
+      .order("trade_time", { ascending: false });
 
     setIsSyncing(false);
 
     if (error) {
-      setSyncMessage(
-        isFutureJwtError(error)
-          ? "Could not load backtests: your saved login token is out of sync. Please log in again."
-          : `Could not load backtests: ${error.message}`,
-      );
+      setSyncMessage(`Could not load backtests: ${error.message}`);
       return;
     }
 
