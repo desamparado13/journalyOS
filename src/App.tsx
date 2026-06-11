@@ -60,6 +60,10 @@ const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
+const TRADE_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+const BACKTEST_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,source_app,legacy_id,created_at,updated_at";
 
 const learnVideos = [
   {
@@ -2884,7 +2888,7 @@ export default function App() {
     const fetchTrades = () =>
       client
         .from("trades")
-        .select("*")
+        .select(TRADE_LIST_COLUMNS)
         .order("trade_date", { ascending: false })
         .order("trade_time", { ascending: false });
 
@@ -2960,7 +2964,7 @@ export default function App() {
     const fetchBacktests = () =>
       client
         .from("backtests")
-        .select("*")
+        .select(BACKTEST_LIST_COLUMNS)
         .order("trade_date", { ascending: false })
         .order("trade_time", { ascending: false });
 
