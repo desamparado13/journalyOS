@@ -290,7 +290,6 @@ type AppView =
   | "position-sizing"
   | "trade-analytics"
   | "view-trades"
-  | "trade-decisions"
   | "trade-images"
   | "trade-calendar"
   | "monthly-heatmap"
@@ -314,7 +313,6 @@ const appViews: readonly AppView[] = [
   "position-sizing",
   "trade-analytics",
   "view-trades",
-  "trade-decisions",
   "trade-images",
   "trade-calendar",
   "monthly-heatmap",
@@ -2005,7 +2003,6 @@ export default function App() {
     if (lastLoadedUserId.current !== currentUser.id) {
       lastLoadedUserId.current = currentUser.id;
       loadTrades();
-      loadTradeDecisions();
       setTradeForm(todayDefaults());
       setTradeDecisionForm(tradeDecisionDefaults());
       setBacktestForm(backtestDefaults());
@@ -3486,7 +3483,7 @@ export default function App() {
       notes: decision.notes,
       screenshotFile: null,
     });
-    setActiveView("trade-decisions");
+    setActiveView("view-trades");
   }
 
   function startTradeFromDecision(decision: TradeDecision) {
@@ -3788,7 +3785,6 @@ export default function App() {
             className={
               activeView === "trade-analytics" ||
               activeView === "view-trades" ||
-              activeView === "trade-decisions" ||
               activeView === "trade-images" ||
               activeView === "trade-calendar" ||
               activeView === "monthly-heatmap" ||
@@ -4709,7 +4705,6 @@ export default function App() {
 
         {activeView === "trade-analytics" ||
         activeView === "view-trades" ||
-        activeView === "trade-decisions" ||
         activeView === "trade-images" ||
         activeView === "trade-calendar" ||
         activeView === "monthly-heatmap" ||
@@ -4722,8 +4717,6 @@ export default function App() {
               <h2>
                 {activeView === "trade-analytics"
                   ? "Trade analytics"
-                  : activeView === "trade-decisions"
-                    ? "Decision log"
                   : activeView === "trade-images"
                     ? "Image view"
                   : activeView === "trade-calendar"
@@ -4754,13 +4747,6 @@ export default function App() {
                 onClick={() => setActiveView("view-trades")}
               >
                 Trades
-              </button>
-              <button
-                className={activeView === "trade-decisions" ? "is-active" : ""}
-                type="button"
-                onClick={() => setActiveView("trade-decisions")}
-              >
-                Decisions
               </button>
               <button
                 className={activeView === "trade-images" ? "is-active" : ""}
@@ -4886,230 +4872,6 @@ export default function App() {
               )}
             </div>
             </>
-            ) : null}
-
-            {activeView === "trade-decisions" ? (
-              <section className="decision-log-view">
-                <div className="stat-grid analytics-grid">
-                  <Stat label="Decision ideas" value={String(decisionAnalytics.total)} />
-                  <Stat label="Cancelled" value={String(decisionAnalytics.cancelled)} />
-                  <Stat label="Waiting" value={String(decisionAnalytics.waiting)} />
-                  <Stat label="Avoided loss" value={String(decisionAnalytics.avoidedLosses)} />
-                  <Stat label="Cost opportunity" value={String(decisionAnalytics.opportunityCosts)} />
-                  <Stat label="Saved rate" value={`${decisionAnalytics.savedRate}%`} />
-                  <Stat label="Taken" value={String(decisionAnalytics.taken)} />
-                  <Stat label="Missed" value={String(decisionAnalytics.missed)} />
-                </div>
-
-                <article className="market-panel decision-insight-panel">
-                  <div className="panel-header">
-                    <span>Decision quality</span>
-                    <strong>{decisionAnalytics.topReason}</strong>
-                  </div>
-                  <p>
-                    Most repeated reason: <strong>{decisionAnalytics.topReason}</strong>. Review cancelled outcomes to see if your filter is
-                    protecting capital or costing clean opportunities.
-                  </p>
-                </article>
-
-                <form className="trade-form decision-form" onSubmit={handleTradeDecisionSubmit}>
-                  <section className="trade-form-section">
-                    <div className="trade-form-section-title">
-                      <span>{tradeDecisionForm.id ? "Edit decision" : "Log decision"}</span>
-                      <strong>{tradeDecisionForm.status}</strong>
-                    </div>
-                    <div className="trade-entry-grid">
-                      <label>
-                        <span>Date</span>
-                        <input
-                          value={tradeDecisionForm.date}
-                          type="date"
-                          required
-                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, date: event.target.value })}
-                        />
-                      </label>
-                      <label>
-                        <span>Time</span>
-                        <input
-                          value={tradeDecisionForm.time}
-                          type="time"
-                          required
-                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, time: event.target.value })}
-                        />
-                      </label>
-                      <SelectField
-                        label="Pair"
-                        value={tradeDecisionForm.pair}
-                        options={pairs}
-                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, pair: value })}
-                      />
-                      <SelectField
-                        label="Setup"
-                        value={tradeDecisionForm.setup}
-                        options={setups}
-                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, setup: value })}
-                      />
-                      <SelectField
-                        label="Direction"
-                        value={tradeDecisionForm.direction}
-                        options={["Long", "Short"]}
-                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, direction: value as Direction })}
-                      />
-                      <SelectField
-                        label="Status"
-                        value={tradeDecisionForm.status}
-                        options={decisionStatuses}
-                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, status: value as TradeDecisionStatus })}
-                      />
-                      <SelectField
-                        label="Outcome"
-                        value={tradeDecisionForm.outcome}
-                        options={decisionOutcomes}
-                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, outcome: value as TradeDecisionOutcome })}
-                      />
-                      <label>
-                        <span>Risk %</span>
-                        <input
-                          value={tradeDecisionForm.riskPercent}
-                          type="text"
-                          inputMode="decimal"
-                          pattern="[0-9]*[.]?[0-9]*"
-                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, riskPercent: event.target.value })}
-                        />
-                      </label>
-                    </div>
-                  </section>
-
-                  <section className="trade-form-section trade-journal-section">
-                    <div className="decision-plan-grid">
-                      <label>
-                        <span>Entry plan</span>
-                        <input
-                          value={tradeDecisionForm.entryPlan}
-                          placeholder="Trigger, zone, confirmation"
-                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, entryPlan: event.target.value })}
-                        />
-                      </label>
-                      <label>
-                        <span>Stop loss</span>
-                        <input
-                          value={tradeDecisionForm.stopLoss}
-                          placeholder="Invalidation or pips"
-                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, stopLoss: event.target.value })}
-                        />
-                      </label>
-                      <label>
-                        <span>Take profit</span>
-                        <input
-                          value={tradeDecisionForm.takeProfit}
-                          placeholder="Target, liquidity, R"
-                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, takeProfit: event.target.value })}
-                        />
-                      </label>
-                      <SelectField
-                        label="Cancel reason"
-                        value={
-                          cancellationReasons.includes(tradeDecisionForm.reasonCancelled as (typeof cancellationReasons)[number])
-                            ? tradeDecisionForm.reasonCancelled
-                            : "None"
-                        }
-                        options={cancellationReasons}
-                        onChange={(value) =>
-                          setTradeDecisionForm({ ...tradeDecisionForm, reasonCancelled: value === "None" ? "" : value })
-                        }
-                      />
-                    </div>
-
-                    <label>
-                      <span>Reason to take</span>
-                      <textarea
-                        value={tradeDecisionForm.reasonToTake}
-                        rows={3}
-                        placeholder="What made this trade valid before the decision?"
-                        onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, reasonToTake: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>Reason cancelled or missed</span>
-                      <textarea
-                        value={tradeDecisionForm.reasonCancelled}
-                        rows={3}
-                        placeholder="Late entry, news, rule not met, hesitation, spread, setup invalidated..."
-                        onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, reasonCancelled: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      <span>What happened after</span>
-                      <textarea
-                        value={tradeDecisionForm.notes}
-                        rows={4}
-                        placeholder="Did cancelling save you, or did the trade run without you?"
-                        onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, notes: event.target.value })}
-                      />
-                    </label>
-                    <label className="file-field">
-                      <span>Chart screenshot</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) =>
-                          setTradeDecisionForm({ ...tradeDecisionForm, screenshotFile: event.target.files?.[0] || null })
-                        }
-                      />
-                      <ImagePlus size={18} />
-                    </label>
-
-                    <div className="form-actions">
-                      <button className="primary-action" type="submit" disabled={isSyncing}>
-                        <ClipboardCheck size={18} />
-                        {tradeDecisionForm.id ? "Update decision" : "Save decision"}
-                      </button>
-                      <button className="ghost-action" type="button" onClick={() => setTradeDecisionForm(tradeDecisionDefaults())}>
-                        <RefreshCcw size={18} />
-                        Clear
-                      </button>
-                    </div>
-                  </section>
-                </form>
-
-                <div className="trade-list decision-list" aria-live="polite">
-                  {isSyncing ? <DataLoadingRow label="Loading decisions" /> : null}
-                  {tradeDecisions.length === 0 ? (
-                    <div className="empty-state">
-                      <strong>No decisions logged yet</strong>
-                      <p>Record the next setup you take, cancel, miss, or keep waiting on.</p>
-                    </div>
-                  ) : (
-                    tradeDecisions
-                      .slice()
-                      .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
-                      .map((decision) => {
-                        const decisionImages = tradeDecisions
-                          .filter((item) => item.screenshot)
-                          .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
-                          .map((item) => ({
-                            id: item.id,
-                            src: item.screenshot,
-                            alt: `${item.pair} ${item.setup} decision screenshot`,
-                            title: `${item.pair} ${item.status} - ${formatMonthDayYear(item.date)}`,
-                            meta: `${item.setup} / ${item.outcome}`,
-                          }));
-                        const imageIndex = decisionImages.findIndex((item) => item.id === decision.id);
-
-                        return (
-                          <TradeDecisionCard
-                            key={decision.id}
-                            decision={decision}
-                            onEdit={() => editTradeDecision(decision)}
-                            onDelete={() => deleteTradeDecision(decision)}
-                            onCreateTrade={() => startTradeFromDecision(decision)}
-                            onViewImage={() => imageIndex >= 0 && openImageViewer(decisionImages, imageIndex)}
-                          />
-                        );
-                      })
-                  )}
-                </div>
-              </section>
             ) : null}
 
             {activeView === "trade-images" ? (
