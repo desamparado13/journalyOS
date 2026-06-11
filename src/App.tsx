@@ -1872,6 +1872,15 @@ function isFutureJwtError(error: { message?: string } | null | undefined) {
   return message.includes("jwt issued at future") || message.includes("token is not valid yet");
 }
 
+function withQueryTimeout<T>(query: PromiseLike<T>, label: string, timeoutMs = 15000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(query),
+    new Promise<T>((_, reject) =>
+      window.setTimeout(() => reject(new Error(`${label} took too long to load. Refresh the page or log in again.`)), timeoutMs),
+    ),
+  ]);
+}
+
 export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "", token: "" });
@@ -1936,6 +1945,7 @@ export default function App() {
   const [licenseMessage, setLicenseMessage] = useState("");
   const [sessionNow, setSessionNow] = useState(() => new Date());
   const lastLoadedUserId = useRef<string | null>(null);
+  const activeSyncs = useRef(0);
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
   const editingTrade = tradeForm.id ? trades.find((trade) => trade.id === tradeForm.id) || null : null;
@@ -2617,6 +2627,16 @@ export default function App() {
     setToast(nextToast);
   }
 
+  function beginSync() {
+    activeSyncs.current += 1;
+    setIsSyncing(true);
+
+    return () => {
+      activeSyncs.current = Math.max(0, activeSyncs.current - 1);
+      setIsSyncing(activeSyncs.current > 0);
+    };
+  }
+
   function openImageViewer(items: ImageViewerItem[], index: number) {
     if (items.length === 0) return;
     setImageViewer({ items, index });
@@ -2858,7 +2878,7 @@ export default function App() {
     if (!currentUser || !supabase) return;
 
     const client = supabase;
-    setIsSyncing(true);
+    const endSync = beginSync();
     setSyncMessage("");
 
     const fetchTrades = () =>
@@ -2867,31 +2887,36 @@ export default function App() {
         .select("*")
         .order("trade_date", { ascending: false })
         .order("trade_time", { ascending: false });
-    let { data, error } = await fetchTrades();
 
-    if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-      ({ data, error } = await fetchTrades());
+    try {
+      let { data, error } = await withQueryTimeout(fetchTrades(), "Trades");
+
+      if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
+        ({ data, error } = await withQueryTimeout(fetchTrades(), "Trades"));
+      }
+
+      if (error) {
+        setSyncMessage(
+          isFutureJwtError(error)
+            ? "Could not load trades: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
+            : `Could not load trades: ${error.message}`,
+        );
+        return;
+      }
+
+      setTrades(((data || []) as TradeRow[]).map(toTrade));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
+    } finally {
+      endSync();
     }
-
-    setIsSyncing(false);
-
-    if (error) {
-      setSyncMessage(
-        isFutureJwtError(error)
-          ? "Could not load trades: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
-          : `Could not load trades: ${error.message}`,
-      );
-      return;
-    }
-
-    setTrades(((data || []) as TradeRow[]).map(toTrade));
   }
 
   async function loadTradeDecisions() {
     if (!currentUser || !supabase) return;
 
     const client = supabase;
-    setIsSyncing(true);
+    const endSync = beginSync();
     setSyncMessage("");
 
     const fetchTradeDecisions = () =>
@@ -2900,31 +2925,36 @@ export default function App() {
         .select("*")
         .order("decision_date", { ascending: false })
         .order("decision_time", { ascending: false });
-    let { data, error } = await fetchTradeDecisions();
 
-    if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-      ({ data, error } = await fetchTradeDecisions());
+    try {
+      let { data, error } = await withQueryTimeout(fetchTradeDecisions(), "Missed trades");
+
+      if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
+        ({ data, error } = await withQueryTimeout(fetchTradeDecisions(), "Missed trades"));
+      }
+
+      if (error) {
+        setSyncMessage(
+          isFutureJwtError(error)
+            ? "Could not load missed trades: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
+            : `Could not load missed trades: ${error.message}`,
+        );
+        return;
+      }
+
+      setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load missed trades: ${error.message}` : "Could not load missed trades.");
+    } finally {
+      endSync();
     }
-
-    setIsSyncing(false);
-
-    if (error) {
-      setSyncMessage(
-        isFutureJwtError(error)
-          ? "Could not load missed trades: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
-          : `Could not load missed trades: ${error.message}`,
-      );
-      return;
-    }
-
-    setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
   }
 
   async function loadBacktests() {
     if (!currentUser || !supabase) return;
 
     const client = supabase;
-    setIsSyncing(true);
+    const endSync = beginSync();
     setSyncMessage("");
 
     const fetchBacktests = () =>
@@ -2933,24 +2963,29 @@ export default function App() {
         .select("*")
         .order("trade_date", { ascending: false })
         .order("trade_time", { ascending: false });
-    let { data, error } = await fetchBacktests();
 
-    if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-      ({ data, error } = await fetchBacktests());
+    try {
+      let { data, error } = await withQueryTimeout(fetchBacktests(), "Backtests");
+
+      if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
+        ({ data, error } = await withQueryTimeout(fetchBacktests(), "Backtests"));
+      }
+
+      if (error) {
+        setSyncMessage(
+          isFutureJwtError(error)
+            ? "Could not load backtests: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
+            : `Could not load backtests: ${error.message}`,
+        );
+        return;
+      }
+
+      setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load backtests: ${error.message}` : "Could not load backtests.");
+    } finally {
+      endSync();
     }
-
-    setIsSyncing(false);
-
-    if (error) {
-      setSyncMessage(
-        isFutureJwtError(error)
-          ? "Could not load backtests: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
-          : `Could not load backtests: ${error.message}`,
-      );
-      return;
-    }
-
-    setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -4847,12 +4882,12 @@ export default function App() {
 
             <div className="trade-list" aria-live="polite">
               {isSyncing ? <DataLoadingRow label="Loading trades" /> : null}
-              {filteredTrades.length === 0 ? (
+              {!isSyncing && filteredTrades.length === 0 ? (
                 <div className="empty-state">
                   <strong>No trades logged yet</strong>
                   <p>Your best review data starts with the next clean entry.</p>
                 </div>
-              ) : (
+              ) : !isSyncing ? (
                 filteredTrades.map((trade) => {
                   const imageIndex = filteredTradeImageItems.findIndex((item) => item.id === trade.id);
 
@@ -4866,7 +4901,7 @@ export default function App() {
                   />
                   );
                 })
-              )}
+              ) : null}
             </div>
             </>
             ) : null}
@@ -5017,12 +5052,12 @@ export default function App() {
 
                 <div className="trade-list decision-list" aria-live="polite">
                   {isSyncing ? <DataLoadingRow label="Loading decisions" /> : null}
-                  {tradeDecisions.length === 0 ? (
+                  {!isSyncing && tradeDecisions.length === 0 ? (
                     <div className="empty-state">
                       <strong>No missed trades logged yet</strong>
                       <p>Record the next setup you skip, then mark whether it would have won or not.</p>
                     </div>
-                  ) : (
+                  ) : !isSyncing ? (
                     tradeDecisions
                       .slice()
                       .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
@@ -5049,7 +5084,7 @@ export default function App() {
                           />
                         );
                       })
-                  )}
+                  ) : null}
                 </div>
               </section>
             ) : null}
@@ -5347,12 +5382,12 @@ export default function App() {
 
             <div className="trade-list" aria-live="polite">
               {isSyncing ? <DataLoadingRow label="Loading backtests" /> : null}
-              {filteredBacktests.length === 0 ? (
+              {!isSyncing && filteredBacktests.length === 0 ? (
                 <div className="empty-state">
                   <strong>No backtests yet</strong>
                   <p>Log a fresh backtest sample to start building your review data.</p>
                 </div>
-              ) : (
+              ) : !isSyncing ? (
                 filteredBacktests.map((backtest) => (
                   <BacktestCard
                     key={backtest.id}
@@ -5376,7 +5411,7 @@ export default function App() {
                     }
                   />
                 ))
-              )}
+              ) : null}
             </div>
             </>
             ) : null}
