@@ -60,6 +60,12 @@ const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
+const TRADE_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+const TRADE_DECISION_LIST_COLUMNS =
+  "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,created_at,updated_at";
+const BACKTEST_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,source_app,legacy_id,created_at,updated_at";
 
 const learnVideos = [
   {
@@ -1867,6 +1873,15 @@ function chunkRows<T>(rows: T[], size: number) {
   return chunks;
 }
 
+function withLoadTimeout<T>(query: PromiseLike<T>, label: string, timeoutMs = 15000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(query),
+    new Promise<T>((_, reject) =>
+      window.setTimeout(() => reject(new Error(`${label} took too long to load. Refresh the page and try again.`)), timeoutMs),
+    ),
+  ]);
+}
+
 export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "", token: "" });
@@ -2840,20 +2855,27 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage("");
 
-    const { data, error } = await supabase
-      .from("trades")
-      .select("*")
-      .order("trade_date", { ascending: false })
-      .order("trade_time", { ascending: false });
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("trades")
+          .select(TRADE_LIST_COLUMNS)
+          .order("trade_date", { ascending: false })
+          .order("trade_time", { ascending: false }),
+        "Trades",
+      );
 
-    setIsSyncing(false);
+      if (error) {
+        setSyncMessage(`Could not load trades: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      setSyncMessage(`Could not load trades: ${error.message}`);
-      return;
+      setTrades(((data || []) as TradeRow[]).map(toTrade));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
+    } finally {
+      setIsSyncing(false);
     }
-
-    setTrades(((data || []) as TradeRow[]).map(toTrade));
   }
 
   async function loadTradeDecisions() {
@@ -2862,20 +2884,27 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage("");
 
-    const { data, error } = await supabase
-      .from("trade_decisions")
-      .select("*")
-      .order("decision_date", { ascending: false })
-      .order("decision_time", { ascending: false });
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("trade_decisions")
+          .select(TRADE_DECISION_LIST_COLUMNS)
+          .order("decision_date", { ascending: false })
+          .order("decision_time", { ascending: false }),
+        "Decision log",
+      );
 
-    setIsSyncing(false);
+      if (error) {
+        setSyncMessage(`Could not load decision log: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      setSyncMessage(`Could not load decision log: ${error.message}`);
-      return;
+      setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load decision log: ${error.message}` : "Could not load decision log.");
+    } finally {
+      setIsSyncing(false);
     }
-
-    setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
   }
 
   async function loadBacktests() {
@@ -2884,20 +2913,27 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage("");
 
-    const { data, error } = await supabase
-      .from("backtests")
-      .select("*")
-      .order("trade_date", { ascending: false })
-      .order("trade_time", { ascending: false });
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("backtests")
+          .select(BACKTEST_LIST_COLUMNS)
+          .order("trade_date", { ascending: false })
+          .order("trade_time", { ascending: false }),
+        "Backtests",
+      );
 
-    setIsSyncing(false);
+      if (error) {
+        setSyncMessage(`Could not load backtests: ${error.message}`);
+        return;
+      }
 
-    if (error) {
-      setSyncMessage(`Could not load backtests: ${error.message}`);
-      return;
+      setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load backtests: ${error.message}` : "Could not load backtests.");
+    } finally {
+      setIsSyncing(false);
     }
-
-    setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
