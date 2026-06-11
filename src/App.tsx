@@ -62,8 +62,6 @@ const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
-const TRADE_DECISION_LIST_COLUMNS =
-  "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,created_at,updated_at";
 const BACKTEST_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,source_app,legacy_id,created_at,updated_at";
 
@@ -1878,18 +1876,13 @@ function isFutureJwtError(error: { message?: string } | null | undefined) {
   return message.includes("jwt issued at future") || message.includes("token is not valid yet");
 }
 
-function withQueryTimeout<T>(createQuery: (signal: AbortSignal) => PromiseLike<T>, label: string, timeoutMs = 15000): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  return Promise.resolve(createQuery(controller.signal))
-    .catch((error) => {
-      if (controller.signal.aborted) {
-        throw new Error(`${label} took too long to load. Refresh the page or log in again.`);
-      }
-      throw error;
-    })
-    .finally(() => window.clearTimeout(timeoutId));
+function withQueryTimeout<T>(query: PromiseLike<T>, label: string, timeoutMs = 15000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(query),
+    new Promise<T>((_, reject) =>
+      window.setTimeout(() => reject(new Error(`${label} took too long to load. Refresh the page or log in again.`)), timeoutMs),
+    ),
+  ]);
 }
 
 export default function App() {
@@ -2892,19 +2885,18 @@ export default function App() {
     const endSync = beginSync();
     setSyncMessage("");
 
-    const fetchTrades = (signal: AbortSignal) =>
+    const fetchTrades = () =>
       client
         .from("trades")
         .select(TRADE_LIST_COLUMNS)
         .order("trade_date", { ascending: false })
-        .order("trade_time", { ascending: false })
-        .abortSignal(signal);
+        .order("trade_time", { ascending: false });
 
     try {
-      let { data, error } = await withQueryTimeout(fetchTrades, "Trades");
+      let { data, error } = await withQueryTimeout(fetchTrades(), "Trades");
 
       if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-        ({ data, error } = await withQueryTimeout(fetchTrades, "Trades"));
+        ({ data, error } = await withQueryTimeout(fetchTrades(), "Trades"));
       }
 
       if (error) {
@@ -2931,19 +2923,18 @@ export default function App() {
     const endSync = beginSync();
     setSyncMessage("");
 
-    const fetchTradeDecisions = (signal: AbortSignal) =>
+    const fetchTradeDecisions = () =>
       client
         .from("trade_decisions")
-        .select(TRADE_DECISION_LIST_COLUMNS)
+        .select("*")
         .order("decision_date", { ascending: false })
-        .order("decision_time", { ascending: false })
-        .abortSignal(signal);
+        .order("decision_time", { ascending: false });
 
     try {
-      let { data, error } = await withQueryTimeout(fetchTradeDecisions, "Missed trades");
+      let { data, error } = await withQueryTimeout(fetchTradeDecisions(), "Missed trades");
 
       if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-        ({ data, error } = await withQueryTimeout(fetchTradeDecisions, "Missed trades"));
+        ({ data, error } = await withQueryTimeout(fetchTradeDecisions(), "Missed trades"));
       }
 
       if (error) {
@@ -2970,19 +2961,18 @@ export default function App() {
     const endSync = beginSync();
     setSyncMessage("");
 
-    const fetchBacktests = (signal: AbortSignal) =>
+    const fetchBacktests = () =>
       client
         .from("backtests")
         .select(BACKTEST_LIST_COLUMNS)
         .order("trade_date", { ascending: false })
-        .order("trade_time", { ascending: false })
-        .abortSignal(signal);
+        .order("trade_time", { ascending: false });
 
     try {
-      let { data, error } = await withQueryTimeout(fetchBacktests, "Backtests");
+      let { data, error } = await withQueryTimeout(fetchBacktests(), "Backtests");
 
       if (isFutureJwtError(error) && (await recoverFutureJwtSession())) {
-        ({ data, error } = await withQueryTimeout(fetchBacktests, "Backtests"));
+        ({ data, error } = await withQueryTimeout(fetchBacktests(), "Backtests"));
       }
 
       if (error) {
