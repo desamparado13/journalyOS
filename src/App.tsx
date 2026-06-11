@@ -2639,14 +2639,10 @@ export default function App() {
       return true;
     }
 
-    await supabase.auth.signOut();
-    setCurrentUser(null);
-    lastLoadedUserId.current = null;
-    setAuthMessage("Your saved login token was out of sync with Supabase. Please log in again.");
     showToast({
       tone: "error",
-      title: "Session expired",
-      message: "Please log in again so Journaly can create a fresh session.",
+      title: "Session refresh needed",
+      message: "Supabase rejected the saved token. Please refresh the page or log in again if this stays blocked.",
     });
     return false;
   }
@@ -2882,7 +2878,7 @@ export default function App() {
     if (error) {
       setSyncMessage(
         isFutureJwtError(error)
-          ? "Could not load trades: your saved login token is out of sync. Please log in again."
+          ? "Could not load trades: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
           : `Could not load trades: ${error.message}`,
       );
       return;
@@ -2915,7 +2911,7 @@ export default function App() {
     if (error) {
       setSyncMessage(
         isFutureJwtError(error)
-          ? "Could not load missed trades: your saved login token is out of sync. Please log in again."
+          ? "Could not load missed trades: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
           : `Could not load missed trades: ${error.message}`,
       );
       return;
@@ -2948,7 +2944,7 @@ export default function App() {
     if (error) {
       setSyncMessage(
         isFutureJwtError(error)
-          ? "Could not load backtests: your saved login token is out of sync. Please log in again."
+          ? "Could not load backtests: Supabase rejected the saved login token. Your rows were not deleted. Refresh or log in again."
           : `Could not load backtests: ${error.message}`,
       );
       return;
