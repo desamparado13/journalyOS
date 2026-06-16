@@ -62,6 +62,9 @@ const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,screenshot_url,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+const TRADE_SUMMARY_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,created_at,updated_at";
 const BACKTEST_LIST_COLUMNS =
@@ -388,7 +391,7 @@ type TradeRow = {
   pnl_r: number | string;
   result: Result;
   notes: string | null;
-  screenshot_url: string | null;
+  screenshot_url?: string | null;
   source_app: string | null;
   legacy_id: number | null;
   duration_minutes: number | null;
@@ -2814,6 +2817,62 @@ export default function App() {
     setProfileMessage("Password updated.");
   }
 
+  async function fetchTradeScreenshot(tradeId: string) {
+    if (!currentUser || !supabase) return "";
+
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("trades")
+          .select(TRADE_SCREENSHOT_COLUMNS)
+          .eq("user_id", currentUser.id)
+          .eq("id", tradeId)
+          .maybeSingle(),
+        "Trade screenshot",
+        20000,
+      );
+
+      if (error) throw error;
+
+      return (data as Pick<TradeRow, "screenshot_url"> | null)?.screenshot_url || "";
+    } catch {
+      return "";
+    }
+  }
+
+  async function hydrateTradeScreenshots(tradeIds: string[]) {
+    if (!currentUser || !supabase || tradeIds.length === 0) return;
+
+    for (const ids of chunkRows(tradeIds, 12)) {
+      try {
+        const { data, error } = await withLoadTimeout(
+          supabase
+            .from("trades")
+            .select(TRADE_SCREENSHOT_COLUMNS)
+            .eq("user_id", currentUser.id)
+            .in("id", ids),
+          "Trade screenshots",
+          20000,
+        );
+
+        if (error) throw error;
+
+        const screenshots = new Map(
+          ((data || []) as Array<Pick<TradeRow, "id" | "screenshot_url">>).map((row) => [row.id, row.screenshot_url || ""]),
+        );
+
+        setTrades((current) =>
+          current.map((trade) =>
+            screenshots.has(trade.id) ? { ...trade, screenshot: screenshots.get(trade.id) || "" } : trade,
+          ),
+        );
+      } catch {
+        setSyncMessage("Trades loaded. Some screenshots are still taking longer than usual to load.");
+        return;
+      }
+    }
+  }
+
   async function loadTrades() {
     if (!currentUser || !supabase) return;
 
@@ -2824,7 +2883,8 @@ export default function App() {
       const { data, error } = await withLoadTimeout(
         supabase
           .from("trades")
-          .select(TRADE_LIST_COLUMNS)
+          .select(TRADE_SUMMARY_COLUMNS)
+          .eq("user_id", currentUser.id)
           .order("trade_date", { ascending: false })
           .order("trade_time", { ascending: false }),
         "Trades",
@@ -2835,7 +2895,9 @@ export default function App() {
         return;
       }
 
-      setTrades(((data || []) as TradeRow[]).map(toTrade));
+      const loadedTrades = ((data || []) as TradeRow[]).map(toTrade);
+      setTrades(loadedTrades);
+      void hydrateTradeScreenshots(loadedTrades.map((trade) => trade.id));
     } catch (error) {
       setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
     } finally {
@@ -2854,6 +2916,7 @@ export default function App() {
         supabase
           .from("backtests")
           .select(BACKTEST_LIST_COLUMNS)
+          .eq("user_id", currentUser.id)
           .order("trade_date", { ascending: false })
           .order("trade_time", { ascending: false }),
         "Backtests",
@@ -2927,6 +2990,7 @@ export default function App() {
 
     const existing = trades.find((trade) => trade.id === form.id);
     const uploadedShot = await fileToDataUrl(form.screenshotFile);
+    const savedScreenshot = existing?.screenshot || (existing ? await fetchTradeScreenshot(existing.id) : "");
 
     if (existing?.finalizedAt) {
       setIsSyncing(false);
@@ -2939,7 +3003,7 @@ export default function App() {
       return;
     }
 
-    if (existing && !(uploadedShot || existing.screenshot)) {
+    if (existing && !(uploadedShot || savedScreenshot)) {
       setIsSyncing(false);
       setSyncMessage("Add a screenshot before finalizing this trade.");
       showToast({
@@ -2965,7 +3029,7 @@ export default function App() {
       pnl_r: Number(form.pnl || 0),
       result: normalizedResult,
       notes: form.notes.trim(),
-      screenshot_url: uploadedShot || existing?.screenshot || "",
+      screenshot_url: uploadedShot || savedScreenshot,
       source_app: existing?.sourceApp || null,
       legacy_id: existing?.legacyId || null,
       duration_minutes: existing?.durationMinutes || null,
