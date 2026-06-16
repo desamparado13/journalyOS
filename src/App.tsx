@@ -60,8 +60,6 @@ const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
-const TRADE_LIST_COLUMNS =
-  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,screenshot_url,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
 const TRADE_SUMMARY_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
 const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
@@ -2843,32 +2841,16 @@ export default function App() {
   async function hydrateTradeScreenshots(tradeIds: string[]) {
     if (!currentUser || !supabase || tradeIds.length === 0) return;
 
-    for (const ids of chunkRows(tradeIds, 12)) {
+    for (const tradeId of tradeIds) {
       try {
-        const { data, error } = await withLoadTimeout(
-          supabase
-            .from("trades")
-            .select(TRADE_SCREENSHOT_COLUMNS)
-            .eq("user_id", currentUser.id)
-            .in("id", ids),
-          "Trade screenshots",
-          20000,
-        );
-
-        if (error) throw error;
-
-        const screenshots = new Map(
-          ((data || []) as Array<Pick<TradeRow, "id" | "screenshot_url">>).map((row) => [row.id, row.screenshot_url || ""]),
-        );
+        const screenshot = await fetchTradeScreenshot(tradeId);
+        if (!screenshot) continue;
 
         setTrades((current) =>
-          current.map((trade) =>
-            screenshots.has(trade.id) ? { ...trade, screenshot: screenshots.get(trade.id) || "" } : trade,
-          ),
+          current.map((trade) => (trade.id === tradeId ? { ...trade, screenshot } : trade)),
         );
       } catch {
         setSyncMessage("Trades loaded. Some screenshots are still taking longer than usual to load.");
-        return;
       }
     }
   }
