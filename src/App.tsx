@@ -2841,17 +2841,52 @@ export default function App() {
   async function hydrateTradeScreenshots(tradeIds: string[]) {
     if (!currentUser || !supabase || tradeIds.length === 0) return;
 
-    for (const tradeId of tradeIds) {
-      try {
-        const screenshot = await fetchTradeScreenshot(tradeId);
-        if (!screenshot) continue;
+    const userId = currentUser.id;
+    const batches = chunkRows(tradeIds, 5);
+    let nextBatch = 0;
+    let failed = false;
 
-        setTrades((current) =>
-          current.map((trade) => (trade.id === tradeId ? { ...trade, screenshot } : trade)),
-        );
-      } catch {
-        setSyncMessage("Trades loaded. Some screenshots are still taking longer than usual to load.");
+    async function hydrateNextBatch() {
+      while (nextBatch < batches.length) {
+        const batch = batches[nextBatch++];
+
+        try {
+          const { data, error } = await withLoadTimeout(
+            supabase!
+              .from("trades")
+              .select(TRADE_SCREENSHOT_COLUMNS)
+              .eq("user_id", userId)
+              .in("id", batch),
+            "Trade screenshots",
+            30000,
+          );
+
+          if (error) throw error;
+
+          const screenshots = new Map(
+            ((data || []) as Pick<TradeRow, "id" | "screenshot_url">[])
+              .filter((row) => Boolean(row.screenshot_url))
+              .map((row) => [row.id, row.screenshot_url || ""]),
+          );
+
+          if (screenshots.size > 0) {
+            setTrades((current) =>
+              current.map((trade) => {
+                const screenshot = screenshots.get(trade.id);
+                return screenshot ? { ...trade, screenshot } : trade;
+              }),
+            );
+          }
+        } catch {
+          failed = true;
+        }
       }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(3, batches.length) }, () => hydrateNextBatch()));
+
+    if (failed) {
+      setSyncMessage("Trades loaded. Some screenshots are still taking longer than usual to load.");
     }
   }
 
@@ -2878,7 +2913,13 @@ export default function App() {
       }
 
       const loadedTrades = ((data || []) as TradeRow[]).map(toTrade);
-      setTrades(loadedTrades);
+      setTrades((current) => {
+        const screenshots = new Map(current.map((trade) => [trade.id, trade.screenshot]));
+        return loadedTrades.map((trade) => ({
+          ...trade,
+          screenshot: screenshots.get(trade.id) || trade.screenshot,
+        }));
+      });
       void hydrateTradeScreenshots(loadedTrades.map((trade) => trade.id));
     } catch (error) {
       setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
@@ -3037,10 +3078,10 @@ export default function App() {
     }
 
     const savedTrade = toTrade(data as TradeRow);
-    setTrades(
+    setTrades((current) =>
       existing
-        ? trades.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
-        : [savedTrade, ...trades],
+        ? current.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
+        : [savedTrade, ...current],
     );
     setTradeForm(todayDefaults());
     setActiveView("view-trades");
