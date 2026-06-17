@@ -4167,33 +4167,6 @@ textarea:focus {
   gap: 14px;
 }
 
-.decision-log-view {
-  display: grid;
-  gap: 18px;
-}
-
-.decision-insight-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.decision-insight-panel p {
-  margin: 0;
-  color: var(--muted);
-  font-weight: 760;
-  line-height: 1.55;
-}
-
-.decision-plan-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.decision-list {
-  margin-top: 2px;
-}
-
 .trade-card {
   position: relative;
   overflow: hidden;
@@ -4243,115 +4216,6 @@ textarea:focus {
   border-color: color-mix(in srgb, var(--result-accent, var(--brand)) 34%, var(--line));
   box-shadow: 0 28px 74px color-mix(in srgb, var(--result-accent, var(--brand)) 16%, transparent);
   transform: translateY(-2px);
-}
-
-.decision-card {
-  position: relative;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 190px;
-  gap: 22px;
-  align-items: stretch;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent 36%),
-    radial-gradient(circle at 92% 18%, color-mix(in srgb, var(--decision-accent, var(--brand)) 18%, transparent), transparent 18rem),
-    var(--surface);
-  box-shadow: var(--shadow);
-  padding: 20px;
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
-}
-
-.decision-card::before {
-  position: absolute;
-  inset: 14px auto 14px 0;
-  width: 3px;
-  border-radius: 0 999px 999px 0;
-  background: linear-gradient(180deg, var(--decision-accent, var(--brand)), var(--accent));
-  content: "";
-}
-
-.decision-card.is-taken {
-  --decision-accent: #14b8a6;
-}
-
-.decision-card.is-cancelled {
-  --decision-accent: #fb7185;
-}
-
-.decision-card.is-missed {
-  --decision-accent: #f59e0b;
-}
-
-.decision-card.is-waiting {
-  --decision-accent: #38bdf8;
-}
-
-.decision-card:hover {
-  border-color: color-mix(in srgb, var(--decision-accent, var(--brand)) 34%, var(--line));
-  box-shadow: 0 28px 74px color-mix(in srgb, var(--decision-accent, var(--brand)) 16%, transparent);
-  transform: translateY(-2px);
-}
-
-.decision-card-main {
-  position: relative;
-  z-index: 1;
-}
-
-.decision-card header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.decision-risk {
-  min-width: 82px;
-  border: 1px solid color-mix(in srgb, var(--decision-accent, var(--brand)) 28%, var(--line));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--decision-accent, var(--brand)) 10%, transparent);
-  padding: 9px 12px;
-  text-align: right;
-  font-size: 1.08rem;
-}
-
-.decision-meta {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.decision-meta strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chip.decision-taken {
-  border-color: rgba(20, 184, 166, 0.34);
-  background: rgba(20, 184, 166, 0.13);
-  color: #14b8a6;
-}
-
-.chip.decision-cancelled {
-  border-color: rgba(251, 113, 133, 0.34);
-  background: rgba(251, 113, 133, 0.13);
-  color: var(--danger);
-}
-
-.chip.decision-missed {
-  border-color: rgba(245, 158, 11, 0.34);
-  background: rgba(245, 158, 11, 0.13);
-  color: #d97706;
-}
-
-.chip.decision-waiting {
-  border-color: rgba(56, 189, 248, 0.34);
-  background: rgba(56, 189, 248, 0.13);
-  color: var(--brand-strong);
 }
 
 .trade-card-main,
@@ -4988,7 +4852,6 @@ textarea:focus {
   }
 
   .trade-form,
-  .decision-plan-grid,
   .calculator-grid,
   .trade-clock-panel,
   .edge-insight-grid,
@@ -5176,11 +5039,6 @@ textarea:focus {
   .week-edge-grid,
   .recent-trade,
   .trade-card {
-    grid-template-columns: 1fr;
-  }
-
-  .decision-card,
-  .decision-meta {
     grid-template-columns: 1fr;
   }
 
