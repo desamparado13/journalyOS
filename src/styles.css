@@ -4172,19 +4172,6 @@ textarea:focus {
   gap: 18px;
 }
 
-.decision-form {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-}
-
-.decision-form .trade-entry-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.decision-form .trade-entry-grid label:nth-child(n) {
-  grid-column: span 1;
-}
-
 .decision-insight-panel {
   display: grid;
   gap: 10px;
@@ -5036,7 +5023,6 @@ textarea:focus {
   }
 
   .trade-entry-form,
-  .decision-form,
   .trade-entry-grid {
     grid-template-columns: 1fr;
   }

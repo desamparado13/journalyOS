@@ -42,9 +42,6 @@ create unique index if not exists trades_source_app_legacy_id_unique
   on public.trades (source_app, legacy_id)
   where source_app is not null and legacy_id is not null;
 
-create index if not exists trades_user_trade_date_time_idx
-  on public.trades (user_id, trade_date desc, trade_time desc);
-
 create table if not exists public.trade_decisions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -129,9 +126,6 @@ alter table public.backtests add column if not exists legacy_id integer;
 create unique index if not exists backtests_user_source_app_legacy_id_unique
   on public.backtests (user_id, source_app, legacy_id)
   where source_app is not null and legacy_id is not null;
-
-create index if not exists backtests_user_trade_date_time_idx
-  on public.backtests (user_id, trade_date desc, trade_time desc);
 
 alter table public.trades enable row level security;
 alter table public.trade_decisions enable row level security;

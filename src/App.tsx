@@ -60,13 +60,6 @@ const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
-const TRADE_SUMMARY_COLUMNS =
-  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
-const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
-const TRADE_DECISION_LIST_COLUMNS =
-  "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,created_at,updated_at";
-const BACKTEST_LIST_COLUMNS =
-  "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
 
 const learnVideos = [
   {
@@ -291,6 +284,7 @@ type AppView =
   | "position-sizing"
   | "trade-analytics"
   | "view-trades"
+  | "trade-decisions"
   | "trade-images"
   | "trade-calendar"
   | "monthly-heatmap"
@@ -314,6 +308,7 @@ const appViews: readonly AppView[] = [
   "position-sizing",
   "trade-analytics",
   "view-trades",
+  "trade-decisions",
   "trade-images",
   "trade-calendar",
   "monthly-heatmap",
@@ -389,7 +384,7 @@ type TradeRow = {
   pnl_r: number | string;
   result: Result;
   notes: string | null;
-  screenshot_url?: string | null;
+  screenshot_url: string | null;
   source_app: string | null;
   legacy_id: number | null;
   duration_minutes: number | null;
@@ -1872,15 +1867,6 @@ function chunkRows<T>(rows: T[], size: number) {
   return chunks;
 }
 
-function withLoadTimeout<T>(query: PromiseLike<T>, label: string, timeoutMs = 15000): Promise<T> {
-  return Promise.race([
-    Promise.resolve(query),
-    new Promise<T>((_, reject) =>
-      window.setTimeout(() => reject(new Error(`${label} took too long to load. Refresh the page and try again.`)), timeoutMs),
-    ),
-  ]);
-}
-
 export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "", token: "" });
@@ -1896,10 +1882,12 @@ export default function App() {
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [theme, setTheme] = useState<Theme>(getPreferredTheme);
   const [tradeForm, setTradeForm] = useState<TradeFormState>(todayDefaults);
+  const [tradeDecisionForm, setTradeDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [positionCalculator, setPositionCalculator] = useState<PositionCalculatorState>(positionDefaults);
   const [profileRows, setProfileRows] = useState<ProfileSizingRow[]>(readProfileRows);
   const [profileMode, setProfileMode] = useState<"main" | "half">("main");
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
   const [backtests, setBacktests] = useState<Backtest[]>([]);
   const [resultFilter, setResultFilter] = useState<"All" | Result>("All");
@@ -1991,6 +1979,7 @@ export default function App() {
     if (!currentUser) {
       lastLoadedUserId.current = null;
       setTrades([]);
+      setTradeDecisions([]);
       setBacktests([]);
       setSyncMessage("");
       setAccountProfile(defaultAccountProfile());
@@ -2001,7 +1990,9 @@ export default function App() {
     if (lastLoadedUserId.current !== currentUser.id) {
       lastLoadedUserId.current = currentUser.id;
       loadTrades();
+      loadTradeDecisions();
       setTradeForm(todayDefaults());
+      setTradeDecisionForm(tradeDecisionDefaults());
       setBacktestForm(backtestDefaults());
     }
   }, [currentUser]);
@@ -2110,6 +2101,34 @@ export default function App() {
         meta: `${trade.setup} / ${trade.result} / ${formatNumber(trade.pnl)}R`,
       }));
   }, [filteredTrades]);
+
+  const decisionAnalytics = useMemo(() => {
+    const cancelled = tradeDecisions.filter((decision) => decision.status === "Cancelled");
+    const missed = tradeDecisions.filter((decision) => decision.status === "Missed");
+    const taken = tradeDecisions.filter((decision) => decision.status === "Taken");
+    const avoidedLosses = tradeDecisions.filter((decision) => decision.outcome === "Avoided loss").length;
+    const opportunityCosts = tradeDecisions.filter((decision) => decision.outcome === "Cost opportunity").length;
+    const cancelledResolved = cancelled.filter((decision) => decision.outcome !== "Unknown").length;
+    const savedRate = cancelledResolved === 0 ? 0 : Math.round((avoidedLosses / cancelledResolved) * 100);
+    const reasonCounts = tradeDecisions.reduce<Record<string, number>>((counts, decision) => {
+      const reason = decision.reasonCancelled || (decision.status === "Taken" ? "Taken" : "Unspecified");
+      counts[reason] = (counts[reason] || 0) + 1;
+      return counts;
+    }, {});
+    const topReason = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "None";
+
+    return {
+      total: tradeDecisions.length,
+      taken: taken.length,
+      cancelled: cancelled.length,
+      missed: missed.length,
+      waiting: tradeDecisions.filter((decision) => decision.status === "Waiting").length,
+      avoidedLosses,
+      opportunityCosts,
+      savedRate,
+      topReason,
+    };
+  }, [tradeDecisions]);
 
   const tradeImageStats = useMemo(() => {
     const imageTrades = trades.filter((trade) => Boolean(trade.screenshot));
@@ -2815,117 +2834,48 @@ export default function App() {
     setProfileMessage("Password updated.");
   }
 
-  async function fetchTradeScreenshot(tradeId: string) {
-    if (!currentUser || !supabase) return "";
-
-    try {
-      const { data, error } = await withLoadTimeout(
-        supabase
-          .from("trades")
-          .select(TRADE_SCREENSHOT_COLUMNS)
-          .eq("user_id", currentUser.id)
-          .eq("id", tradeId)
-          .maybeSingle(),
-        "Trade screenshot",
-        20000,
-      );
-
-      if (error) throw error;
-
-      return (data as Pick<TradeRow, "screenshot_url"> | null)?.screenshot_url || "";
-    } catch {
-      return "";
-    }
-  }
-
-  async function hydrateTradeScreenshots(tradeIds: string[]) {
-    if (!currentUser || !supabase || tradeIds.length === 0) return;
-
-    const userId = currentUser.id;
-    const batches = chunkRows(tradeIds, 5);
-    let nextBatch = 0;
-    let failed = false;
-
-    async function hydrateNextBatch() {
-      while (nextBatch < batches.length) {
-        const batch = batches[nextBatch++];
-
-        try {
-          const { data, error } = await withLoadTimeout(
-            supabase!
-              .from("trades")
-              .select(TRADE_SCREENSHOT_COLUMNS)
-              .eq("user_id", userId)
-              .in("id", batch),
-            "Trade screenshots",
-            30000,
-          );
-
-          if (error) throw error;
-
-          const screenshots = new Map(
-            ((data || []) as Pick<TradeRow, "id" | "screenshot_url">[])
-              .filter((row) => Boolean(row.screenshot_url))
-              .map((row) => [row.id, row.screenshot_url || ""]),
-          );
-
-          if (screenshots.size > 0) {
-            setTrades((current) =>
-              current.map((trade) => {
-                const screenshot = screenshots.get(trade.id);
-                return screenshot ? { ...trade, screenshot } : trade;
-              }),
-            );
-          }
-        } catch {
-          failed = true;
-        }
-      }
-    }
-
-    await Promise.all(Array.from({ length: Math.min(3, batches.length) }, () => hydrateNextBatch()));
-
-    if (failed) {
-      setSyncMessage("Trades loaded. Some screenshots are still taking longer than usual to load.");
-    }
-  }
-
   async function loadTrades() {
     if (!currentUser || !supabase) return;
 
     setIsSyncing(true);
     setSyncMessage("");
 
-    try {
-      const { data, error } = await withLoadTimeout(
-        supabase
-          .from("trades")
-          .select(TRADE_SUMMARY_COLUMNS)
-          .eq("user_id", currentUser.id)
-          .order("trade_date", { ascending: false })
-          .order("trade_time", { ascending: false }),
-        "Trades",
-      );
+    const { data, error } = await supabase
+      .from("trades")
+      .select("*")
+      .order("trade_date", { ascending: false })
+      .order("trade_time", { ascending: false });
 
-      if (error) {
-        setSyncMessage(`Could not load trades: ${error.message}`);
-        return;
-      }
+    setIsSyncing(false);
 
-      const loadedTrades = ((data || []) as TradeRow[]).map(toTrade);
-      setTrades((current) => {
-        const screenshots = new Map(current.map((trade) => [trade.id, trade.screenshot]));
-        return loadedTrades.map((trade) => ({
-          ...trade,
-          screenshot: screenshots.get(trade.id) || trade.screenshot,
-        }));
-      });
-      void hydrateTradeScreenshots(loadedTrades.map((trade) => trade.id));
-    } catch (error) {
-      setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
-    } finally {
-      setIsSyncing(false);
+    if (error) {
+      setSyncMessage(`Could not load trades: ${error.message}`);
+      return;
     }
+
+    setTrades(((data || []) as TradeRow[]).map(toTrade));
+  }
+
+  async function loadTradeDecisions() {
+    if (!currentUser || !supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    const { data, error } = await supabase
+      .from("trade_decisions")
+      .select("*")
+      .order("decision_date", { ascending: false })
+      .order("decision_time", { ascending: false });
+
+    setIsSyncing(false);
+
+    if (error) {
+      setSyncMessage(`Could not load decision log: ${error.message}`);
+      return;
+    }
+
+    setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
   }
 
   async function loadBacktests() {
@@ -2934,28 +2884,20 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage("");
 
-    try {
-      const { data, error } = await withLoadTimeout(
-        supabase
-          .from("backtests")
-          .select(BACKTEST_LIST_COLUMNS)
-          .eq("user_id", currentUser.id)
-          .order("trade_date", { ascending: false })
-          .order("trade_time", { ascending: false }),
-        "Backtests",
-      );
+    const { data, error } = await supabase
+      .from("backtests")
+      .select("*")
+      .order("trade_date", { ascending: false })
+      .order("trade_time", { ascending: false });
 
-      if (error) {
-        setSyncMessage(`Could not load backtests: ${error.message}`);
-        return;
-      }
+    setIsSyncing(false);
 
-      setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
-    } catch (error) {
-      setSyncMessage(error instanceof Error ? `Could not load backtests: ${error.message}` : "Could not load backtests.");
-    } finally {
-      setIsSyncing(false);
+    if (error) {
+      setSyncMessage(`Could not load backtests: ${error.message}`);
+      return;
     }
+
+    setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
   }
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -3013,7 +2955,6 @@ export default function App() {
 
     const existing = trades.find((trade) => trade.id === form.id);
     const uploadedShot = await fileToDataUrl(form.screenshotFile);
-    const savedScreenshot = existing?.screenshot || (existing ? await fetchTradeScreenshot(existing.id) : "");
 
     if (existing?.finalizedAt) {
       setIsSyncing(false);
@@ -3026,7 +2967,7 @@ export default function App() {
       return;
     }
 
-    if (existing && !(uploadedShot || savedScreenshot)) {
+    if (existing && !(uploadedShot || existing.screenshot)) {
       setIsSyncing(false);
       setSyncMessage("Add a screenshot before finalizing this trade.");
       showToast({
@@ -3052,7 +2993,7 @@ export default function App() {
       pnl_r: Number(form.pnl || 0),
       result: normalizedResult,
       notes: form.notes.trim(),
-      screenshot_url: uploadedShot || savedScreenshot,
+      screenshot_url: uploadedShot || existing?.screenshot || "",
       source_app: existing?.sourceApp || null,
       legacy_id: existing?.legacyId || null,
       duration_minutes: existing?.durationMinutes || null,
@@ -3078,10 +3019,10 @@ export default function App() {
     }
 
     const savedTrade = toTrade(data as TradeRow);
-    setTrades((current) =>
+    setTrades(
       existing
-        ? current.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
-        : [savedTrade, ...current],
+        ? trades.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
+        : [savedTrade, ...trades],
     );
     setTradeForm(todayDefaults());
     setActiveView("view-trades");
@@ -3089,6 +3030,69 @@ export default function App() {
       tone: "success",
       title: existing ? "Trade updated" : "Trade saved",
       message: `${savedTrade.pair} ${savedTrade.direction.toLowerCase()} is now in your journal.`,
+    });
+  }
+
+  async function handleTradeDecisionSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentUser || !supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    const existing = tradeDecisions.find((decision) => decision.id === tradeDecisionForm.id);
+    const uploadedShot = await fileToDataUrl(tradeDecisionForm.screenshotFile);
+    const payload = {
+      user_id: currentUser.id,
+      decision_date: tradeDecisionForm.date,
+      decision_time: tradeDecisionForm.time,
+      pair: tradeDecisionForm.pair,
+      setup: tradeDecisionForm.setup,
+      direction: tradeDecisionForm.direction,
+      status: tradeDecisionForm.status,
+      entry_plan: tradeDecisionForm.entryPlan.trim(),
+      stop_loss: tradeDecisionForm.stopLoss.trim(),
+      take_profit: tradeDecisionForm.takeProfit.trim(),
+      risk_percent: tradeDecisionForm.riskPercent ? Number(tradeDecisionForm.riskPercent) : null,
+      reason_to_take: tradeDecisionForm.reasonToTake.trim(),
+      reason_cancelled:
+        tradeDecisionForm.status === "Cancelled" || tradeDecisionForm.status === "Missed"
+          ? tradeDecisionForm.reasonCancelled.trim()
+          : "",
+      outcome: tradeDecisionForm.outcome,
+      notes: tradeDecisionForm.notes.trim(),
+      screenshot_url: uploadedShot || existing?.screenshot || "",
+      updated_at: new Date().toISOString(),
+    };
+
+    const query = existing
+      ? supabase.from("trade_decisions").update(payload).eq("id", existing.id).select("*").single()
+      : supabase.from("trade_decisions").insert(payload).select("*").single();
+
+    const { data, error } = await query;
+    setIsSyncing(false);
+
+    if (error) {
+      setSyncMessage(`Could not save decision: ${error.message}`);
+      showToast({
+        tone: "error",
+        title: existing ? "Decision update failed" : "Decision save failed",
+        message: error.message,
+      });
+      return;
+    }
+
+    const savedDecision = toTradeDecision(data as TradeDecisionRow);
+    setTradeDecisions(
+      existing
+        ? tradeDecisions.map((decision) => (decision.id === savedDecision.id ? savedDecision : decision))
+        : [savedDecision, ...tradeDecisions],
+    );
+    setTradeDecisionForm(tradeDecisionDefaults());
+    showToast({
+      tone: "success",
+      title: existing ? "Decision updated" : "Decision saved",
+      message: `${savedDecision.pair} ${savedDecision.status.toLowerCase()} decision is in your log.`,
     });
   }
 
@@ -3427,6 +3431,59 @@ export default function App() {
     });
   }
 
+  function editTradeDecision(decision: TradeDecision) {
+    setTradeDecisionForm({
+      id: decision.id,
+      date: decision.date,
+      time: decision.time,
+      pair: decision.pair,
+      setup: decision.setup,
+      direction: decision.direction,
+      status: decision.status,
+      entryPlan: decision.entryPlan,
+      stopLoss: decision.stopLoss,
+      takeProfit: decision.takeProfit,
+      riskPercent: decision.riskPercent === null ? "" : String(decision.riskPercent),
+      reasonToTake: decision.reasonToTake,
+      reasonCancelled: decision.reasonCancelled,
+      outcome: decision.outcome,
+      notes: decision.notes,
+      screenshotFile: null,
+    });
+    setActiveView("trade-decisions");
+  }
+
+  function startTradeFromDecision(decision: TradeDecision) {
+    setTradeForm({
+      id: "",
+      date: decision.date,
+      time: decision.time,
+      pair: decision.pair,
+      setup: decision.setup,
+      direction: decision.direction,
+      stopLossPips: defaultStopLossForSetup(decision.setup),
+      mae: "0",
+      pnl: "0",
+      result: "Breakeven",
+      notes: [
+        decision.reasonToTake ? `Reason to take: ${decision.reasonToTake}` : "",
+        decision.entryPlan ? `Entry plan: ${decision.entryPlan}` : "",
+        decision.stopLoss ? `Stop loss: ${decision.stopLoss}` : "",
+        decision.takeProfit ? `Take profit: ${decision.takeProfit}` : "",
+        decision.notes,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      screenshotFile: null,
+    });
+    setActiveView("add-trade");
+    showToast({
+      tone: "info",
+      title: "Trade form prepared",
+      message: `${decision.pair} decision details were copied into a new trade entry.`,
+    });
+  }
+
   async function deleteTrade(trade: Trade) {
     if (!supabase) return;
 
@@ -3452,6 +3509,36 @@ export default function App() {
       tone: "success",
       title: "Trade deleted",
       message: `${trade.pair} from ${formatMonthDayYear(trade.date)} was removed.`,
+    });
+  }
+
+  async function deleteTradeDecision(decision: TradeDecision) {
+    if (!supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    const { error } = await supabase.from("trade_decisions").delete().eq("id", decision.id);
+    setIsSyncing(false);
+
+    if (error) {
+      setSyncMessage(`Could not delete decision: ${error.message}`);
+      showToast({
+        tone: "error",
+        title: "Decision delete failed",
+        message: error.message,
+      });
+      return;
+    }
+
+    setTradeDecisions((currentDecisions) => currentDecisions.filter((item) => item.id !== decision.id));
+    if (tradeDecisionForm.id === decision.id) {
+      setTradeDecisionForm(tradeDecisionDefaults());
+    }
+    showToast({
+      tone: "success",
+      title: "Decision deleted",
+      message: `${decision.pair} decision from ${formatMonthDayYear(decision.date)} was removed.`,
     });
   }
 
@@ -3665,6 +3752,7 @@ export default function App() {
             className={
               activeView === "trade-analytics" ||
               activeView === "view-trades" ||
+              activeView === "trade-decisions" ||
               activeView === "trade-images" ||
               activeView === "trade-calendar" ||
               activeView === "monthly-heatmap" ||
@@ -4585,6 +4673,7 @@ export default function App() {
 
         {activeView === "trade-analytics" ||
         activeView === "view-trades" ||
+        activeView === "trade-decisions" ||
         activeView === "trade-images" ||
         activeView === "trade-calendar" ||
         activeView === "monthly-heatmap" ||
@@ -4597,6 +4686,8 @@ export default function App() {
               <h2>
                 {activeView === "trade-analytics"
                   ? "Trade analytics"
+                  : activeView === "trade-decisions"
+                    ? "Decision log"
                   : activeView === "trade-images"
                     ? "Image view"
                   : activeView === "trade-calendar"
@@ -4627,6 +4718,13 @@ export default function App() {
                 onClick={() => setActiveView("view-trades")}
               >
                 Trades
+              </button>
+              <button
+                className={activeView === "trade-decisions" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveView("trade-decisions")}
+              >
+                Decisions
               </button>
               <button
                 className={activeView === "trade-images" ? "is-active" : ""}
@@ -4752,6 +4850,230 @@ export default function App() {
               )}
             </div>
             </>
+            ) : null}
+
+            {activeView === "trade-decisions" ? (
+              <section className="decision-log-view">
+                <div className="stat-grid analytics-grid">
+                  <Stat label="Decision ideas" value={String(decisionAnalytics.total)} />
+                  <Stat label="Cancelled" value={String(decisionAnalytics.cancelled)} />
+                  <Stat label="Waiting" value={String(decisionAnalytics.waiting)} />
+                  <Stat label="Avoided loss" value={String(decisionAnalytics.avoidedLosses)} />
+                  <Stat label="Cost opportunity" value={String(decisionAnalytics.opportunityCosts)} />
+                  <Stat label="Saved rate" value={`${decisionAnalytics.savedRate}%`} />
+                  <Stat label="Taken" value={String(decisionAnalytics.taken)} />
+                  <Stat label="Missed" value={String(decisionAnalytics.missed)} />
+                </div>
+
+                <article className="market-panel decision-insight-panel">
+                  <div className="panel-header">
+                    <span>Decision quality</span>
+                    <strong>{decisionAnalytics.topReason}</strong>
+                  </div>
+                  <p>
+                    Most repeated reason: <strong>{decisionAnalytics.topReason}</strong>. Review cancelled outcomes to see if your filter is
+                    protecting capital or costing clean opportunities.
+                  </p>
+                </article>
+
+                <form className="trade-form decision-form" onSubmit={handleTradeDecisionSubmit}>
+                  <section className="trade-form-section">
+                    <div className="trade-form-section-title">
+                      <span>{tradeDecisionForm.id ? "Edit decision" : "Log decision"}</span>
+                      <strong>{tradeDecisionForm.status}</strong>
+                    </div>
+                    <div className="trade-entry-grid">
+                      <label>
+                        <span>Date</span>
+                        <input
+                          value={tradeDecisionForm.date}
+                          type="date"
+                          required
+                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, date: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>Time</span>
+                        <input
+                          value={tradeDecisionForm.time}
+                          type="time"
+                          required
+                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, time: event.target.value })}
+                        />
+                      </label>
+                      <SelectField
+                        label="Pair"
+                        value={tradeDecisionForm.pair}
+                        options={pairs}
+                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, pair: value })}
+                      />
+                      <SelectField
+                        label="Setup"
+                        value={tradeDecisionForm.setup}
+                        options={setups}
+                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, setup: value })}
+                      />
+                      <SelectField
+                        label="Direction"
+                        value={tradeDecisionForm.direction}
+                        options={["Long", "Short"]}
+                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, direction: value as Direction })}
+                      />
+                      <SelectField
+                        label="Status"
+                        value={tradeDecisionForm.status}
+                        options={decisionStatuses}
+                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, status: value as TradeDecisionStatus })}
+                      />
+                      <SelectField
+                        label="Outcome"
+                        value={tradeDecisionForm.outcome}
+                        options={decisionOutcomes}
+                        onChange={(value) => setTradeDecisionForm({ ...tradeDecisionForm, outcome: value as TradeDecisionOutcome })}
+                      />
+                      <label>
+                        <span>Risk %</span>
+                        <input
+                          value={tradeDecisionForm.riskPercent}
+                          type="text"
+                          inputMode="decimal"
+                          pattern="[0-9]*[.]?[0-9]*"
+                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, riskPercent: event.target.value })}
+                        />
+                      </label>
+                    </div>
+                  </section>
+
+                  <section className="trade-form-section trade-journal-section">
+                    <div className="decision-plan-grid">
+                      <label>
+                        <span>Entry plan</span>
+                        <input
+                          value={tradeDecisionForm.entryPlan}
+                          placeholder="Trigger, zone, confirmation"
+                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, entryPlan: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>Stop loss</span>
+                        <input
+                          value={tradeDecisionForm.stopLoss}
+                          placeholder="Invalidation or pips"
+                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, stopLoss: event.target.value })}
+                        />
+                      </label>
+                      <label>
+                        <span>Take profit</span>
+                        <input
+                          value={tradeDecisionForm.takeProfit}
+                          placeholder="Target, liquidity, R"
+                          onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, takeProfit: event.target.value })}
+                        />
+                      </label>
+                      <SelectField
+                        label="Cancel reason"
+                        value={
+                          cancellationReasons.includes(tradeDecisionForm.reasonCancelled as (typeof cancellationReasons)[number])
+                            ? tradeDecisionForm.reasonCancelled
+                            : "None"
+                        }
+                        options={cancellationReasons}
+                        onChange={(value) =>
+                          setTradeDecisionForm({ ...tradeDecisionForm, reasonCancelled: value === "None" ? "" : value })
+                        }
+                      />
+                    </div>
+
+                    <label>
+                      <span>Reason to take</span>
+                      <textarea
+                        value={tradeDecisionForm.reasonToTake}
+                        rows={3}
+                        placeholder="What made this trade valid before the decision?"
+                        onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, reasonToTake: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>Reason cancelled or missed</span>
+                      <textarea
+                        value={tradeDecisionForm.reasonCancelled}
+                        rows={3}
+                        placeholder="Late entry, news, rule not met, hesitation, spread, setup invalidated..."
+                        onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, reasonCancelled: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      <span>What happened after</span>
+                      <textarea
+                        value={tradeDecisionForm.notes}
+                        rows={4}
+                        placeholder="Did cancelling save you, or did the trade run without you?"
+                        onChange={(event) => setTradeDecisionForm({ ...tradeDecisionForm, notes: event.target.value })}
+                      />
+                    </label>
+                    <label className="file-field">
+                      <span>Chart screenshot</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) =>
+                          setTradeDecisionForm({ ...tradeDecisionForm, screenshotFile: event.target.files?.[0] || null })
+                        }
+                      />
+                      <ImagePlus size={18} />
+                    </label>
+
+                    <div className="form-actions">
+                      <button className="primary-action" type="submit" disabled={isSyncing}>
+                        <ClipboardCheck size={18} />
+                        {tradeDecisionForm.id ? "Update decision" : "Save decision"}
+                      </button>
+                      <button className="ghost-action" type="button" onClick={() => setTradeDecisionForm(tradeDecisionDefaults())}>
+                        <RefreshCcw size={18} />
+                        Clear
+                      </button>
+                    </div>
+                  </section>
+                </form>
+
+                <div className="trade-list decision-list" aria-live="polite">
+                  {isSyncing ? <DataLoadingRow label="Loading decisions" /> : null}
+                  {tradeDecisions.length === 0 ? (
+                    <div className="empty-state">
+                      <strong>No decisions logged yet</strong>
+                      <p>Record the next setup you take, cancel, miss, or keep waiting on.</p>
+                    </div>
+                  ) : (
+                    tradeDecisions
+                      .slice()
+                      .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
+                      .map((decision) => {
+                        const decisionImages = tradeDecisions
+                          .filter((item) => item.screenshot)
+                          .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`))
+                          .map((item) => ({
+                            id: item.id,
+                            src: item.screenshot,
+                            alt: `${item.pair} ${item.setup} decision screenshot`,
+                            title: `${item.pair} ${item.status} - ${formatMonthDayYear(item.date)}`,
+                            meta: `${item.setup} / ${item.outcome}`,
+                          }));
+                        const imageIndex = decisionImages.findIndex((item) => item.id === decision.id);
+
+                        return (
+                          <TradeDecisionCard
+                            key={decision.id}
+                            decision={decision}
+                            onEdit={() => editTradeDecision(decision)}
+                            onDelete={() => deleteTradeDecision(decision)}
+                            onCreateTrade={() => startTradeFromDecision(decision)}
+                            onViewImage={() => imageIndex >= 0 && openImageViewer(decisionImages, imageIndex)}
+                          />
+                        );
+                      })
+                  )}
+                </div>
+              </section>
             ) : null}
 
             {activeView === "trade-images" ? (
@@ -8300,6 +8622,83 @@ function summarizeTraderPreview(trades: Trade[]) {
       };
     }),
   };
+}
+
+function TradeDecisionCard({
+  decision,
+  onEdit,
+  onDelete,
+  onCreateTrade,
+  onViewImage,
+}: {
+  decision: TradeDecision;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCreateTrade: () => void;
+  onViewImage: () => void;
+}) {
+  const statusClass = decision.status.toLowerCase().replace(" ", "-");
+
+  return (
+    <article className={`decision-card is-${statusClass}`}>
+      <div className="decision-card-main">
+        <header>
+          <span className="chip">{decision.pair}</span>
+          <span className="chip">{decision.direction}</span>
+          <span className={`chip decision-${statusClass}`}>{decision.status}</span>
+          <span className="chip">{decision.setup}</span>
+          <span className="chip">{decision.outcome}</span>
+        </header>
+
+        <div className="trade-card-title">
+          <div>
+            <strong>{decision.pair}</strong>
+            <span>{decision.setup} / {formatOrdinalDate(decision.date)} / {formatTime12(decision.time)}</span>
+          </div>
+          <strong className="decision-risk">{decision.riskPercent === null ? "-" : `${formatNumber(decision.riskPercent)}%`}</strong>
+        </div>
+
+        <div className="trade-meta decision-meta">
+          <Meta label="Entry" value={decision.entryPlan || "-"} />
+          <Meta label="Stop" value={decision.stopLoss || "-"} />
+          <Meta label="Target" value={decision.takeProfit || "-"} />
+          <Meta label="Cancel" value={decision.reasonCancelled || "-"} />
+        </div>
+
+        {decision.reasonToTake ? (
+          <p className="trade-notes">
+            <strong>Reason to take:</strong> {decision.reasonToTake}
+          </p>
+        ) : null}
+        {decision.notes ? <p className="trade-notes">{decision.notes}</p> : null}
+
+        <div className="trade-actions">
+          <button className="icon-button" type="button" onClick={onCreateTrade}>
+            <Plus size={16} />
+            Make trade
+          </button>
+          <button className="icon-button" type="button" onClick={onEdit}>
+            <Pencil size={16} />
+            Edit
+          </button>
+          <button className="icon-button danger" type="button" onClick={onDelete}>
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <div className="trade-card-media">
+        {decision.screenshot ? (
+          <button className="shot-button" type="button" onClick={onViewImage}>
+            <img className="trade-shot" src={decision.screenshot} alt={`${decision.pair} decision screenshot`} />
+          </button>
+        ) : (
+          <div className="trade-shot" aria-label="No screenshot" />
+        )}
+      </div>
+    </article>
+  );
 }
 
 function TradeCard({
