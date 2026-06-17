@@ -60,6 +60,9 @@ const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
+const TRADE_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 
 const learnVideos = [
   {
@@ -2683,6 +2686,57 @@ export default function App() {
     setProfileMessage("Password updated.");
   }
 
+  async function hydrateTradeScreenshots(tradeIds: string[]) {
+    if (!currentUser || !supabase || tradeIds.length === 0) return;
+
+    const userId = currentUser.id;
+    const batches = chunkRows(tradeIds, 5);
+    let nextBatch = 0;
+    let failed = false;
+
+    async function hydrateNextBatch() {
+      while (nextBatch < batches.length) {
+        const batch = batches[nextBatch++];
+
+        try {
+          const { data, error } = await withLoadTimeout(
+            supabase!
+              .from("trades")
+              .select(TRADE_SCREENSHOT_COLUMNS)
+              .eq("user_id", userId)
+              .in("id", batch),
+            "Trade screenshots",
+          );
+
+          if (error) throw error;
+
+          const screenshots = new Map(
+            ((data || []) as Pick<TradeRow, "id" | "screenshot_url">[])
+              .filter((row) => Boolean(row.screenshot_url))
+              .map((row) => [row.id, row.screenshot_url || ""]),
+          );
+
+          if (screenshots.size > 0) {
+            setTrades((current) =>
+              current.map((trade) => {
+                const screenshot = screenshots.get(trade.id);
+                return screenshot ? { ...trade, screenshot } : trade;
+              }),
+            );
+          }
+        } catch {
+          failed = true;
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(3, batches.length) }, () => hydrateNextBatch()));
+
+    if (failed) {
+      setSyncMessage("Journal loaded. Some screenshots are still loading; refresh to retry them.");
+    }
+  }
+
   async function loadTrades() {
     if (!currentUser || !supabase) return;
 
@@ -2690,29 +2744,28 @@ export default function App() {
     setSyncMessage("");
 
     try {
-      const pageSize = 5;
-      const rows: TradeRow[] = [];
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("trades")
+          .select(TRADE_LIST_COLUMNS)
+          .eq("user_id", currentUser.id)
+          .order("trade_date", { ascending: false })
+          .order("trade_time", { ascending: false }),
+        "Journal data",
+        15000,
+      );
 
-      for (let offset = 0; ; offset += pageSize) {
-        const { data, error } = await withLoadTimeout(
-          supabase
-            .from("trades")
-            .select("*")
-            .eq("user_id", currentUser.id)
-            .order("trade_date", { ascending: false })
-            .order("trade_time", { ascending: false })
-            .range(offset, offset + pageSize - 1),
-          "Journal data",
-        );
+      if (error) throw error;
 
-        if (error) throw error;
-
-        const page = (data || []) as TradeRow[];
-        rows.push(...page);
-        if (page.length < pageSize) break;
-      }
-
-      setTrades(rows.map(toTrade));
+      const loadedTrades = ((data || []) as unknown as TradeRow[]).map(toTrade);
+      setTrades((current) => {
+        const screenshots = new Map(current.map((trade) => [trade.id, trade.screenshot]));
+        return loadedTrades.map((trade) => ({
+          ...trade,
+          screenshot: screenshots.get(trade.id) || "",
+        }));
+      });
+      void hydrateTradeScreenshots(loadedTrades.map((trade) => trade.id));
     } catch (error) {
       setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
     } finally {
@@ -2861,10 +2914,10 @@ export default function App() {
     }
 
     const savedTrade = toTrade(data as TradeRow);
-    setTrades(
+    setTrades((current) =>
       existing
-        ? trades.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
-        : [savedTrade, ...trades],
+        ? current.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
+        : [savedTrade, ...current],
     );
     setTradeForm(todayDefaults());
     setActiveView("view-trades");
