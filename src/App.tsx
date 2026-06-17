@@ -1740,6 +1740,15 @@ function chunkRows<T>(rows: T[], size: number) {
   return chunks;
 }
 
+function withLoadTimeout<T>(query: PromiseLike<T>, label: string, timeoutMs = 30000): Promise<T> {
+  return Promise.race([
+    Promise.resolve(query),
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(`${label} took too long to load. Please try again.`)), timeoutMs);
+    }),
+  ]);
+}
+
 export default function App() {
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [authForm, setAuthForm] = useState<AuthFormState>({ email: "", password: "", token: "" });
@@ -2680,20 +2689,35 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage("");
 
-    const { data, error } = await supabase
-      .from("trades")
-      .select("*")
-      .order("trade_date", { ascending: false })
-      .order("trade_time", { ascending: false });
+    try {
+      const pageSize = 5;
+      const rows: TradeRow[] = [];
 
-    setIsSyncing(false);
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await withLoadTimeout(
+          supabase
+            .from("trades")
+            .select("*")
+            .eq("user_id", currentUser.id)
+            .order("trade_date", { ascending: false })
+            .order("trade_time", { ascending: false })
+            .range(offset, offset + pageSize - 1),
+          "Journal data",
+        );
 
-    if (error) {
-      setSyncMessage(`Could not load trades: ${error.message}`);
-      return;
+        if (error) throw error;
+
+        const page = (data || []) as TradeRow[];
+        rows.push(...page);
+        if (page.length < pageSize) break;
+      }
+
+      setTrades(rows.map(toTrade));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
+    } finally {
+      setIsSyncing(false);
     }
-
-    setTrades(((data || []) as TradeRow[]).map(toTrade));
   }
 
   async function loadBacktests() {
