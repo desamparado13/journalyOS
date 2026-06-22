@@ -825,18 +825,32 @@ function backtestDefaults(): BacktestFormState {
   };
 }
 
-function fileToDataUrl(file: File | null) {
-  return new Promise<string>((resolve, reject) => {
-    if (!file) {
-      resolve("");
-      return;
-    }
+async function fileToDataUrl(file: File | null) {
+  if (!file) return "";
 
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Could not read the selected image."));
+      element.src = sourceUrl;
+    });
+    const maxDimension = 1920;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+
+    if (!context) throw new Error("Could not prepare the selected image.");
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/webp", 0.82);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -2842,7 +2856,9 @@ export default function App() {
     if (!currentUser || !supabase || tradeIds.length === 0) return;
 
     const userId = currentUser.id;
-    const batches = chunkRows(tradeIds, 5);
+    // Data URLs can be several megabytes each. Fetching one per request prevents
+    // a single oversized response from delaying every image in the same batch.
+    const batches = chunkRows(tradeIds, 1);
     let nextBatch = 0;
     let failed = false;
 
@@ -3013,7 +3029,9 @@ export default function App() {
 
     const existing = trades.find((trade) => trade.id === form.id);
     const uploadedShot = await fileToDataUrl(form.screenshotFile);
-    const savedScreenshot = existing?.screenshot || (existing ? await fetchTradeScreenshot(existing.id) : "");
+    const savedScreenshot = uploadedShot
+      ? ""
+      : existing?.screenshot || (existing ? await fetchTradeScreenshot(existing.id) : "");
 
     if (existing?.finalizedAt) {
       setIsSyncing(false);
@@ -3061,8 +3079,8 @@ export default function App() {
     };
 
     const query = existing
-      ? supabase.from("trades").update(payload).eq("id", existing.id).select("*").single()
-      : supabase.from("trades").insert(payload).select("*").single();
+      ? supabase.from("trades").update(payload).eq("id", existing.id).select(TRADE_SUMMARY_COLUMNS).single()
+      : supabase.from("trades").insert(payload).select(TRADE_SUMMARY_COLUMNS).single();
 
     const { data, error } = await query;
     setIsSyncing(false);
@@ -3077,7 +3095,10 @@ export default function App() {
       return;
     }
 
-    const savedTrade = toTrade(data as TradeRow);
+    const savedTrade = {
+      ...toTrade(data as TradeRow),
+      screenshot: uploadedShot || savedScreenshot,
+    };
     setTrades((current) =>
       existing
         ? current.map((trade) => (trade.id === savedTrade.id ? savedTrade : trade))
