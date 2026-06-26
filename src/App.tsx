@@ -1746,10 +1746,9 @@ function exportPositionSizingPng({
     ["Entry", calculator.entryPrice || "--"],
     ["Stop loss", calculator.stopLossPrice || "--"],
     ["Take profit", calculator.takeProfitPrice || "--"],
-    ["Stop", `${formatNumber(summary.stopPips)} pips`],
   ];
   tradeFields.forEach(([label, value], index) => {
-    const fieldWidth = 196;
+    const fieldWidth = 250;
     const gap = 18;
     const x = 64 + index * (fieldWidth + gap);
     drawExportField(ctx, label, value, x, 226, fieldWidth);
