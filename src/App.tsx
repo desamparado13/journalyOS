@@ -7522,6 +7522,7 @@ function PropFirmsModule({
   onAccountsChange: (accounts: PropFirmAccount[]) => void;
   onPayoutsChange: (payouts: PropFirmPayout[]) => void;
 }) {
+  const [activePropTab, setActivePropTab] = useState<"accounts" | "payouts">("accounts");
   const payoutStatuses: readonly PropFirmPayoutStatus[] = ["Requested", "Processing", "Paid"];
   const today = new Date().toISOString().slice(0, 10);
   const [payoutForm, setPayoutForm] = useState({
@@ -7601,85 +7602,107 @@ function PropFirmsModule({
 
   return (
     <section className="prop-firm-panel">
-      <div className="prop-summary-grid">
-        <Stat label="Funded capital" value={`$${formatCurrency(totalCapital)}`} />
-        <Stat label="Potential per trade" value={`$${formatCurrency(totalPotential)}`} />
-        <Stat label="Accounts passed" value={String(accounts.length)} />
-      </div>
-
-      <div className="prop-account-list">
-        {rows.map(({ account, grossRisk, potentialProfit }) => (
-          <article className="prop-account-card" key={account.id}>
-            <div className="prop-account-fields">
-              <label>
-                <span>Account name</span>
-                <input value={account.name} onChange={(event) => updateAccount(account.id, { name: event.target.value })} />
-              </label>
-              <label>
-                <span>Capital</span>
-                <input
-                  value={account.capital}
-                  inputMode="decimal"
-                  onChange={(event) => updateAccount(account.id, { capital: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>Risk %</span>
-                <input
-                  value={account.riskPercent}
-                  inputMode="decimal"
-                  onChange={(event) => updateAccount(account.id, { riskPercent: event.target.value })}
-                />
-              </label>
-              <label>
-                <span>Your split %</span>
-                <input
-                  value={account.traderSplit}
-                  inputMode="decimal"
-                  onChange={(event) => updateAccount(account.id, { traderSplit: event.target.value })}
-                />
-              </label>
-            </div>
-
-            <div className="prop-account-result">
-              <div>
-                <span>1R gross</span>
-                <strong>${formatCurrency(grossRisk)}</strong>
-              </div>
-              <div>
-                <span>After split</span>
-                <strong>${formatCurrency(potentialProfit)}</strong>
-              </div>
-              <button className="icon-button danger" type="button" onClick={() => onAccountsChange(accounts.filter((item) => item.id !== account.id))}>
-                <Trash2 size={16} />
-                Remove
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-
-      <div className="form-actions">
+      <div className="module-tabs prop-tabs" aria-label="Prop firm sections">
         <button
-          className="primary-action"
+          className={activePropTab === "accounts" ? "is-active" : ""}
           type="button"
-          onClick={() =>
-            onAccountsChange([
-              ...accounts,
-              { id: crypto.randomUUID(), name: "New account", capital: "5000", riskPercent: "1", traderSplit: "80" },
-            ])
-          }
+          onClick={() => setActivePropTab("accounts")}
         >
-          <Plus size={18} />
-          Add account
+          Accounts
         </button>
-        <button className="ghost-action" type="button" onClick={() => onAccountsChange(defaultPropFirmAccounts())}>
-          <RefreshCcw size={18} />
-          Reset defaults
+        <button
+          className={activePropTab === "payouts" ? "is-active" : ""}
+          type="button"
+          onClick={() => setActivePropTab("payouts")}
+        >
+          Payouts
         </button>
       </div>
 
-      <article className="prop-payout-panel">
+      {activePropTab === "accounts" ? (
+        <section className="prop-tab-panel">
+          <div className="prop-summary-grid">
+            <Stat label="Funded capital" value={`$${formatCurrency(totalCapital)}`} />
+            <Stat label="Potential per trade" value={`$${formatCurrency(totalPotential)}`} />
+            <Stat label="Accounts passed" value={String(accounts.length)} />
+          </div>
+
+          <div className="prop-account-list">
+            {rows.map(({ account, grossRisk, potentialProfit }) => (
+              <article className="prop-account-card" key={account.id}>
+                <div className="prop-account-fields">
+                  <label>
+                    <span>Account name</span>
+                    <input value={account.name} onChange={(event) => updateAccount(account.id, { name: event.target.value })} />
+                  </label>
+                  <label>
+                    <span>Capital</span>
+                    <input
+                      value={account.capital}
+                      inputMode="decimal"
+                      onChange={(event) => updateAccount(account.id, { capital: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Risk %</span>
+                    <input
+                      value={account.riskPercent}
+                      inputMode="decimal"
+                      onChange={(event) => updateAccount(account.id, { riskPercent: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    <span>Your split %</span>
+                    <input
+                      value={account.traderSplit}
+                      inputMode="decimal"
+                      onChange={(event) => updateAccount(account.id, { traderSplit: event.target.value })}
+                    />
+                  </label>
+                </div>
+
+                <div className="prop-account-result">
+                  <div>
+                    <span>1R gross</span>
+                    <strong>${formatCurrency(grossRisk)}</strong>
+                  </div>
+                  <div>
+                    <span>After split</span>
+                    <strong>${formatCurrency(potentialProfit)}</strong>
+                  </div>
+                  <button className="icon-button danger" type="button" onClick={() => onAccountsChange(accounts.filter((item) => item.id !== account.id))}>
+                    <Trash2 size={16} />
+                    Remove
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="form-actions">
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() =>
+                onAccountsChange([
+                  ...accounts,
+                  { id: crypto.randomUUID(), name: "New account", capital: "5000", riskPercent: "1", traderSplit: "80" },
+                ])
+              }
+            >
+              <Plus size={18} />
+              Add account
+            </button>
+            <button className="ghost-action" type="button" onClick={() => onAccountsChange(defaultPropFirmAccounts())}>
+              <RefreshCcw size={18} />
+              Reset defaults
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {activePropTab === "payouts" ? (
+      <article className="prop-payout-panel prop-tab-panel">
         <div className="panel-header">
           <span>Payout records</span>
           <strong>{payouts.length} logged</strong>
@@ -7818,6 +7841,7 @@ function PropFirmsModule({
           )}
         </div>
       </article>
+      ) : null}
     </section>
   );
 }

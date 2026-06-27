@@ -3099,6 +3099,15 @@ button.yearly-row.is-active {
   gap: 18px;
 }
 
+.prop-tabs {
+  margin-bottom: 0;
+}
+
+.prop-tab-panel {
+  display: grid;
+  gap: 18px;
+}
+
 .prop-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
