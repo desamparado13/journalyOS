@@ -3163,6 +3163,108 @@ button.yearly-row.is-active {
   grid-column: 1 / -1;
 }
 
+.prop-payout-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(20, 184, 166, 0.1), transparent 32rem),
+    var(--surface);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.payout-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.payout-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.payout-notes-field {
+  grid-column: span 3;
+}
+
+.payout-notes-field textarea {
+  min-height: 92px;
+}
+
+.payout-add-button {
+  min-height: 92px;
+}
+
+.payout-record-list {
+  display: grid;
+  gap: 10px;
+}
+
+.payout-record {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.3fr) repeat(4, minmax(118px, 1fr)) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 14px;
+}
+
+.payout-record > div {
+  min-width: 0;
+}
+
+.payout-record span:not(.chip),
+.payout-record small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.payout-record strong,
+.payout-record small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.payout-record strong {
+  display: block;
+  margin-top: 4px;
+}
+
+.payout-record p {
+  grid-column: 1 / -2;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.chip.payout-paid {
+  border-color: rgba(20, 184, 166, 0.34);
+  background: rgba(20, 184, 166, 0.13);
+  color: #14b8a6;
+}
+
+.chip.payout-processing {
+  border-color: rgba(56, 189, 248, 0.34);
+  background: rgba(56, 189, 248, 0.13);
+  color: var(--brand-strong);
+}
+
+.chip.payout-requested {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: rgba(245, 158, 11, 0.13);
+  color: #d97706;
+}
+
 .goals-panel {
   display: grid;
   gap: 18px;
@@ -4862,8 +4964,11 @@ textarea:focus {
   .goals-summary,
   .goal-form-grid,
   .prop-summary-grid,
+  .payout-summary-grid,
   .prop-account-card,
   .prop-account-fields,
+  .payout-form-grid,
+  .payout-record,
   .research-layout,
   .research-grid,
   .trader-coming-grid,
@@ -5010,9 +5115,12 @@ textarea:focus {
   .goal-form-grid,
   .goal-card,
   .prop-summary-grid,
+  .payout-summary-grid,
   .prop-account-card,
   .prop-account-fields,
   .prop-account-result,
+  .payout-form-grid,
+  .payout-record,
   .research-layout,
   .research-grid,
   .research-title-grid,
@@ -5072,6 +5180,15 @@ textarea:focus {
 
   .research-file-field {
     grid-column: span 1;
+  }
+
+  .payout-notes-field,
+  .payout-record p {
+    grid-column: span 1;
+  }
+
+  .payout-add-button {
+    min-height: 44px;
   }
 
   .recent-trade div:last-child {
