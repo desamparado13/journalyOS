@@ -55,6 +55,7 @@ const DARA_WINDOW_KEY = "journaly-os-dara-window";
 const LEARN_NOTES_KEY = "journaly-os-learn-notes";
 const LEARN_RESUME_KEY = "journaly-os-learn-resume";
 const PROP_FIRMS_KEY = "journaly-os-prop-firms";
+const PROP_FIRM_PAYOUTS_KEY = "journaly-os-prop-firm-payouts";
 const RESEARCH_IDEAS_KEY = "journaly-os-research-ideas";
 const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
@@ -239,6 +240,19 @@ type PropFirmAccount = {
   capital: string;
   riskPercent: string;
   traderSplit: string;
+};
+type PropFirmPayoutStatus = "Requested" | "Processing" | "Paid";
+type PropFirmPayout = {
+  id: string;
+  firmName: string;
+  accountName: string;
+  amount: string;
+  status: PropFirmPayoutStatus;
+  requestedDate: string;
+  paidDate: string;
+  method: string;
+  notes: string;
+  createdAt: string;
 };
 type GoalCategory = "Prop firm" | "Travel" | "Trading" | "Personal";
 type GoalItem = {
@@ -1400,6 +1414,15 @@ function readPropFirmAccounts() {
   }
 }
 
+function readPropFirmPayouts(): PropFirmPayout[] {
+  try {
+    const rows = JSON.parse(localStorage.getItem(PROP_FIRM_PAYOUTS_KEY) || "");
+    return Array.isArray(rows) ? (rows as PropFirmPayout[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 function defaultResearchIdeas(): ResearchIdea[] {
   return [
     {
@@ -1943,6 +1966,7 @@ export default function App() {
   const [learnTimestamp, setLearnTimestamp] = useState("");
   const [learnNoteText, setLearnNoteText] = useState("");
   const [propFirmAccounts, setPropFirmAccounts] = useState<PropFirmAccount[]>(readPropFirmAccounts);
+  const [propFirmPayouts, setPropFirmPayouts] = useState<PropFirmPayout[]>(readPropFirmPayouts);
   const [goals, setGoals] = useState<GoalItem[]>(readGoals);
   const [goalForm, setGoalForm] = useState({ title: "", category: "Prop firm" as GoalCategory, targetDate: "", notes: "" });
   const [researchIdeas, setResearchIdeas] = useState<ResearchIdea[]>(readResearchIdeas);
@@ -2669,6 +2693,11 @@ export default function App() {
   function updatePropFirmAccounts(nextAccounts: PropFirmAccount[]) {
     setPropFirmAccounts(nextAccounts);
     localStorage.setItem(PROP_FIRMS_KEY, JSON.stringify(nextAccounts));
+  }
+
+  function updatePropFirmPayouts(nextPayouts: PropFirmPayout[]) {
+    setPropFirmPayouts(nextPayouts);
+    localStorage.setItem(PROP_FIRM_PAYOUTS_KEY, JSON.stringify(nextPayouts));
   }
 
   function updateGoals(nextGoals: GoalItem[]) {
@@ -4050,7 +4079,12 @@ export default function App() {
               <p>Track passed prop firm accounts and estimate your potential profit per trade after split.</p>
             </div>
 
-            <PropFirmsModule accounts={propFirmAccounts} onChange={updatePropFirmAccounts} />
+            <PropFirmsModule
+              accounts={propFirmAccounts}
+              payouts={propFirmPayouts}
+              onAccountsChange={updatePropFirmAccounts}
+              onPayoutsChange={updatePropFirmPayouts}
+            />
           </section>
         ) : null}
 
@@ -7664,11 +7698,27 @@ function SpreadNotice({ pair, time }: { pair: string; time: string }) {
 
 function PropFirmsModule({
   accounts,
-  onChange,
+  payouts,
+  onAccountsChange,
+  onPayoutsChange,
 }: {
   accounts: PropFirmAccount[];
-  onChange: (accounts: PropFirmAccount[]) => void;
+  payouts: PropFirmPayout[];
+  onAccountsChange: (accounts: PropFirmAccount[]) => void;
+  onPayoutsChange: (payouts: PropFirmPayout[]) => void;
 }) {
+  const payoutStatuses: readonly PropFirmPayoutStatus[] = ["Requested", "Processing", "Paid"];
+  const today = new Date().toISOString().slice(0, 10);
+  const [payoutForm, setPayoutForm] = useState({
+    firmName: "",
+    accountName: accounts[0]?.name || "",
+    amount: "",
+    status: "Paid" as PropFirmPayoutStatus,
+    requestedDate: today,
+    paidDate: today,
+    method: "",
+    notes: "",
+  });
   const rows = accounts.map((account) => {
     const capital = Number(account.capital || 0);
     const riskPercent = Number(account.riskPercent || 0);
@@ -7685,9 +7735,53 @@ function PropFirmsModule({
   });
   const totalCapital = rows.reduce((sum, row) => sum + row.capital, 0);
   const totalPotential = rows.reduce((sum, row) => sum + row.potentialProfit, 0);
+  const orderedPayouts = [...payouts].sort((a, b) => {
+    const aDate = a.paidDate || a.requestedDate || a.createdAt;
+    const bDate = b.paidDate || b.requestedDate || b.createdAt;
+    return new Date(bDate).getTime() - new Date(aDate).getTime();
+  });
+  const paidPayouts = payouts.filter((payout) => payout.status === "Paid");
+  const pendingPayouts = payouts.filter((payout) => payout.status !== "Paid");
+  const totalPaid = paidPayouts.reduce((sum, payout) => sum + Number(payout.amount || 0), 0);
+  const pendingAmount = pendingPayouts.reduce((sum, payout) => sum + Number(payout.amount || 0), 0);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const monthlyPaid = paidPayouts
+    .filter((payout) => (payout.paidDate || payout.requestedDate).slice(0, 7) === currentMonth)
+    .reduce((sum, payout) => sum + Number(payout.amount || 0), 0);
 
   function updateAccount(id: string, patch: Partial<PropFirmAccount>) {
-    onChange(accounts.map((account) => (account.id === id ? { ...account, ...patch } : account)));
+    onAccountsChange(accounts.map((account) => (account.id === id ? { ...account, ...patch } : account)));
+  }
+
+  function addPayout() {
+    const amount = Number(payoutForm.amount || 0);
+    if (!payoutForm.firmName.trim() || !amount) return;
+
+    onPayoutsChange([
+      {
+        id: crypto.randomUUID(),
+        firmName: payoutForm.firmName.trim(),
+        accountName: payoutForm.accountName.trim(),
+        amount: payoutForm.amount,
+        status: payoutForm.status,
+        requestedDate: payoutForm.requestedDate,
+        paidDate: payoutForm.status === "Paid" ? payoutForm.paidDate : "",
+        method: payoutForm.method.trim(),
+        notes: payoutForm.notes.trim(),
+        createdAt: new Date().toISOString(),
+      },
+      ...payouts,
+    ]);
+    setPayoutForm({
+      firmName: "",
+      accountName: payoutForm.accountName,
+      amount: "",
+      status: "Paid",
+      requestedDate: today,
+      paidDate: today,
+      method: "",
+      notes: "",
+    });
   }
 
   return (
@@ -7741,7 +7835,7 @@ function PropFirmsModule({
                 <span>After split</span>
                 <strong>${formatCurrency(potentialProfit)}</strong>
               </div>
-              <button className="icon-button danger" type="button" onClick={() => onChange(accounts.filter((item) => item.id !== account.id))}>
+              <button className="icon-button danger" type="button" onClick={() => onAccountsChange(accounts.filter((item) => item.id !== account.id))}>
                 <Trash2 size={16} />
                 Remove
               </button>
@@ -7755,7 +7849,7 @@ function PropFirmsModule({
           className="primary-action"
           type="button"
           onClick={() =>
-            onChange([
+            onAccountsChange([
               ...accounts,
               { id: crypto.randomUUID(), name: "New account", capital: "5000", riskPercent: "1", traderSplit: "80" },
             ])
@@ -7764,11 +7858,151 @@ function PropFirmsModule({
           <Plus size={18} />
           Add account
         </button>
-        <button className="ghost-action" type="button" onClick={() => onChange(defaultPropFirmAccounts())}>
+        <button className="ghost-action" type="button" onClick={() => onAccountsChange(defaultPropFirmAccounts())}>
           <RefreshCcw size={18} />
           Reset defaults
         </button>
       </div>
+
+      <article className="prop-payout-panel">
+        <div className="panel-header">
+          <span>Payout records</span>
+          <strong>{payouts.length} logged</strong>
+        </div>
+
+        <div className="prop-summary-grid payout-summary-grid">
+          <Stat label="Total paid" value={`$${formatCurrency(totalPaid)}`} />
+          <Stat label="This month" value={`$${formatCurrency(monthlyPaid)}`} />
+          <Stat label="Pending" value={`$${formatCurrency(pendingAmount)}`} />
+        </div>
+
+        <div className="payout-form-grid">
+          <label>
+            <span>Prop firm</span>
+            <input
+              value={payoutForm.firmName}
+              placeholder="FTMO, The5ers, Alpha Capital..."
+              onChange={(event) => setPayoutForm({ ...payoutForm, firmName: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Account</span>
+            <input
+              value={payoutForm.accountName}
+              placeholder="100K challenge, 10K swing..."
+              list="prop-account-options"
+              onChange={(event) => setPayoutForm({ ...payoutForm, accountName: event.target.value })}
+            />
+            <datalist id="prop-account-options">
+              {accounts.map((account) => (
+                <option key={account.id} value={account.name} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            <span>Amount</span>
+            <input
+              value={payoutForm.amount}
+              inputMode="decimal"
+              placeholder="0.00"
+              onChange={(event) => setPayoutForm({ ...payoutForm, amount: event.target.value })}
+            />
+          </label>
+          <SelectField
+            label="Status"
+            value={payoutForm.status}
+            options={payoutStatuses}
+            onChange={(value) =>
+              setPayoutForm({
+                ...payoutForm,
+                status: value as PropFirmPayoutStatus,
+                paidDate: value === "Paid" ? payoutForm.paidDate || today : "",
+              })
+            }
+          />
+          <label>
+            <span>Requested</span>
+            <input
+              value={payoutForm.requestedDate}
+              type="date"
+              onChange={(event) => setPayoutForm({ ...payoutForm, requestedDate: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Paid date</span>
+            <input
+              value={payoutForm.paidDate}
+              type="date"
+              disabled={payoutForm.status !== "Paid"}
+              onChange={(event) => setPayoutForm({ ...payoutForm, paidDate: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Method</span>
+            <input
+              value={payoutForm.method}
+              placeholder="Crypto, Deel, bank..."
+              onChange={(event) => setPayoutForm({ ...payoutForm, method: event.target.value })}
+            />
+          </label>
+          <label className="wide-field payout-notes-field">
+            <span>Notes</span>
+            <textarea
+              value={payoutForm.notes}
+              rows={3}
+              placeholder="Invoice ID, rules, fee notes, or anything you want to remember."
+              onChange={(event) => setPayoutForm({ ...payoutForm, notes: event.target.value })}
+            />
+          </label>
+          <button className="primary-action payout-add-button" type="button" onClick={addPayout}>
+            <Plus size={18} />
+            Add payout
+          </button>
+        </div>
+
+        <div className="payout-record-list">
+          {orderedPayouts.length === 0 ? (
+            <div className="empty-state">
+              <strong>No payouts recorded yet</strong>
+              <p>Add each requested or paid payout here so your prop firm income has its own ledger.</p>
+            </div>
+          ) : (
+            orderedPayouts.map((payout) => (
+              <article className="payout-record" key={payout.id}>
+                <div>
+                  <span className={`chip payout-${payout.status.toLowerCase()}`}>{payout.status}</span>
+                  <strong>{payout.firmName}</strong>
+                  <small>{payout.accountName || "No account label"}</small>
+                </div>
+                <div>
+                  <span>Amount</span>
+                  <strong>${formatCurrency(Number(payout.amount || 0))}</strong>
+                </div>
+                <div>
+                  <span>Requested</span>
+                  <strong>{payout.requestedDate ? formatOrdinalDate(payout.requestedDate) : "-"}</strong>
+                </div>
+                <div>
+                  <span>Paid</span>
+                  <strong>{payout.paidDate ? formatOrdinalDate(payout.paidDate) : "-"}</strong>
+                </div>
+                <div>
+                  <span>Method</span>
+                  <strong>{payout.method || "-"}</strong>
+                </div>
+                {payout.notes ? <p>{payout.notes}</p> : null}
+                <button
+                  className="icon-button danger"
+                  type="button"
+                  onClick={() => onPayoutsChange(payouts.filter((item) => item.id !== payout.id))}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </article>
+            ))
+          )}
+        </div>
+      </article>
     </section>
   );
 }
