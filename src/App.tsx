@@ -64,6 +64,7 @@ const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
 const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
+const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
 
 const learnVideos = [
   {
@@ -7719,9 +7720,15 @@ function PropFirmsModule({
             <span>Prop firm</span>
             <input
               value={payoutForm.firmName}
-              placeholder="FTMO, The5ers, Alpha Capital..."
+              placeholder="Choose or type prop firm"
+              list="prop-firm-options"
               onChange={(event) => setPayoutForm({ ...payoutForm, firmName: event.target.value })}
             />
+            <datalist id="prop-firm-options">
+              {propFirmChoices.map((firm) => (
+                <option key={firm} value={firm} />
+              ))}
+            </datalist>
           </label>
           <label>
             <span>Account</span>
@@ -8540,3 +8547,4 @@ function Meta({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
