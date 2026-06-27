@@ -68,6 +68,7 @@ const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,created_at,updated_at";
 const BACKTEST_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
+const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
 
 const learnVideos = [
   {
@@ -7904,9 +7905,15 @@ function PropFirmsModule({
             <span>Prop firm</span>
             <input
               value={payoutForm.firmName}
-              placeholder="FTMO, The5ers, Alpha Capital..."
+              placeholder="Choose or type prop firm"
+              list="prop-firm-options"
               onChange={(event) => setPayoutForm({ ...payoutForm, firmName: event.target.value })}
             />
+            <datalist id="prop-firm-options">
+              {propFirmChoices.map((firm) => (
+                <option key={firm} value={firm} />
+              ))}
+            </datalist>
           </label>
           <label>
             <span>Account</span>
