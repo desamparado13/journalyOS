@@ -7736,23 +7736,34 @@ function SpreadNotice({ pair, time }: { pair: string; time: string }) {
 }
 
 function PropRuleTradeNotice({ trades, direction }: { trades: Trade[]; direction: Direction }) {
+  const currentStreak = getDirectionStreak(trades);
   const projectedStreak = getProjectedDirectionStreak(trades, direction);
   const shouldWarn = projectedStreak >= 5;
-
-  if (!shouldWarn) return null;
+  const Icon = shouldWarn ? ShieldAlert : CheckCircle2;
+  const normalizedDirection = normalizeDirection(direction);
+  const currentLabel =
+    currentStreak.direction && currentStreak.count > 0
+      ? `Current streak: ${currentStreak.count} ${currentStreak.direction.toLowerCase()}${currentStreak.count === 1 ? "" : "s"}`
+      : "No live trades loaded yet";
 
   return (
-    <article className="spread-notice prop-rule-inline is-warning">
+    <article className={`spread-notice prop-rule-inline ${shouldWarn ? "is-warning" : "is-normal"}`}>
       <div className="spread-notice-icon">
-        <ShieldAlert size={18} />
+        <Icon size={18} />
       </div>
       <div>
         <span>Prop rule guard</span>
-        <strong>{projectedStreak} {direction.toLowerCase()} trades in a row</strong>
+        <strong>
+          {shouldWarn
+            ? `${projectedStreak} ${normalizedDirection.toLowerCase()} trades in a row`
+            : `Next ${normalizedDirection.toLowerCase()} keeps you under the 5-trade warning`}
+        </strong>
         <p>
-          This can look like one-sided betting. Pause and confirm the setup is market-led, not just a repeated bias.
+          {shouldWarn
+            ? "This can look like one-sided betting. Pause and confirm the setup is market-led, not just a repeated bias."
+            : "This guard watches live trades only and warns when the selected direction would reach five in a row."}
         </p>
-        <small>Consider waiting for a clean opposite setup or documenting why this trade is still valid.</small>
+        <small>{currentLabel}</small>
       </div>
     </article>
   );
