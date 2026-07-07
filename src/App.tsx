@@ -850,6 +850,32 @@ function getDirectionDistribution(items: Array<{ direction: Direction | string |
   };
 }
 
+function getLongestDirectionStreaks(items: Array<{ direction: Direction | string | null | undefined }>) {
+  let currentDirection: Direction | null = null;
+  let currentCount = 0;
+  let longestLong = 0;
+  let longestShort = 0;
+
+  items.forEach((item) => {
+    const direction = normalizeDirection(item.direction);
+
+    if (direction === currentDirection) {
+      currentCount += 1;
+    } else {
+      currentDirection = direction;
+      currentCount = 1;
+    }
+
+    if (direction === "Long") {
+      longestLong = Math.max(longestLong, currentCount);
+    } else {
+      longestShort = Math.max(longestShort, currentCount);
+    }
+  });
+
+  return { longestLong, longestShort };
+}
+
 function daysSinceTrade(trade: Trade | undefined) {
   if (!trade) return "No trades yet";
 
@@ -2140,6 +2166,7 @@ export default function App() {
     const grossWin = wins.reduce((sum, trade) => sum + trade.pnl, 0);
     const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0));
     const directionDistribution = getDirectionDistribution(ordered);
+    const directionStreaks = getLongestDirectionStreaks(ordered);
     const expectancy = ordered.length === 0 ? 0 : totalR / ordered.length;
     const averageWin = wins.length === 0 ? 0 : grossWin / wins.length;
     const averageLoss = losses.length === 0 ? 0 : grossLoss / losses.length;
@@ -2185,6 +2212,7 @@ export default function App() {
       bestWinStreak,
       worstLossStreak,
       directionDistribution,
+      directionStreaks,
       equityPoints,
     };
   }, [tradeAnalyticsYearFilter, trades]);
@@ -2484,6 +2512,7 @@ export default function App() {
     const grossWin = wins.reduce((sum, item) => sum + item.pnl, 0);
     const grossLoss = Math.abs(losses.reduce((sum, item) => sum + item.pnl, 0));
     const directionDistribution = getDirectionDistribution(ordered);
+    const directionStreaks = getLongestDirectionStreaks(ordered);
     let peak = 0;
     let equity = 0;
     let maxDrawdown = 0;
@@ -2504,6 +2533,7 @@ export default function App() {
       averageWin: wins.length === 0 ? 0 : grossWin / wins.length,
       averageLoss: losses.length === 0 ? 0 : grossLoss / losses.length,
       directionDistribution,
+      directionStreaks,
     };
   }, [backtestAnalyticsYearFilter, backtests]);
 
@@ -4644,6 +4674,8 @@ export default function App() {
                       label="Direction distribution"
                       value={`Long: ${tradeAnalytics.directionDistribution.longPercent}% / Short: ${tradeAnalytics.directionDistribution.shortPercent}%`}
                     />
+                    <Stat label="Longest long streak" value={String(tradeAnalytics.directionStreaks.longestLong)} />
+                    <Stat label="Longest short streak" value={String(tradeAnalytics.directionStreaks.longestShort)} />
                   </div>
                 </section>
               </>
@@ -4841,6 +4873,8 @@ export default function App() {
                   label="Direction distribution"
                   value={`Long: ${backtestStats.directionDistribution.longPercent}% / Short: ${backtestStats.directionDistribution.shortPercent}%`}
                 />
+                <Stat label="Longest long streak" value={String(backtestStats.directionStreaks.longestLong)} />
+                <Stat label="Longest short streak" value={String(backtestStats.directionStreaks.longestShort)} />
               </div>
             </section>
             ) : null}
