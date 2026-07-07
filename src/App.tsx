@@ -954,6 +954,10 @@ function parseDatedItemDate(item: { date: string; time: string; legacyId?: numbe
   return new Date(year, month - 1, day, hour, minute, item.legacyId || 0);
 }
 
+function normalizeDirection(direction: string | null | undefined): Direction {
+  return String(direction || "").trim().toLowerCase() === "short" ? "Short" : "Long";
+}
+
 function daysSinceTrade(trade: Trade | undefined) {
   if (!trade) return "No trades yet";
 
@@ -986,18 +990,19 @@ function getDirectionStreak(trades: Trade[]) {
     return { direction: null as Direction | null, count: 0 };
   }
 
+  const latestDirection = normalizeDirection(latest.direction);
   let count = 0;
   for (const trade of ordered) {
-    if (trade.direction !== latest.direction) break;
+    if (normalizeDirection(trade.direction) !== latestDirection) break;
     count += 1;
   }
 
-  return { direction: latest.direction, count };
+  return { direction: latestDirection, count };
 }
 
 function getProjectedDirectionStreak(trades: Trade[], direction: Direction) {
   const current = getDirectionStreak(trades);
-  return current.direction === direction ? current.count + 1 : 1;
+  return current.direction === normalizeDirection(direction) ? current.count + 1 : 1;
 }
 
 function toJournalItems(trades: Trade[], backtests: Backtest[]): JournalItem[] {
@@ -1573,7 +1578,7 @@ function toTrade(row: TradeRow): Trade {
     time: String(row.trade_time).slice(0, 5),
     pair: row.pair,
     setup: row.setup,
-    direction: row.direction,
+    direction: normalizeDirection(row.direction),
     mae: Number(row.mae || 0),
     pnl: Number(row.pnl_r || 0),
     result: row.result,
