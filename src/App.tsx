@@ -839,6 +839,17 @@ function normalizeDirection(direction: string | null | undefined): Direction {
   return String(direction || "").trim().toLowerCase() === "short" ? "Short" : "Long";
 }
 
+function getDirectionDistribution(items: Array<{ direction: Direction | string | null | undefined }>) {
+  const total = items.length;
+  const longs = items.filter((item) => normalizeDirection(item.direction) === "Long").length;
+  const shorts = items.filter((item) => normalizeDirection(item.direction) === "Short").length;
+
+  return {
+    longPercent: total === 0 ? 0 : Math.round((longs / total) * 100),
+    shortPercent: total === 0 ? 0 : Math.round((shorts / total) * 100),
+  };
+}
+
 function daysSinceTrade(trade: Trade | undefined) {
   if (!trade) return "No trades yet";
 
@@ -1840,12 +1851,14 @@ export default function App() {
   const [imageSetupFilter, setImageSetupFilter] = useState("All");
   const [imageResultFilter, setImageResultFilter] = useState<"All" | Result>("All");
   const [imageDirectionFilter, setImageDirectionFilter] = useState<"All" | Direction>("All");
+  const [tradeAnalyticsYearFilter, setTradeAnalyticsYearFilter] = useState("All");
   const [tradeCalendarMonth, setTradeCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [weekEdgeMonth, setWeekEdgeMonth] = useState("All");
   const [yearlyCompareYear, setYearlyCompareYear] = useState(() => new Date().getFullYear().toString());
   const [backtestResultFilter, setBacktestResultFilter] = useState<"All" | Result>("All");
   const [backtestPairFilter, setBacktestPairFilter] = useState("All");
   const [backtestSetupFilter, setBacktestSetupFilter] = useState("All");
+  const [backtestAnalyticsYearFilter, setBacktestAnalyticsYearFilter] = useState("All");
   const [backtestYearFilter, setBacktestYearFilter] = useState("All");
   const [backtestMonthFilter, setBacktestMonthFilter] = useState("All");
   const [activeView, setActiveView] = useState<AppView>(readActiveView);
@@ -2111,15 +2124,22 @@ export default function App() {
     });
   }, [positionCalculator]);
 
+  const tradeAnalyticsYears = useMemo(() => {
+    return ["All", ...Array.from(new Set(trades.map((trade) => trade.date.slice(0, 4)))).sort().reverse()];
+  }, [trades]);
+
   const tradeAnalytics = useMemo(() => {
-    const ordered = [...trades].sort(
-      (a, b) => parseDatedItemDate(a).getTime() - parseDatedItemDate(b).getTime(),
-    );
+    const scopedTrades =
+      tradeAnalyticsYearFilter === "All"
+        ? trades
+        : trades.filter((trade) => trade.date.startsWith(tradeAnalyticsYearFilter));
+    const ordered = [...scopedTrades].sort((a, b) => parseDatedItemDate(a).getTime() - parseDatedItemDate(b).getTime());
     const wins = ordered.filter((trade) => trade.pnl > 0);
     const losses = ordered.filter((trade) => trade.pnl < 0);
     const totalR = ordered.reduce((sum, trade) => sum + trade.pnl, 0);
     const grossWin = wins.reduce((sum, trade) => sum + trade.pnl, 0);
     const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0));
+    const directionDistribution = getDirectionDistribution(ordered);
     const expectancy = ordered.length === 0 ? 0 : totalR / ordered.length;
     const averageWin = wins.length === 0 ? 0 : grossWin / wins.length;
     const averageLoss = losses.length === 0 ? 0 : grossLoss / losses.length;
@@ -2164,9 +2184,10 @@ export default function App() {
       averageLoss,
       bestWinStreak,
       worstLossStreak,
+      directionDistribution,
       equityPoints,
     };
-  }, [trades]);
+  }, [tradeAnalyticsYearFilter, trades]);
 
   const tradeCalendarMonthOptions = useMemo(() => {
     const months = Array.from(new Set(trades.map((trade) => trade.date.slice(0, 7)))).sort().reverse();
@@ -2429,7 +2450,7 @@ export default function App() {
   }, [backtests, trades, yearlyCompareYear]);
 
   const backtestYears = useMemo(() => {
-    return ["All", ...Array.from(new Set(backtests.map((item) => item.date.slice(0, 4)))).sort()];
+    return ["All", ...Array.from(new Set(backtests.map((item) => item.date.slice(0, 4)))).sort().reverse()];
   }, [backtests]);
 
   const filteredBacktests = useMemo(() => {
@@ -2450,7 +2471,11 @@ export default function App() {
   ]);
 
   const backtestStats = useMemo(() => {
-    const ordered = [...backtests].sort(
+    const scopedBacktests =
+      backtestAnalyticsYearFilter === "All"
+        ? backtests
+        : backtests.filter((item) => item.date.startsWith(backtestAnalyticsYearFilter));
+    const ordered = [...scopedBacktests].sort(
       (a, b) => parseDatedItemDate(a).getTime() - parseDatedItemDate(b).getTime(),
     );
     const wins = ordered.filter((item) => item.pnl > 0);
@@ -2458,6 +2483,7 @@ export default function App() {
     const totalR = ordered.reduce((sum, item) => sum + item.pnl, 0);
     const grossWin = wins.reduce((sum, item) => sum + item.pnl, 0);
     const grossLoss = Math.abs(losses.reduce((sum, item) => sum + item.pnl, 0));
+    const directionDistribution = getDirectionDistribution(ordered);
     let peak = 0;
     let equity = 0;
     let maxDrawdown = 0;
@@ -2477,8 +2503,9 @@ export default function App() {
       maxDrawdown,
       averageWin: wins.length === 0 ? 0 : grossWin / wins.length,
       averageLoss: losses.length === 0 ? 0 : grossLoss / losses.length,
+      directionDistribution,
     };
-  }, [backtests]);
+  }, [backtestAnalyticsYearFilter, backtests]);
 
   const daraEdgeSummary = useMemo(() => {
     const live = buildSessionEdgeSummary(toJournalItems(trades, []));
@@ -4595,6 +4622,14 @@ export default function App() {
                       {tradeAnalytics.total} trades
                     </strong>
                   </div>
+                  <div className="analytics-filter-row">
+                    <SelectField
+                      label="Year"
+                      value={tradeAnalyticsYearFilter}
+                      options={tradeAnalyticsYears}
+                      onChange={setTradeAnalyticsYearFilter}
+                    />
+                  </div>
                   <div className="stat-grid analytics-grid">
                     <Stat label="Total R" value={`${formatNumber(tradeAnalytics.totalR)}R`} />
                     <WinRateStat rate={tradeAnalytics.winRate} />
@@ -4605,6 +4640,10 @@ export default function App() {
                     <Stat label="Average loss" value={`${formatNumber(tradeAnalytics.averageLoss)}R`} />
                     <Stat label="Best win streak" value={String(tradeAnalytics.bestWinStreak)} />
                     <Stat label="Worst loss streak" value={String(tradeAnalytics.worstLossStreak)} />
+                    <Stat
+                      label="Direction distribution"
+                      value={`Long: ${tradeAnalytics.directionDistribution.longPercent}% / Short: ${tradeAnalytics.directionDistribution.shortPercent}%`}
+                    />
                   </div>
                 </section>
               </>
@@ -4781,6 +4820,14 @@ export default function App() {
                   {backtestStats.total} samples
                 </strong>
               </div>
+              <div className="analytics-filter-row">
+                <SelectField
+                  label="Year"
+                  value={backtestAnalyticsYearFilter}
+                  options={backtestYears}
+                  onChange={setBacktestAnalyticsYearFilter}
+                />
+              </div>
               <div className="stat-grid analytics-grid">
                 <Stat label="Total backtests" value={String(backtestStats.total)} />
                 <Stat label="Total R" value={`${formatNumber(backtestStats.totalR)}R`} />
@@ -4790,6 +4837,10 @@ export default function App() {
                 <Stat label="Max drawdown" value={`${formatNumber(backtestStats.maxDrawdown)}R`} />
                 <Stat label="Average win" value={`${formatNumber(backtestStats.averageWin)}R`} />
                 <Stat label="Average loss" value={`${formatNumber(backtestStats.averageLoss)}R`} />
+                <Stat
+                  label="Direction distribution"
+                  value={`Long: ${backtestStats.directionDistribution.longPercent}% / Short: ${backtestStats.directionDistribution.shortPercent}%`}
+                />
               </div>
             </section>
             ) : null}

@@ -2157,6 +2157,12 @@ button.yearly-row.is-active {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.analytics-filter-row {
+  display: grid;
+  max-width: 220px;
+  margin: -8px 0 18px;
+}
+
 .market-panel::before {
   position: absolute;
   inset: 0;
