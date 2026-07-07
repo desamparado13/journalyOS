@@ -957,16 +957,47 @@ function parseDatedItemDate(item: { date: string; time: string; legacyId?: numbe
 function daysSinceTrade(trade: Trade | undefined) {
   if (!trade) return "No trades yet";
 
+  const days = getDaysSinceTrade(trade);
+
+  return days === 1 ? "1 day" : `${days} days`;
+}
+
+function getDaysSinceTrade(trade: Trade | undefined) {
+  if (!trade) return null;
+
   const tradedAt = parseTradeDate(trade);
   const today = new Date();
   const tradedDay = new Date(tradedAt.getFullYear(), tradedAt.getMonth(), tradedAt.getDate());
   const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const days = Math.max(
+
+  return Math.max(
     0,
     Math.floor((todayDay.getTime() - tradedDay.getTime()) / (1000 * 60 * 60 * 24)),
   );
+}
 
-  return days === 1 ? "1 day" : `${days} days`;
+function getDirectionStreak(trades: Trade[]) {
+  const ordered = [...trades].sort(
+    (a, b) => parseDatedItemDate(b).getTime() - parseDatedItemDate(a).getTime(),
+  );
+  const [latest] = ordered;
+
+  if (!latest) {
+    return { direction: null as Direction | null, count: 0 };
+  }
+
+  let count = 0;
+  for (const trade of ordered) {
+    if (trade.direction !== latest.direction) break;
+    count += 1;
+  }
+
+  return { direction: latest.direction, count };
+}
+
+function getProjectedDirectionStreak(trades: Trade[], direction: Direction) {
+  const current = getDirectionStreak(trades);
+  return current.direction === direction ? current.count + 1 : 1;
 }
 
 function toJournalItems(trades: Trade[], backtests: Backtest[]): JournalItem[] {
@@ -4083,6 +4114,7 @@ export default function App() {
             <PropFirmsModule
               accounts={propFirmAccounts}
               payouts={propFirmPayouts}
+              trades={trades}
               onAccountsChange={updatePropFirmAccounts}
               onPayoutsChange={updatePropFirmPayouts}
             />
@@ -4576,6 +4608,7 @@ export default function App() {
                   </label>
                 </div>
                 <SpreadNotice pair={tradeForm.pair} time={tradeForm.time} />
+                {!tradeForm.id ? <PropRuleTradeNotice trades={trades} direction={tradeForm.direction} /> : null}
               </section>
 
               <section className="trade-form-section trade-journal-section">
@@ -7697,14 +7730,107 @@ function SpreadNotice({ pair, time }: { pair: string; time: string }) {
   );
 }
 
+function PropRuleTradeNotice({ trades, direction }: { trades: Trade[]; direction: Direction }) {
+  const projectedStreak = getProjectedDirectionStreak(trades, direction);
+  const shouldWarn = projectedStreak >= 5;
+
+  if (!shouldWarn) return null;
+
+  return (
+    <article className="spread-notice prop-rule-inline is-warning">
+      <div className="spread-notice-icon">
+        <ShieldAlert size={18} />
+      </div>
+      <div>
+        <span>Prop rule guard</span>
+        <strong>{projectedStreak} {direction.toLowerCase()} trades in a row</strong>
+        <p>
+          This can look like one-sided betting. Pause and confirm the setup is market-led, not just a repeated bias.
+        </p>
+        <small>Consider waiting for a clean opposite setup or documenting why this trade is still valid.</small>
+      </div>
+    </article>
+  );
+}
+
+function PropRuleGuardPanel({ trades }: { trades: Trade[] }) {
+  const recentTrades = [...trades].sort(
+    (a, b) => parseDatedItemDate(b).getTime() - parseDatedItemDate(a).getTime(),
+  );
+  const latestTrade = recentTrades[0];
+  const inactiveDays = getDaysSinceTrade(latestTrade);
+  const daysUntilInactive = inactiveDays === null ? 30 : Math.max(0, 30 - inactiveDays);
+  const directionStreak = getDirectionStreak(trades);
+  const inactivityTone =
+    inactiveDays === null || inactiveDays >= 30 ? "danger" : inactiveDays >= 15 ? "warning" : "normal";
+  const directionTone = directionStreak.count >= 5 ? "warning" : "normal";
+  const inactivityLabel =
+    inactiveDays === null
+      ? "No live trades logged"
+      : inactiveDays >= 30
+        ? "Inactive risk active"
+        : inactiveDays >= 15
+          ? "Maintenance trade due"
+          : "Active";
+  const directionLabel =
+    directionStreak.count >= 5 && directionStreak.direction
+      ? `${directionStreak.count} ${directionStreak.direction.toLowerCase()}s in a row`
+      : directionStreak.direction
+        ? `${directionStreak.count} ${directionStreak.direction.toLowerCase()} streak`
+        : "No direction streak";
+
+  return (
+    <section className="prop-rule-guard" aria-label="Prop rule guard">
+      <div className="panel-header">
+        <span>Prop rule guard</span>
+        <strong>30-day inactivity / one-sided bets</strong>
+      </div>
+
+      <div className="prop-rule-grid">
+        <article className={`prop-rule-card is-${inactivityTone}`}>
+          <Clock3 size={18} />
+          <div>
+            <span>Inactivity</span>
+            <strong>{inactivityLabel}</strong>
+            <p>
+              {inactiveDays === null
+                ? "Log a live trade before the 30-day clock becomes a problem."
+                : inactiveDays >= 30
+                  ? `${inactiveDays} days since the last live trade. Check your account status before trading.`
+                  : inactiveDays >= 15
+                    ? `${inactiveDays} days since the last live trade. Open and close a tiny maintenance trade if your prop firm allows it.`
+                    : `${daysUntilInactive} days left before the 30-day inactivity limit.`}
+            </p>
+          </div>
+        </article>
+
+        <article className={`prop-rule-card is-${directionTone}`}>
+          <ShieldAlert size={18} />
+          <div>
+            <span>One-sided bets</span>
+            <strong>{directionLabel}</strong>
+            <p>
+              {directionStreak.count >= 5 && directionStreak.direction
+                ? "Your last five or more live trades point one way. Review whether this is a valid setup sequence or directional bias."
+                : "You will be warned when live trades reach five longs or five shorts in a row."}
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 function PropFirmsModule({
   accounts,
   payouts,
+  trades,
   onAccountsChange,
   onPayoutsChange,
 }: {
   accounts: PropFirmAccount[];
   payouts: PropFirmPayout[];
+  trades: Trade[];
   onAccountsChange: (accounts: PropFirmAccount[]) => void;
   onPayoutsChange: (payouts: PropFirmPayout[]) => void;
 }) {
@@ -7788,6 +7914,8 @@ function PropFirmsModule({
 
   return (
     <section className="prop-firm-panel">
+      <PropRuleGuardPanel trades={trades} />
+
       <div className="module-tabs prop-tabs" aria-label="Prop firm sections">
         <button
           className={activePropTab === "accounts" ? "is-active" : ""}

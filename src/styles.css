@@ -3108,6 +3108,82 @@ button.yearly-row.is-active {
   gap: 18px;
 }
 
+.prop-rule-guard {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.1), rgba(20, 184, 166, 0.05)),
+    var(--surface);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.prop-rule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prop-rule-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.36);
+  padding: 13px;
+}
+
+:root[data-theme="dark"] .prop-rule-card {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.prop-rule-card > svg {
+  color: var(--brand-strong);
+}
+
+.prop-rule-card.is-warning {
+  border-color: color-mix(in srgb, #f59e0b 54%, var(--line));
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(14, 165, 233, 0.04));
+}
+
+.prop-rule-card.is-danger {
+  border-color: color-mix(in srgb, var(--danger) 54%, var(--line));
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.16), rgba(14, 165, 233, 0.04));
+}
+
+.prop-rule-card.is-warning > svg {
+  color: #f59e0b;
+}
+
+.prop-rule-card.is-danger > svg {
+  color: var(--danger);
+}
+
+.prop-rule-card span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.prop-rule-card strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.prop-rule-card p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-weight: 760;
+  line-height: 1.42;
+}
+
 .prop-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5123,6 +5199,7 @@ textarea:focus {
   .goals-summary,
   .goal-form-grid,
   .prop-summary-grid,
+  .prop-rule-grid,
   .payout-summary-grid,
   .prop-account-card,
   .prop-account-fields,
@@ -5275,6 +5352,7 @@ textarea:focus {
   .goal-form-grid,
   .goal-card,
   .prop-summary-grid,
+  .prop-rule-grid,
   .payout-summary-grid,
   .prop-account-card,
   .prop-account-fields,
