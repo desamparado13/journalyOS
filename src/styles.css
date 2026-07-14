@@ -4361,6 +4361,103 @@ textarea:focus {
   gap: 14px;
 }
 
+.decision-log-view {
+  display: grid;
+  gap: 18px;
+}
+
+.decision-form {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.decision-form .trade-entry-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.decision-form .trade-entry-grid label:nth-child(n) {
+  grid-column: span 1;
+}
+
+.decision-insight-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.decision-insight-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 760;
+  line-height: 1.55;
+}
+
+.decision-plan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.decision-list {
+  margin-top: 2px;
+}
+
+.discipline-stats {
+  margin-top: 4px;
+}
+
+.discipline-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.decision-list .decision-card {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+}
+
+.decision-media-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.decision-media-grid .shot-button {
+  position: relative;
+}
+
+.decision-media-grid .shot-button > span {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  left: 7px;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: rgba(5, 12, 24, 0.78);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.decision-media-grid .trade-shot {
+  aspect-ratio: 4 / 5;
+}
+
+.discipline-image-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: var(--surface-strong);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
 .trade-card {
   position: relative;
   overflow: hidden;
@@ -5241,6 +5338,19 @@ textarea:focus {
   .week-edge-grid,
   .recent-trade,
   .trade-card {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-card,
+  .decision-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .decision-list .decision-card {
+    grid-template-columns: 1fr;
+  }
+
+  .discipline-upload-grid {
     grid-template-columns: 1fr;
   }
 

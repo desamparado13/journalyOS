@@ -64,6 +64,10 @@ const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
 const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
+const TRADE_DECISION_LIST_COLUMNS =
+  "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
+const BACKTEST_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
 const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
 
 const learnVideos = [
@@ -123,6 +127,19 @@ const setups = [
   "EU timed entry",
 ] as const;
 const results = ["Win", "Loss", "Breakeven"] as const;
+const decisionStatuses = ["Taken", "Cancelled", "Missed", "Waiting"] as const;
+const decisionOutcomes = ["Unknown", "Won", "Lost", "Breakeven", "Avoided loss", "Cost opportunity"] as const;
+const cancellationReasons = [
+  "None",
+  "Setup invalidated",
+  "Late entry",
+  "News risk",
+  "Spread too high",
+  "Risk too large",
+  "Already in trade",
+  "Hesitation",
+  "Rule not met",
+] as const;
 
 function defaultStopLossForSetup(setup: string) {
   return ["REVERSAL", "Flag", "Break and retest", "Flag+", "EU timed entry"].includes(setup) ? "14" : "";
@@ -206,6 +223,8 @@ function getLicenseState(user: SessionUser | null) {
 type AuthMode = "login" | "signup";
 type Direction = "Long" | "Short";
 type Result = (typeof results)[number];
+type TradeDecisionStatus = (typeof decisionStatuses)[number];
+type TradeDecisionOutcome = (typeof decisionOutcomes)[number];
 type Theme = "light" | "dark";
 type ClockPeriod = "AM" | "PM";
 type ClockSource = "live" | "backtest";
@@ -293,6 +312,7 @@ type AppView =
   | "week-edge"
   | "trade-performance"
   | "yearly-comparison"
+  | "discipline"
   | "ai-coach"
   | "backtesting-analytics"
   | "add-backtest"
@@ -315,6 +335,7 @@ const appViews: readonly AppView[] = [
   "monthly-heatmap",
   "trade-performance",
   "yearly-comparison",
+  "discipline",
   "ai-coach",
   "backtesting-analytics",
   "add-backtest",
@@ -351,6 +372,29 @@ type Trade = {
   updatedAt: string;
 };
 
+type TradeDecision = {
+  id: string;
+  userId: string;
+  date: string;
+  time: string;
+  pair: string;
+  setup: string;
+  direction: Direction;
+  status: TradeDecisionStatus;
+  entryPlan: string;
+  stopLoss: string;
+  takeProfit: string;
+  riskPercent: number | null;
+  reasonToTake: string;
+  reasonCancelled: string;
+  outcome: TradeDecisionOutcome;
+  notes: string;
+  screenshot: string;
+  postImage: string;
+  resultR: number;
+  createdAt: string;
+  updatedAt: string;
+};
 type TradeRow = {
   id: string;
   user_id: string;
@@ -374,6 +418,29 @@ type TradeRow = {
   updated_at: string;
 };
 
+type TradeDecisionRow = {
+  id: string;
+  user_id: string;
+  decision_date: string;
+  decision_time: string;
+  pair: string;
+  setup: string;
+  direction: Direction;
+  status: TradeDecisionStatus;
+  entry_plan: string | null;
+  stop_loss: string | null;
+  take_profit: string | null;
+  risk_percent: number | string | null;
+  reason_to_take: string | null;
+  reason_cancelled: string | null;
+  outcome: TradeDecisionOutcome | null;
+  notes: string | null;
+  screenshot_url: string | null;
+  post_image_url: string | null;
+  result_r: number | string | null;
+  created_at: string;
+  updated_at: string;
+};
 type Backtest = {
   id: string;
   userId: string;
@@ -629,6 +696,26 @@ type TradeFormState = {
   screenshotFile: File | null;
 };
 
+type TradeDecisionFormState = {
+  id: string;
+  date: string;
+  time: string;
+  pair: string;
+  setup: string;
+  direction: Direction;
+  status: TradeDecisionStatus;
+  entryPlan: string;
+  stopLoss: string;
+  takeProfit: string;
+  riskPercent: string;
+  reasonToTake: string;
+  reasonCancelled: string;
+  outcome: TradeDecisionOutcome;
+  notes: string;
+  screenshotFile: File | null;
+  postImageFile: File | null;
+  resultR: string;
+};
 type PositionCalculatorState = {
   pair: string;
   accountBalance: string;
@@ -693,6 +780,30 @@ function todayDefaults(): TradeFormState {
   };
 }
 
+function tradeDecisionDefaults(): TradeDecisionFormState {
+  const now = new Date();
+
+  return {
+    id: "",
+    date: now.toISOString().slice(0, 10),
+    time: now.toTimeString().slice(0, 5),
+    pair: pairs[0],
+    setup: setups[0],
+    direction: "Long",
+    status: "Waiting",
+    entryPlan: "",
+    stopLoss: "",
+    takeProfit: "",
+    riskPercent: "1",
+    reasonToTake: "",
+    reasonCancelled: "",
+    outcome: "Unknown",
+    notes: "",
+    screenshotFile: null,
+    postImageFile: null,
+    resultR: "0",
+  };
+}
 function positionDefaults(): PositionCalculatorState {
   return {
     pair: "AUDJPY",
@@ -735,18 +846,32 @@ function backtestDefaults(): BacktestFormState {
   };
 }
 
-function fileToDataUrl(file: File | null) {
-  return new Promise<string>((resolve, reject) => {
-    if (!file) {
-      resolve("");
-      return;
-    }
+async function fileToDataUrl(file: File | null) {
+  if (!file) return "";
 
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Could not read the selected image."));
+      element.src = sourceUrl;
+    });
+    const maxDimension = 1920;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+
+    if (!context) throw new Error("Could not prepare the selected image.");
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/webp", 0.82);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 function blobToDataUrl(blob: Blob) {
@@ -875,7 +1000,6 @@ function getLongestDirectionStreaks(items: Array<{ direction: Direction | string
 
   return { longestLong, longestShort };
 }
-
 function daysSinceTrade(trade: Trade | undefined) {
   if (!trade) return "No trades yet";
 
@@ -1513,6 +1637,31 @@ function toTrade(row: TradeRow): Trade {
   };
 }
 
+function toTradeDecision(row: TradeDecisionRow): TradeDecision {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    date: row.decision_date,
+    time: String(row.decision_time).slice(0, 5),
+    pair: row.pair,
+    setup: row.setup,
+    direction: row.direction,
+    status: row.status,
+    entryPlan: row.entry_plan || "",
+    stopLoss: row.stop_loss || "",
+    takeProfit: row.take_profit || "",
+    riskPercent: row.risk_percent === null ? null : Number(row.risk_percent),
+    reasonToTake: row.reason_to_take || "",
+    reasonCancelled: row.reason_cancelled || "",
+    outcome: row.outcome || "Unknown",
+    notes: row.notes || "",
+    screenshot: row.screenshot_url || "",
+    postImage: row.post_image_url || "",
+    resultR: Number(row.result_r || 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 function toBacktest(row: BacktestRow): Backtest {
   return {
     id: row.id,
@@ -1700,10 +1849,9 @@ function exportPositionSizingPng({
     ["Entry", calculator.entryPrice || "--"],
     ["Stop loss", calculator.stopLossPrice || "--"],
     ["Take profit", calculator.takeProfitPrice || "--"],
-    ["Stop", `${formatNumber(summary.stopPips)} pips`],
   ];
   tradeFields.forEach(([label, value], index) => {
-    const fieldWidth = 196;
+    const fieldWidth = 250;
     const gap = 18;
     const x = 64 + index * (fieldWidth + gap);
     drawExportField(ctx, label, value, x, 226, fieldWidth);
@@ -1868,6 +2016,8 @@ export default function App() {
   const [profileRows, setProfileRows] = useState<ProfileSizingRow[]>(readProfileRows);
   const [profileMode, setProfileMode] = useState<"main" | "half">("main");
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
+  const [decisionForm, setDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
   const [backtests, setBacktests] = useState<Backtest[]>([]);
   const [resultFilter, setResultFilter] = useState<"All" | Result>("All");
@@ -1962,6 +2112,7 @@ export default function App() {
     if (!currentUser) {
       lastLoadedUserId.current = null;
       setTrades([]);
+      setTradeDecisions([]);
       setBacktests([]);
       setSyncMessage("");
       setAccountProfile(defaultAccountProfile());
@@ -1976,6 +2127,12 @@ export default function App() {
       setBacktestForm(backtestDefaults());
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser && activeView === "discipline" && tradeDecisions.length === 0) {
+      loadTradeDecisions();
+    }
+  }, [activeView, currentUser]);
 
   useEffect(() => {
     if (
@@ -2813,7 +2970,9 @@ export default function App() {
     if (!currentUser || !supabase || tradeIds.length === 0) return;
 
     const userId = currentUser.id;
-    const batches = chunkRows(tradeIds, 5);
+    // Data URLs can be several megabytes each. Fetching one per request prevents
+    // a single oversized response from delaying every image in the same batch.
+    const batches = chunkRows(tradeIds, 1);
     let nextBatch = 0;
     let failed = false;
 
@@ -2918,6 +3077,36 @@ export default function App() {
     setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
   }
 
+  async function loadTradeDecisions() {
+    if (!currentUser || !supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("trade_decisions")
+          .select(TRADE_DECISION_LIST_COLUMNS)
+          .eq("user_id", currentUser.id)
+          .order("decision_date", { ascending: false })
+          .order("decision_time", { ascending: false }),
+        "Discipline entries",
+      );
+
+      if (error) {
+        setSyncMessage(`Could not load discipline entries: ${error.message}`);
+        return;
+      }
+
+      setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load discipline entries: ${error.message}` : "Could not load discipline entries.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthMessage("");
@@ -2962,6 +3151,89 @@ export default function App() {
     event.preventDefault();
     if (!currentUser || !supabase) return;
     setPendingTradeLock({ ...tradeForm });
+  }
+
+  async function handleDisciplineSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentUser || !supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    const existing = tradeDecisions.find((item) => item.id === decisionForm.id);
+    const [preImage, postImage] = await Promise.all([
+      fileToDataUrl(decisionForm.screenshotFile),
+      fileToDataUrl(decisionForm.postImageFile),
+    ]);
+    const resultR = Number(decisionForm.resultR || 0);
+    const payload = {
+      user_id: currentUser.id,
+      decision_date: decisionForm.date,
+      decision_time: decisionForm.time,
+      pair: decisionForm.pair,
+      setup: decisionForm.setup,
+      direction: decisionForm.direction,
+      status: "Cancelled" as TradeDecisionStatus,
+      reason_cancelled: decisionForm.reasonCancelled.trim(),
+      outcome: (resultR > 0 ? "Cost opportunity" : resultR < 0 ? "Avoided loss" : "Breakeven") as TradeDecisionOutcome,
+      notes: decisionForm.notes.trim(),
+      screenshot_url: preImage || existing?.screenshot || "",
+      post_image_url: postImage || existing?.postImage || "",
+      result_r: resultR,
+      updated_at: new Date().toISOString(),
+    };
+
+    const query = existing
+      ? supabase.from("trade_decisions").update(payload).eq("id", existing.id).select(TRADE_DECISION_LIST_COLUMNS).single()
+      : supabase.from("trade_decisions").insert(payload).select(TRADE_DECISION_LIST_COLUMNS).single();
+    const { data, error } = await query;
+    setIsSyncing(false);
+
+    if (error) {
+      setSyncMessage(`Could not save discipline entry: ${error.message}`);
+      showToast({ tone: "error", title: "Discipline entry failed", message: error.message });
+      return;
+    }
+
+    const saved = toTradeDecision(data as TradeDecisionRow);
+    setTradeDecisions((current) =>
+      existing ? current.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...current],
+    );
+    setDecisionForm(tradeDecisionDefaults());
+    showToast({
+      tone: "success",
+      title: existing ? "Discipline entry updated" : "Discipline entry saved",
+      message: `${saved.pair} skipped trade recorded at ${formatNumber(saved.resultR)}R.`,
+    });
+  }
+
+  function editDisciplineEntry(entry: TradeDecision) {
+    setDecisionForm({
+      ...tradeDecisionDefaults(),
+      id: entry.id,
+      date: entry.date,
+      time: entry.time,
+      pair: entry.pair,
+      setup: entry.setup,
+      direction: entry.direction,
+      reasonCancelled: entry.reasonCancelled,
+      notes: entry.notes,
+      resultR: String(entry.resultR),
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function deleteDisciplineEntry(entry: TradeDecision) {
+    if (!supabase) return;
+    setIsSyncing(true);
+    const { error } = await supabase.from("trade_decisions").delete().eq("id", entry.id);
+    setIsSyncing(false);
+    if (error) {
+      setSyncMessage(`Could not delete discipline entry: ${error.message}`);
+      return;
+    }
+    setTradeDecisions((current) => current.filter((item) => item.id !== entry.id));
+    if (decisionForm.id === entry.id) setDecisionForm(tradeDecisionDefaults());
   }
 
   async function saveLockedTrade(form: TradeFormState) {
@@ -3629,7 +3901,8 @@ export default function App() {
               activeView === "monthly-heatmap" ||
               activeView === "week-edge" ||
               activeView === "trade-performance" ||
-              activeView === "yearly-comparison"
+              activeView === "yearly-comparison" ||
+              activeView === "discipline"
                 ? "is-active"
                 : ""
             }
@@ -4556,7 +4829,8 @@ export default function App() {
         activeView === "monthly-heatmap" ||
         activeView === "week-edge" ||
         activeView === "trade-performance" ||
-        activeView === "yearly-comparison" ? (
+        activeView === "yearly-comparison" ||
+        activeView === "discipline" ? (
           <section className="journal-band">
             <div className="section-heading">
               <p className="eyebrow">Trade archive</p>
@@ -4575,6 +4849,8 @@ export default function App() {
                       ? "Performance"
                       : activeView === "yearly-comparison"
                         ? "Yearly comparison"
+                      : activeView === "discipline"
+                        ? "Discipline"
                       : "View trades"}
               </h2>
             </div>
@@ -4635,6 +4911,13 @@ export default function App() {
                 onClick={() => setActiveView("yearly-comparison")}
               >
                 Yearly
+              </button>
+              <button
+                className={activeView === "discipline" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveView("discipline")}
+              >
+                Discipline
               </button>
             </div>
 
@@ -4797,6 +5080,20 @@ export default function App() {
                 data={yearlyComparison}
                 selectedYear={yearlyComparison.activeYear}
                 onYearChange={setYearlyCompareYear}
+              />
+            ) : null}
+
+            {activeView === "discipline" ? (
+              <DisciplineLog
+                entries={tradeDecisions}
+                form={decisionForm}
+                isSyncing={isSyncing}
+                onFormChange={setDecisionForm}
+                onSubmit={handleDisciplineSubmit}
+                onEdit={editDisciplineEntry}
+                onDelete={deleteDisciplineEntry}
+                onOpenImage={(items, index) => openImageViewer(items, index)}
+                onClear={() => setDecisionForm(tradeDecisionDefaults())}
               />
             ) : null}
           </section>
@@ -8630,6 +8927,160 @@ function summarizeTraderPreview(trades: Trade[]) {
       };
     }),
   };
+}
+
+function DisciplineLog({
+  entries,
+  form,
+  isSyncing,
+  onFormChange,
+  onSubmit,
+  onEdit,
+  onDelete,
+  onOpenImage,
+  onClear,
+}: {
+  entries: TradeDecision[];
+  form: TradeDecisionFormState;
+  isSyncing: boolean;
+  onFormChange: (form: TradeDecisionFormState) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onEdit: (entry: TradeDecision) => void;
+  onDelete: (entry: TradeDecision) => void;
+  onOpenImage: (items: ImageViewerItem[], index: number) => void;
+  onClear: () => void;
+}) {
+  const opportunityCost = entries.filter((entry) => entry.resultR > 0).reduce((sum, entry) => sum + entry.resultR, 0);
+  const lossesAvoided = Math.abs(entries.filter((entry) => entry.resultR < 0).reduce((sum, entry) => sum + entry.resultR, 0));
+
+  return (
+    <section className="decision-log-view">
+      <div className="decision-insight-panel market-panel">
+        <div className="panel-header">
+          <span>Cost of discipline</span>
+          <strong>{entries.length} skipped trades</strong>
+        </div>
+        <p>Record the trade you chose not to take, why you skipped it, and what the setup eventually returned.</p>
+        <div className="stat-grid analytics-grid discipline-stats">
+          <Stat label="Opportunity cost" value={`${formatNumber(opportunityCost)}R`} />
+          <Stat label="Losses avoided" value={`${formatNumber(lossesAvoided)}R`} />
+          <Stat label="Net skipped result" value={`${formatNumber(entries.reduce((sum, entry) => sum + entry.resultR, 0))}R`} />
+        </div>
+      </div>
+
+      <form className="trade-form decision-form" onSubmit={onSubmit}>
+        <section className="trade-form-section">
+          <div className="trade-form-section-title">
+            <span>{form.id ? "Edit skipped trade" : "Log skipped trade"}</span>
+            <strong>I didn&apos;t take this trade because...</strong>
+          </div>
+          <div className="trade-entry-grid">
+            <label>
+              <span>Date</span>
+              <input type="date" required value={form.date} onChange={(event) => onFormChange({ ...form, date: event.target.value })} />
+            </label>
+            <label>
+              <span>Time</span>
+              <input type="time" required value={form.time} onChange={(event) => onFormChange({ ...form, time: event.target.value })} />
+            </label>
+            <SelectField label="Pair" value={form.pair} options={pairs} onChange={(pair) => onFormChange({ ...form, pair })} />
+            <SelectField label="Setup" value={form.setup} options={setups} onChange={(setup) => onFormChange({ ...form, setup })} />
+            <SelectField label="Direction" value={form.direction} options={["Long", "Short"]} onChange={(direction) => onFormChange({ ...form, direction: direction as Direction })} />
+            <label>
+              <span>Result in R</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                pattern="-?[0-9]*[.]?[0-9]*"
+                required
+                value={form.resultR}
+                placeholder="-1 or 2.5"
+                onChange={(event) => onFormChange({ ...form, resultR: event.target.value })}
+              />
+            </label>
+            <label className="wide-field">
+              <span>I didn&apos;t take this trade because...</span>
+              <input
+                list="discipline-reasons"
+                required
+                value={form.reasonCancelled}
+                placeholder="Rule not met, news risk, hesitation..."
+                onChange={(event) => onFormChange({ ...form, reasonCancelled: event.target.value })}
+              />
+              <datalist id="discipline-reasons">
+                {cancellationReasons.filter((reason) => reason !== "None").map((reason) => <option key={reason} value={reason} />)}
+              </datalist>
+            </label>
+          </div>
+        </section>
+
+        <section className="trade-form-section trade-journal-section">
+          <div className="discipline-upload-grid">
+            <label className="file-field">
+              <span>Pre image {form.id ? "(leave blank to keep)" : ""}</span>
+              <input type="file" accept="image/*" onChange={(event) => onFormChange({ ...form, screenshotFile: event.target.files?.[0] || null })} />
+              <ImagePlus size={18} />
+            </label>
+            <label className="file-field">
+              <span>Post image {form.id ? "(leave blank to keep)" : ""}</span>
+              <input type="file" accept="image/*" onChange={(event) => onFormChange({ ...form, postImageFile: event.target.files?.[0] || null })} />
+              <ImagePlus size={18} />
+            </label>
+          </div>
+          <label>
+            <span>Notes</span>
+            <textarea rows={4} value={form.notes} placeholder="What rule protected you—or what made you hesitate?" onChange={(event) => onFormChange({ ...form, notes: event.target.value })} />
+          </label>
+          <div className="form-actions">
+            <button className="primary-action" type="submit" disabled={isSyncing}>
+              <ShieldCheck size={18} />
+              {form.id ? "Update entry" : "Save discipline entry"}
+            </button>
+            <button className="ghost-action" type="button" onClick={onClear}><RefreshCcw size={18} />Clear</button>
+          </div>
+        </section>
+      </form>
+
+      <div className="trade-list decision-list" aria-live="polite">
+        {isSyncing ? <DataLoadingRow label="Loading discipline entries" /> : null}
+        {!isSyncing && entries.length === 0 ? (
+          <div className="empty-state"><strong>No skipped trades logged yet</strong><p>Your next disciplined pass can become useful review data here.</p></div>
+        ) : entries.map((entry) => {
+          const images: ImageViewerItem[] = [
+            entry.screenshot ? { id: `${entry.id}-pre`, src: entry.screenshot, alt: `${entry.pair} pre-trade chart`, title: `${entry.pair} pre image`, meta: `${entry.setup} / ${formatOrdinalDate(entry.date)}` } : null,
+            entry.postImage ? { id: `${entry.id}-post`, src: entry.postImage, alt: `${entry.pair} post-trade chart`, title: `${entry.pair} post image`, meta: `${formatNumber(entry.resultR)}R result` } : null,
+          ].filter((item): item is ImageViewerItem => Boolean(item));
+
+          return (
+            <article className={`decision-card ${entry.resultR < 0 ? "is-taken" : entry.resultR > 0 ? "is-missed" : "is-waiting"}`} key={entry.id}>
+              <div className="decision-card-main">
+                <header><span className="chip">{entry.pair}</span><span className="chip">{entry.direction}</span><span className="chip">{entry.setup}</span></header>
+                <div className="trade-card-title">
+                  <div><strong>{entry.pair}</strong><span>Skipped because: {entry.reasonCancelled}</span></div>
+                  <strong className={`decision-risk ${entry.resultR > 0 ? "negative-r" : entry.resultR < 0 ? "positive-r" : ""}`}>{formatNumber(entry.resultR)}R</strong>
+                </div>
+                <div className="trade-meta decision-meta">
+                  <Meta label="Date" value={formatOrdinalDate(entry.date)} />
+                  <Meta label="Time" value={formatTime12(entry.time)} />
+                  <Meta label="Outcome" value={entry.resultR > 0 ? "Missed winner" : entry.resultR < 0 ? "Loss avoided" : "Breakeven"} />
+                  <Meta label="Reason" value={entry.reasonCancelled} />
+                </div>
+                {entry.notes ? <p className="trade-notes">{entry.notes}</p> : null}
+                <div className="trade-actions">
+                  <button className="icon-button" type="button" onClick={() => onEdit(entry)}><Pencil size={16} />Edit</button>
+                  <button className="icon-button danger" type="button" onClick={() => onDelete(entry)}><Trash2 size={16} />Delete</button>
+                </div>
+              </div>
+              <div className="decision-media-grid">
+                {entry.screenshot ? <button className="shot-button" type="button" onClick={() => onOpenImage(images, 0)}><span>Pre</span><img className="trade-shot" src={entry.screenshot} alt={`${entry.pair} pre-trade chart`} /></button> : <div className="discipline-image-empty">Pre image</div>}
+                {entry.postImage ? <button className="shot-button" type="button" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><span>Post</span><img className="trade-shot" src={entry.postImage} alt={`${entry.pair} post-trade chart`} /></button> : <div className="discipline-image-empty">Post image</div>}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function TradeCard({
