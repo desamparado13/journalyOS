@@ -24,9 +24,11 @@ NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 ```
 
-Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades` table and row-level security policies.
+Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades`, `trade_decisions`, and `backtests` tables plus row-level security policies.
 
 If you already created the table before the importer existed, run the latest `supabase-schema.sql` again. It includes additive `alter table ... add column if not exists` statements for Journaly V2 import metadata.
+
+If the app shows `Could not load decision log: Could not find the table 'public.trade_decisions' in the schema cache`, run the latest `supabase-schema.sql` against the Supabase project configured in `.env.local`. The script ends with `notify pgrst, 'reload schema';` so the API cache picks up the new table.
 
 ## Import Journaly V2 Trades
 
