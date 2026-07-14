@@ -3207,6 +3207,39 @@ export default function App() {
     });
   }
 
+  async function handleDisciplinePostImageChange(entry: TradeDecision, file: File) {
+    if (!supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    try {
+      const postImage = await fileToDataUrl(file);
+      const { data, error } = await supabase
+        .from("trade_decisions")
+        .update({ post_image_url: postImage, updated_at: new Date().toISOString() })
+        .eq("id", entry.id)
+        .select(TRADE_DECISION_LIST_COLUMNS)
+        .single();
+
+      if (error) throw error;
+
+      const saved = toTradeDecision(data as TradeDecisionRow);
+      setTradeDecisions((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+      showToast({
+        tone: "success",
+        title: entry.postImage ? "Post image replaced" : "Post image added",
+        message: `${saved.pair} now has its post-trade image.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save the post image.";
+      setSyncMessage(`Could not save post image: ${message}`);
+      showToast({ tone: "error", title: "Post image failed", message });
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   function editDisciplineEntry(entry: TradeDecision) {
     setDecisionForm({
       ...tradeDecisionDefaults(),
@@ -5092,6 +5125,7 @@ export default function App() {
                 onSubmit={handleDisciplineSubmit}
                 onEdit={editDisciplineEntry}
                 onDelete={deleteDisciplineEntry}
+                onPostImageChange={handleDisciplinePostImageChange}
                 onOpenImage={(items, index) => openImageViewer(items, index)}
                 onClear={() => setDecisionForm(tradeDecisionDefaults())}
               />
@@ -8937,6 +8971,7 @@ function DisciplineLog({
   onSubmit,
   onEdit,
   onDelete,
+  onPostImageChange,
   onOpenImage,
   onClear,
 }: {
@@ -8947,12 +8982,14 @@ function DisciplineLog({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onEdit: (entry: TradeDecision) => void;
   onDelete: (entry: TradeDecision) => void;
+  onPostImageChange: (entry: TradeDecision, file: File) => Promise<void>;
   onOpenImage: (items: ImageViewerItem[], index: number) => void;
   onClear: () => void;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<"add" | "records">("add");
   const opportunityCost = entries.filter((entry) => entry.resultR > 0).reduce((sum, entry) => sum + entry.resultR, 0);
   const lossesAvoided = Math.abs(entries.filter((entry) => entry.resultR < 0).reduce((sum, entry) => sum + entry.resultR, 0));
+  const editingEntry = form.id ? entries.find((entry) => entry.id === form.id) : undefined;
 
   return (
     <section className="decision-log-view">
@@ -9042,12 +9079,12 @@ function DisciplineLog({
         <section className="trade-form-section trade-journal-section">
           <div className="discipline-upload-grid">
             <label className="file-field">
-              <span>Pre image {form.id ? "(leave blank to keep)" : ""}</span>
+              <span>Pre image {editingEntry?.screenshot ? "(saved — choose only to replace)" : ""}</span>
               <input type="file" accept="image/*" onChange={(event) => onFormChange({ ...form, screenshotFile: event.target.files?.[0] || null })} />
               <ImagePlus size={18} />
             </label>
             <label className="file-field">
-              <span>Post image {form.id ? "(leave blank to keep)" : ""}</span>
+              <span>Post image {editingEntry?.postImage ? "(saved — choose only to replace)" : ""}</span>
               <input type="file" accept="image/*" onChange={(event) => onFormChange({ ...form, postImageFile: event.target.files?.[0] || null })} />
               <ImagePlus size={18} />
             </label>
@@ -9093,6 +9130,21 @@ function DisciplineLog({
                 {entry.notes ? <p className="trade-notes">{entry.notes}</p> : null}
                 <div className="trade-actions">
                   <button className="icon-button" type="button" onClick={() => { onEdit(entry); setActiveDisciplineTab("add"); }}><Pencil size={16} />Edit</button>
+                  <label className={`icon-button discipline-quick-upload${isSyncing ? " is-disabled" : ""}`} aria-disabled={isSyncing}>
+                    <ImagePlus size={16} />
+                    {entry.postImage ? "Replace post image" : "Add post image"}
+                    <input
+                      className="discipline-quick-upload-input"
+                      type="file"
+                      accept="image/*"
+                      disabled={isSyncing}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void onPostImageChange(entry, file);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
                   <button className="icon-button danger" type="button" onClick={() => onDelete(entry)}><Trash2 size={16} />Delete</button>
                 </div>
               </div>
