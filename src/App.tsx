@@ -9097,8 +9097,8 @@ function DisciplineLog({
                 </div>
               </div>
               <div className="decision-media-grid">
-                {entry.screenshot ? <button className="shot-button" type="button" onClick={() => onOpenImage(images, 0)}><span>Pre</span><img className="trade-shot" src={entry.screenshot} alt={`${entry.pair} pre-trade chart`} /></button> : <div className="discipline-image-empty">Pre image</div>}
-                {entry.postImage ? <button className="shot-button" type="button" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><span>Post</span><img className="trade-shot" src={entry.postImage} alt={`${entry.pair} post-trade chart`} /></button> : <div className="discipline-image-empty">Post image</div>}
+                {entry.screenshot ? <button className="shot-button" type="button" title="Open full-size pre image" onClick={() => onOpenImage(images, 0)}><span>Pre</span><img className="trade-shot" src={entry.screenshot} alt={`${entry.pair} pre-trade chart`} /></button> : <div className="discipline-image-empty">Pre image</div>}
+                {entry.postImage ? <button className="shot-button" type="button" title="Open full-size post image" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><span>Post</span><img className="trade-shot" src={entry.postImage} alt={`${entry.pair} post-trade chart`} /></button> : <div className="discipline-image-empty">Post image</div>}
               </div>
             </article>
           );

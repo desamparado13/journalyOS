@@ -4454,7 +4454,58 @@ textarea:focus {
 }
 
 .decision-list .decision-card {
+  position: relative;
+  overflow: hidden;
+  display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 18px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+
+.decision-card-main {
+  min-width: 0;
+}
+
+.decision-card header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.decision-card .trade-card-title {
+  margin-bottom: 12px;
+}
+
+.decision-risk {
+  min-width: 76px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--surface-strong);
+  text-align: right;
+}
+
+.decision-meta {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.decision-card .trade-notes {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 10px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.decision-card .trade-actions {
+  margin-top: 12px;
 }
 
 .decision-media-grid {
@@ -4468,6 +4519,8 @@ textarea:focus {
 
 .decision-media-grid .shot-button {
   position: relative;
+  overflow: hidden;
+  border-radius: 8px;
 }
 
 .decision-media-grid .shot-button > span {
@@ -4485,12 +4538,16 @@ textarea:focus {
 }
 
 .decision-media-grid .trade-shot {
-  aspect-ratio: 4 / 5;
+  display: block;
+  width: 100%;
+  height: 112px;
+  aspect-ratio: auto;
+  object-fit: cover;
 }
 
 .discipline-image-empty {
   display: grid;
-  min-height: 180px;
+  min-height: 112px;
   place-items: center;
   border: 1px dashed var(--line);
   border-radius: 8px;
