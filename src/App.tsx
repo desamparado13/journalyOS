@@ -8950,12 +8950,37 @@ function DisciplineLog({
   onOpenImage: (items: ImageViewerItem[], index: number) => void;
   onClear: () => void;
 }) {
+  const [activeDisciplineTab, setActiveDisciplineTab] = useState<"add" | "records">("add");
   const opportunityCost = entries.filter((entry) => entry.resultR > 0).reduce((sum, entry) => sum + entry.resultR, 0);
   const lossesAvoided = Math.abs(entries.filter((entry) => entry.resultR < 0).reduce((sum, entry) => sum + entry.resultR, 0));
 
   return (
     <section className="decision-log-view">
-      <div className="decision-insight-panel market-panel">
+      <div className="discipline-tabs" role="tablist" aria-label="Discipline sections">
+        <button
+          className={activeDisciplineTab === "add" ? "is-active" : ""}
+          type="button"
+          role="tab"
+          aria-selected={activeDisciplineTab === "add"}
+          onClick={() => setActiveDisciplineTab("add")}
+        >
+          <Plus size={17} />
+          Add entry
+        </button>
+        <button
+          className={activeDisciplineTab === "records" ? "is-active" : ""}
+          type="button"
+          role="tab"
+          aria-selected={activeDisciplineTab === "records"}
+          onClick={() => setActiveDisciplineTab("records")}
+        >
+          <ListChecks size={17} />
+          Records
+          <span>{entries.length}</span>
+        </button>
+      </div>
+
+      {activeDisciplineTab === "records" ? <div className="decision-insight-panel market-panel">
         <div className="panel-header">
           <span>Cost of discipline</span>
           <strong>{entries.length} skipped trades</strong>
@@ -8966,9 +8991,9 @@ function DisciplineLog({
           <Stat label="Losses avoided" value={`${formatNumber(lossesAvoided)}R`} />
           <Stat label="Net skipped result" value={`${formatNumber(entries.reduce((sum, entry) => sum + entry.resultR, 0))}R`} />
         </div>
-      </div>
+      </div> : null}
 
-      <form className="trade-form decision-form" onSubmit={onSubmit}>
+      {activeDisciplineTab === "add" ? <form className="trade-form decision-form" onSubmit={onSubmit}>
         <section className="trade-form-section">
           <div className="trade-form-section-title">
             <span>{form.id ? "Edit skipped trade" : "Log skipped trade"}</span>
@@ -9039,9 +9064,9 @@ function DisciplineLog({
             <button className="ghost-action" type="button" onClick={onClear}><RefreshCcw size={18} />Clear</button>
           </div>
         </section>
-      </form>
+      </form> : null}
 
-      <div className="trade-list decision-list" aria-live="polite">
+      {activeDisciplineTab === "records" ? <div className="trade-list decision-list" aria-live="polite">
         {isSyncing ? <DataLoadingRow label="Loading discipline entries" /> : null}
         {!isSyncing && entries.length === 0 ? (
           <div className="empty-state"><strong>No skipped trades logged yet</strong><p>Your next disciplined pass can become useful review data here.</p></div>
@@ -9067,7 +9092,7 @@ function DisciplineLog({
                 </div>
                 {entry.notes ? <p className="trade-notes">{entry.notes}</p> : null}
                 <div className="trade-actions">
-                  <button className="icon-button" type="button" onClick={() => onEdit(entry)}><Pencil size={16} />Edit</button>
+                  <button className="icon-button" type="button" onClick={() => { onEdit(entry); setActiveDisciplineTab("add"); }}><Pencil size={16} />Edit</button>
                   <button className="icon-button danger" type="button" onClick={() => onDelete(entry)}><Trash2 size={16} />Delete</button>
                 </div>
               </div>
@@ -9078,7 +9103,7 @@ function DisciplineLog({
             </article>
           );
         })}
-      </div>
+      </div> : null}
     </section>
   );
 }
