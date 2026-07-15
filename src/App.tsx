@@ -20,6 +20,7 @@ import {
   Maximize2,
   MessageSquareText,
   Minimize2,
+  NotebookPen,
   LogOut,
   Moon,
   Pencil,
@@ -66,6 +67,8 @@ const TRADE_LIST_COLUMNS =
 const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
+const JOURNAL_ENTRY_LIST_COLUMNS =
+  "id,user_id,entry_date,content,pair,related_trade_id,created_at,updated_at";
 const BACKTEST_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
 const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
@@ -296,6 +299,7 @@ type ResearchIdea = {
 };
 type AppView =
   | "dashboard"
+  | "journal"
   | "add-trade"
   | "edge"
   | "learn"
@@ -320,6 +324,7 @@ type AppView =
 
 const appViews: readonly AppView[] = [
   "dashboard",
+  "journal",
   "add-trade",
   "edge",
   "learn",
@@ -394,6 +399,28 @@ type TradeDecision = {
   resultR: number;
   createdAt: string;
   updatedAt: string;
+};
+type PersonalJournalEntry = {
+  id: string;
+  userId: string;
+  date: string;
+  content: string;
+  image: string;
+  pair: string;
+  relatedTradeId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type PersonalJournalEntryRow = {
+  id: string;
+  user_id: string;
+  entry_date: string;
+  content: string;
+  image_url?: string | null;
+  pair: string | null;
+  related_trade_id: string | null;
+  created_at: string;
+  updated_at: string;
 };
 type TradeRow = {
   id: string;
@@ -716,6 +743,15 @@ type TradeDecisionFormState = {
   postImageFile: File | null;
   resultR: string;
 };
+type PersonalJournalFormState = {
+  id: string;
+  date: string;
+  content: string;
+  pair: string;
+  relatedTradeId: string;
+  imageFile: File | null;
+  removeImage: boolean;
+};
 type PositionCalculatorState = {
   pair: string;
   accountBalance: string;
@@ -802,6 +838,17 @@ function tradeDecisionDefaults(): TradeDecisionFormState {
     screenshotFile: null,
     postImageFile: null,
     resultR: "0",
+  };
+}
+function personalJournalDefaults(): PersonalJournalFormState {
+  return {
+    id: "",
+    date: new Date().toISOString().slice(0, 10),
+    content: "",
+    pair: "",
+    relatedTradeId: "",
+    imageFile: null,
+    removeImage: false,
   };
 }
 function positionDefaults(): PositionCalculatorState {
@@ -1662,6 +1709,19 @@ function toTradeDecision(row: TradeDecisionRow): TradeDecision {
     updatedAt: row.updated_at,
   };
 }
+function toPersonalJournalEntry(row: PersonalJournalEntryRow): PersonalJournalEntry {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    date: row.entry_date,
+    content: row.content,
+    image: row.image_url || "",
+    pair: row.pair || "",
+    relatedTradeId: row.related_trade_id || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 function toBacktest(row: BacktestRow): Backtest {
   return {
     id: row.id,
@@ -2016,6 +2076,8 @@ export default function App() {
   const [profileRows, setProfileRows] = useState<ProfileSizingRow[]>(readProfileRows);
   const [profileMode, setProfileMode] = useState<"main" | "half">("main");
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [journalEntries, setJournalEntries] = useState<PersonalJournalEntry[]>([]);
+  const [journalForm, setJournalForm] = useState<PersonalJournalFormState>(personalJournalDefaults);
   const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
   const [decisionForm, setDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
@@ -2064,9 +2126,31 @@ export default function App() {
   const [licenseMessage, setLicenseMessage] = useState("");
   const [sessionNow, setSessionNow] = useState(() => new Date());
   const lastLoadedUserId = useRef<string | null>(null);
+  const journalLoadedUserId = useRef<string | null>(null);
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
   const editingTrade = tradeForm.id ? trades.find((trade) => trade.id === tradeForm.id) || null : null;
+  const journalTradeById = useMemo(() => new Map(trades.map((trade) => [trade.id, trade])), [trades]);
+  const editingJournalEntry = journalForm.id
+    ? journalEntries.find((entry) => entry.id === journalForm.id) || null
+    : null;
+  const journalTradeOptions = useMemo(
+    () => trades.filter((trade) => !journalForm.pair || trade.pair === journalForm.pair),
+    [journalForm.pair, trades],
+  );
+  const journalImageItems = useMemo(
+    () =>
+      journalEntries
+        .filter((entry) => Boolean(entry.image))
+        .map((entry) => ({
+          id: entry.id,
+          src: entry.image,
+          alt: `Journal entry from ${formatMonthDayYear(entry.date)}`,
+          title: formatMonthDayYear(entry.date),
+          meta: entry.pair ? `Journal reflection / ${entry.pair}` : "Journal reflection",
+        })),
+    [journalEntries],
+  );
   const isFinalizingTrade = Boolean(editingTrade && !editingTrade.finalizedAt);
 
   useEffect(() => {
@@ -2111,7 +2195,10 @@ export default function App() {
   useEffect(() => {
     if (!currentUser) {
       lastLoadedUserId.current = null;
+      journalLoadedUserId.current = null;
       setTrades([]);
+      setJournalEntries([]);
+      setJournalForm(personalJournalDefaults());
       setTradeDecisions([]);
       setBacktests([]);
       setSyncMessage("");
@@ -2122,11 +2209,18 @@ export default function App() {
     setAccountProfile(readAccountProfile(currentUser.id, currentUser.email));
     if (lastLoadedUserId.current !== currentUser.id) {
       lastLoadedUserId.current = currentUser.id;
+      journalLoadedUserId.current = null;
       loadTrades();
       setTradeForm(todayDefaults());
       setBacktestForm(backtestDefaults());
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser && activeView === "journal" && journalLoadedUserId.current !== currentUser.id) {
+      void loadJournalEntries();
+    }
+  }, [activeView, currentUser]);
 
   useEffect(() => {
     if (currentUser && activeView === "discipline" && tradeDecisions.length === 0) {
@@ -3055,6 +3149,154 @@ export default function App() {
     }
   }
 
+  async function hydrateJournalEntryImages(entryIds: string[]) {
+    if (!currentUser || !supabase || entryIds.length === 0) return;
+
+    const batches = chunkRows(entryIds, 12);
+    for (const ids of batches) {
+      const { data, error } = await supabase
+        .from("journal_entries")
+        .select("id,image_url")
+        .eq("user_id", currentUser.id)
+        .in("id", ids);
+
+      if (error) return;
+
+      const images = new Map(
+        ((data || []) as Array<{ id: string; image_url: string | null }>).map((row) => [row.id, row.image_url || ""]),
+      );
+      setJournalEntries((current) =>
+        current.map((entry) => (images.has(entry.id) ? { ...entry, image: images.get(entry.id) || "" } : entry)),
+      );
+    }
+  }
+
+  async function loadJournalEntries() {
+    if (!currentUser || !supabase) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("journal_entries")
+          .select(JOURNAL_ENTRY_LIST_COLUMNS)
+          .eq("user_id", currentUser.id)
+          .order("entry_date", { ascending: false })
+          .order("created_at", { ascending: false }),
+        "Journal entries",
+        15000,
+      );
+
+      if (error) throw error;
+
+      const loadedEntries = ((data || []) as unknown as PersonalJournalEntryRow[]).map(toPersonalJournalEntry);
+      setJournalEntries((current) => {
+        const images = new Map(current.map((entry) => [entry.id, entry.image]));
+        return loadedEntries.map((entry) => ({ ...entry, image: images.get(entry.id) || "" }));
+      });
+      journalLoadedUserId.current = currentUser.id;
+      void hydrateJournalEntryImages(loadedEntries.map((entry) => entry.id));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load journal entries.";
+      setSyncMessage(`Could not load journal entries: ${message}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function handleJournalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentUser || !supabase || !journalForm.content.trim()) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    try {
+      const existing = journalEntries.find((entry) => entry.id === journalForm.id);
+      const image = await fileToDataUrl(journalForm.imageFile);
+      const payload = {
+        user_id: currentUser.id,
+        entry_date: journalForm.date,
+        content: journalForm.content.trim(),
+        ...(!existing || image || journalForm.removeImage
+          ? { image_url: journalForm.removeImage ? "" : image }
+          : {}),
+        pair: journalForm.pair || null,
+        related_trade_id: journalForm.relatedTradeId || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const query = existing
+        ? supabase
+            .from("journal_entries")
+            .update(payload)
+            .eq("id", existing.id)
+            .eq("user_id", currentUser.id)
+            .select("*")
+            .single()
+        : supabase.from("journal_entries").insert(payload).select("*").single();
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const saved = toPersonalJournalEntry(data as PersonalJournalEntryRow);
+      setJournalEntries((current) => {
+        const next = existing
+          ? current.map((entry) => (entry.id === saved.id ? saved : entry))
+          : [saved, ...current];
+        return [...next].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+      });
+      setJournalForm(personalJournalDefaults());
+      showToast({
+        tone: "success",
+        title: existing ? "Journal entry updated" : "Journal entry saved",
+        message: saved.pair ? `Reflection linked to ${saved.pair}.` : "Your reflection is safely in your journal.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save the journal entry.";
+      setSyncMessage(`Could not save journal entry: ${message}`);
+      showToast({ tone: "error", title: "Journal entry failed", message });
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  function editJournalEntry(entry: PersonalJournalEntry) {
+    setJournalForm({
+      id: entry.id,
+      date: entry.date,
+      content: entry.content,
+      pair: entry.pair,
+      relatedTradeId: entry.relatedTradeId,
+      imageFile: null,
+      removeImage: false,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function deleteJournalEntry(entry: PersonalJournalEntry) {
+    if (!currentUser || !supabase || !window.confirm("Delete this journal entry? This cannot be undone.")) return;
+
+    setIsSyncing(true);
+    const { error } = await supabase
+      .from("journal_entries")
+      .delete()
+      .eq("id", entry.id)
+      .eq("user_id", currentUser.id);
+    setIsSyncing(false);
+
+    if (error) {
+      setSyncMessage(`Could not delete journal entry: ${error.message}`);
+      return;
+    }
+
+    setJournalEntries((current) => current.filter((item) => item.id !== entry.id));
+    if (journalForm.id === entry.id) setJournalForm(personalJournalDefaults());
+    showToast({ tone: "success", title: "Journal entry deleted", message: "The entry was removed." });
+  }
+
   async function loadBacktests() {
     if (!currentUser || !supabase) return;
 
@@ -3918,6 +4160,14 @@ export default function App() {
             Dashboard
           </button>
           <button
+            className={activeView === "journal" ? "is-active" : ""}
+            type="button"
+            onClick={() => setActiveView("journal")}
+          >
+            <NotebookPen size={18} />
+            Journal
+          </button>
+          <button
             className={activeView === "add-trade" || activeView === "position-sizing" ? "is-active" : ""}
             type="button"
             onClick={() => setActiveView("add-trade")}
@@ -4052,6 +4302,207 @@ export default function App() {
               Activate in profile
             </button>
           </div>
+        ) : null}
+
+        {activeView === "journal" ? (
+          <section className="workspace-band journal-view">
+            <div className="section-heading journal-heading">
+              <div>
+                <p className="eyebrow">Private reflections</p>
+                <h2>Journal</h2>
+                <p>Write freely, add a chart or photo, and optionally connect the thought to a pair or past trade.</p>
+              </div>
+              <div className="journal-summary" aria-label="Journal summary">
+                <span><strong>{journalEntries.length}</strong> entries</span>
+                <span><strong>{journalEntries.filter((entry) => entry.relatedTradeId).length}</strong> trade links</span>
+              </div>
+            </div>
+
+            <div className="journal-layout">
+              <form className="journal-entry-form" onSubmit={handleJournalSubmit}>
+                <div className="journal-form-header">
+                  <div>
+                    <span>{journalForm.id ? "Editing entry" : "New entry"}</span>
+                    <strong>{journalForm.id ? formatMonthDayYear(journalForm.date) : "Capture what matters now"}</strong>
+                  </div>
+                  <NotebookPen size={22} />
+                </div>
+
+                <label>
+                  <span>Date of entry</span>
+                  <input
+                    type="date"
+                    value={journalForm.date}
+                    required
+                    onChange={(event) => setJournalForm((current) => ({ ...current, date: event.target.value }))}
+                  />
+                </label>
+
+                <label>
+                  <span>Journal entry</span>
+                  <textarea
+                    value={journalForm.content}
+                    placeholder="What happened? What did you notice, feel, or learn?"
+                    required
+                    onChange={(event) => setJournalForm((current) => ({ ...current, content: event.target.value }))}
+                  />
+                </label>
+
+                <div className="journal-relation-panel">
+                  <div className="journal-relation-copy">
+                    <strong>Relate this entry to a trade</strong>
+                    <span>Optional · select a pair, a previous trade, or both</span>
+                  </div>
+                  <div className="journal-relation-fields">
+                    <label>
+                      <span>Pair</span>
+                      <select
+                        value={journalForm.pair}
+                        onChange={(event) => {
+                          const pair = event.target.value;
+                          setJournalForm((current) => {
+                            const linkedTrade = journalTradeById.get(current.relatedTradeId);
+                            return {
+                              ...current,
+                              pair,
+                              relatedTradeId: linkedTrade && linkedTrade.pair !== pair ? "" : current.relatedTradeId,
+                            };
+                          });
+                        }}
+                      >
+                        <option value="">No pair</option>
+                        {pairs.map((pair) => <option key={pair} value={pair}>{pair}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Previous trade</span>
+                      <select
+                        value={journalForm.relatedTradeId}
+                        onChange={(event) => {
+                          const relatedTradeId = event.target.value;
+                          const trade = journalTradeById.get(relatedTradeId);
+                          setJournalForm((current) => ({
+                            ...current,
+                            relatedTradeId,
+                            pair: trade?.pair || current.pair,
+                          }));
+                        }}
+                      >
+                        <option value="">No linked trade</option>
+                        {journalTradeOptions.map((trade) => (
+                          <option key={trade.id} value={trade.id}>
+                            {formatMonthDayYear(trade.date)} · {trade.pair} · {trade.direction} · {formatNumber(trade.pnl)}R
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {journalTradeOptions.length === 0 ? (
+                    <p className="journal-relation-empty">No logged trades match this pair yet. You can still save the pair by itself.</p>
+                  ) : null}
+                </div>
+
+                <label className="journal-image-field">
+                  <span>Image <small>Optional</small></span>
+                  <input
+                    key={journalForm.id || `new-${journalEntries.length}`}
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) =>
+                      setJournalForm((current) => ({
+                        ...current,
+                        imageFile: event.target.files?.[0] || null,
+                        removeImage: false,
+                      }))
+                    }
+                  />
+                  <em>{journalForm.imageFile?.name || "Add a chart screenshot, photo, or visual reminder"}</em>
+                </label>
+
+                {editingJournalEntry?.image && !journalForm.removeImage ? (
+                  <div className="journal-existing-image">
+                    <img src={editingJournalEntry.image} alt="Current journal attachment" />
+                    <button type="button" className="text-action" onClick={() => setJournalForm((current) => ({ ...current, imageFile: null, removeImage: true }))}>
+                      Remove current image
+                    </button>
+                  </div>
+                ) : null}
+
+                <div className="journal-form-actions">
+                  <button className="primary-action" type="submit" disabled={isSyncing || !journalForm.content.trim()}>
+                    <NotebookPen size={17} />
+                    {journalForm.id ? "Update entry" : "Save entry"}
+                  </button>
+                  {journalForm.id ? (
+                    <button className="secondary-action" type="button" onClick={() => setJournalForm(personalJournalDefaults())}>
+                      Cancel
+                    </button>
+                  ) : null}
+                </div>
+              </form>
+
+              <div className="journal-entry-list" aria-live="polite">
+                {isSyncing && journalEntries.length === 0 ? <DataLoadingOverlay label="Loading journal entries" /> : null}
+                {journalEntries.length === 0 && !isSyncing ? (
+                  <div className="empty-state journal-empty-state">
+                    <NotebookPen size={28} />
+                    <h3>Your journal starts here</h3>
+                    <p>Capture a lesson, emotion, market observation, or post-trade reflection.</p>
+                  </div>
+                ) : (
+                  journalEntries.map((entry) => {
+                    const linkedTrade = journalTradeById.get(entry.relatedTradeId);
+                    const imageIndex = journalImageItems.findIndex((item) => item.id === entry.id);
+
+                    return (
+                      <article className="journal-entry-card" key={entry.id}>
+                        <header>
+                          <div>
+                            <time dateTime={entry.date}>{formatMonthDayYear(entry.date)}</time>
+                            <div className="journal-entry-tags">
+                              {entry.pair ? <span>{entry.pair}</span> : null}
+                              {linkedTrade ? <span>{linkedTrade.direction} · {formatNumber(linkedTrade.pnl)}R</span> : null}
+                            </div>
+                          </div>
+                          <div className="journal-entry-actions">
+                            <button className="icon-button square" type="button" aria-label="Edit journal entry" onClick={() => editJournalEntry(entry)}>
+                              <Pencil size={15} />
+                            </button>
+                            <button className="icon-button square danger" type="button" aria-label="Delete journal entry" onClick={() => deleteJournalEntry(entry)}>
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </header>
+                        <p className="journal-entry-content">{entry.content}</p>
+                        {linkedTrade ? (
+                          <button className="journal-trade-link" type="button" onClick={() => {
+                            editTrade(linkedTrade);
+                            setActiveView("add-trade");
+                          }}>
+                            <TrendingUp size={15} />
+                            View linked {linkedTrade.pair} trade from {formatMonthDayYear(linkedTrade.date)}
+                          </button>
+                        ) : entry.relatedTradeId ? (
+                          <span className="journal-missing-trade">The linked trade is no longer available.</span>
+                        ) : null}
+                        {entry.image ? (
+                          <button
+                            className="journal-entry-image"
+                            type="button"
+                            aria-label={`View image for journal entry from ${formatMonthDayYear(entry.date)}`}
+                            onClick={() => imageIndex >= 0 && openImageViewer(journalImageItems, imageIndex)}
+                          >
+                            <img src={entry.image} alt={`Journal attachment from ${formatMonthDayYear(entry.date)}`} loading="lazy" />
+                            <span><Maximize2 size={15} /> View image</span>
+                          </button>
+                        ) : null}
+                      </article>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </section>
         ) : null}
 
         {activeView === "dashboard" ? (
