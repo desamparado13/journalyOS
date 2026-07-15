@@ -4160,14 +4160,6 @@ export default function App() {
             Dashboard
           </button>
           <button
-            className={activeView === "journal" ? "is-active" : ""}
-            type="button"
-            onClick={() => setActiveView("journal")}
-          >
-            <NotebookPen size={18} />
-            Journal
-          </button>
-          <button
             className={activeView === "add-trade" || activeView === "position-sizing" ? "is-active" : ""}
             type="button"
             onClick={() => setActiveView("add-trade")}
@@ -4194,6 +4186,14 @@ export default function App() {
           >
             <BarChart3 size={18} />
             Trades
+          </button>
+          <button
+            className={activeView === "journal" ? "is-active" : ""}
+            type="button"
+            onClick={() => setActiveView("journal")}
+          >
+            <NotebookPen size={18} />
+            Journal
           </button>
           <button
             className={activeView === "edge" ? "is-active" : ""}
