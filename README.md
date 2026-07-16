@@ -24,7 +24,7 @@ NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 ```
 
-Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades` and `backtests` tables plus row-level security policies. Run `supabase-trade-decisions.sql` to create the Discipline log table.
+Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades`, `backtests`, and Journal tables plus row-level security policies. Then run `supabase-trade-decisions.sql` to create the Discipline log table, followed by `supabase-journal-entries.sql` to enable secure Journal links to Discipline entries.
 
 If you already created the table before the importer existed, run the latest `supabase-schema.sql` again. It includes additive `alter table ... add column if not exists` statements for Journaly V2 import metadata.
 

@@ -68,7 +68,7 @@ const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
 const JOURNAL_ENTRY_LIST_COLUMNS =
-  "id,user_id,entry_date,content,pair,related_trade_id,created_at,updated_at";
+  "id,user_id,entry_date,content,pair,related_trade_id,related_discipline_id,created_at,updated_at";
 const BACKTEST_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
 const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
@@ -408,6 +408,7 @@ type PersonalJournalEntry = {
   image: string;
   pair: string;
   relatedTradeId: string;
+  relatedDisciplineId: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -419,6 +420,7 @@ type PersonalJournalEntryRow = {
   image_url?: string | null;
   pair: string | null;
   related_trade_id: string | null;
+  related_discipline_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -749,6 +751,7 @@ type PersonalJournalFormState = {
   content: string;
   pair: string;
   relatedTradeId: string;
+  relatedDisciplineId: string;
   imageFile: File | null;
   removeImage: boolean;
 };
@@ -847,6 +850,7 @@ function personalJournalDefaults(): PersonalJournalFormState {
     content: "",
     pair: "",
     relatedTradeId: "",
+    relatedDisciplineId: "",
     imageFile: null,
     removeImage: false,
   };
@@ -1718,6 +1722,7 @@ function toPersonalJournalEntry(row: PersonalJournalEntryRow): PersonalJournalEn
     image: row.image_url || "",
     pair: row.pair || "",
     relatedTradeId: row.related_trade_id || "",
+    relatedDisciplineId: row.related_discipline_id || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -2131,12 +2136,20 @@ export default function App() {
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
   const editingTrade = tradeForm.id ? trades.find((trade) => trade.id === tradeForm.id) || null : null;
   const journalTradeById = useMemo(() => new Map(trades.map((trade) => [trade.id, trade])), [trades]);
+  const journalDisciplineById = useMemo(
+    () => new Map(tradeDecisions.map((entry) => [entry.id, entry])),
+    [tradeDecisions],
+  );
   const editingJournalEntry = journalForm.id
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const journalTradeOptions = useMemo(
     () => trades.filter((trade) => !journalForm.pair || trade.pair === journalForm.pair),
     [journalForm.pair, trades],
+  );
+  const journalDisciplineOptions = useMemo(
+    () => tradeDecisions.filter((entry) => !journalForm.pair || entry.pair === journalForm.pair),
+    [journalForm.pair, tradeDecisions],
   );
   const journalImageItems = useMemo(
     () =>
@@ -2223,7 +2236,7 @@ export default function App() {
   }, [activeView, currentUser]);
 
   useEffect(() => {
-    if (currentUser && activeView === "discipline" && tradeDecisions.length === 0) {
+    if (currentUser && (activeView === "discipline" || activeView === "journal") && tradeDecisions.length === 0) {
       loadTradeDecisions();
     }
   }, [activeView, currentUser]);
@@ -3225,6 +3238,7 @@ export default function App() {
           : {}),
         pair: journalForm.pair || null,
         related_trade_id: journalForm.relatedTradeId || null,
+        related_discipline_id: journalForm.relatedDisciplineId || null,
         updated_at: new Date().toISOString(),
       };
 
@@ -3270,6 +3284,7 @@ export default function App() {
       content: entry.content,
       pair: entry.pair,
       relatedTradeId: entry.relatedTradeId,
+      relatedDisciplineId: entry.relatedDisciplineId,
       imageFile: null,
       removeImage: false,
     });
@@ -4310,11 +4325,12 @@ export default function App() {
               <div>
                 <p className="eyebrow">Private reflections</p>
                 <h2>Journal</h2>
-                <p>Write freely, add a chart or photo, and optionally connect the thought to a pair or past trade.</p>
+                <p>Write freely, add a chart or photo, and optionally connect the thought to a pair, past trade, or Discipline entry.</p>
               </div>
               <div className="journal-summary" aria-label="Journal summary">
                 <span><strong>{journalEntries.length}</strong> entries</span>
                 <span><strong>{journalEntries.filter((entry) => entry.relatedTradeId).length}</strong> trade links</span>
+                <span><strong>{journalEntries.filter((entry) => entry.relatedDisciplineId).length}</strong> discipline links</span>
               </div>
             </div>
 
@@ -4350,8 +4366,8 @@ export default function App() {
 
                 <div className="journal-relation-panel">
                   <div className="journal-relation-copy">
-                    <strong>Relate this entry to a trade</strong>
-                    <span>Optional · select a pair, a previous trade, or both</span>
+                    <strong>Relate this entry</strong>
+                    <span>Optional · connect a pair, previous trade, Discipline entry, or any combination</span>
                   </div>
                   <div className="journal-relation-fields">
                     <label>
@@ -4362,10 +4378,13 @@ export default function App() {
                           const pair = event.target.value;
                           setJournalForm((current) => {
                             const linkedTrade = journalTradeById.get(current.relatedTradeId);
+                            const linkedDiscipline = journalDisciplineById.get(current.relatedDisciplineId);
                             return {
                               ...current,
                               pair,
                               relatedTradeId: linkedTrade && linkedTrade.pair !== pair ? "" : current.relatedTradeId,
+                              relatedDisciplineId:
+                                linkedDiscipline && linkedDiscipline.pair !== pair ? "" : current.relatedDisciplineId,
                             };
                           });
                         }}
@@ -4396,9 +4415,31 @@ export default function App() {
                         ))}
                       </select>
                     </label>
+                    <label>
+                      <span>Discipline entry</span>
+                      <select
+                        value={journalForm.relatedDisciplineId}
+                        onChange={(event) => {
+                          const relatedDisciplineId = event.target.value;
+                          const disciplineEntry = journalDisciplineById.get(relatedDisciplineId);
+                          setJournalForm((current) => ({
+                            ...current,
+                            relatedDisciplineId,
+                            pair: disciplineEntry?.pair || current.pair,
+                          }));
+                        }}
+                      >
+                        <option value="">No linked Discipline entry</option>
+                        {journalDisciplineOptions.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {formatMonthDayYear(entry.date)} · {entry.pair} · {entry.status} · {entry.setup}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
-                  {journalTradeOptions.length === 0 ? (
-                    <p className="journal-relation-empty">No logged trades match this pair yet. You can still save the pair by itself.</p>
+                  {journalTradeOptions.length === 0 && journalDisciplineOptions.length === 0 ? (
+                    <p className="journal-relation-empty">No trade or Discipline entries match this pair yet. You can still save the pair by itself.</p>
                   ) : null}
                 </div>
 
@@ -4452,6 +4493,7 @@ export default function App() {
                 ) : (
                   journalEntries.map((entry) => {
                     const linkedTrade = journalTradeById.get(entry.relatedTradeId);
+                    const linkedDiscipline = journalDisciplineById.get(entry.relatedDisciplineId);
                     const imageIndex = journalImageItems.findIndex((item) => item.id === entry.id);
 
                     return (
@@ -4462,6 +4504,7 @@ export default function App() {
                             <div className="journal-entry-tags">
                               {entry.pair ? <span>{entry.pair}</span> : null}
                               {linkedTrade ? <span>{linkedTrade.direction} · {formatNumber(linkedTrade.pnl)}R</span> : null}
+                              {linkedDiscipline ? <span>Discipline · {linkedDiscipline.status}</span> : null}
                             </div>
                           </div>
                           <div className="journal-entry-actions">
@@ -4484,6 +4527,17 @@ export default function App() {
                           </button>
                         ) : entry.relatedTradeId ? (
                           <span className="journal-missing-trade">The linked trade is no longer available.</span>
+                        ) : null}
+                        {linkedDiscipline ? (
+                          <button className="journal-trade-link" type="button" onClick={() => {
+                            editDisciplineEntry(linkedDiscipline);
+                            setActiveView("discipline");
+                          }}>
+                            <ClipboardCheck size={15} />
+                            View linked {linkedDiscipline.pair} Discipline entry from {formatMonthDayYear(linkedDiscipline.date)}
+                          </button>
+                        ) : entry.relatedDisciplineId ? (
+                          <span className="journal-missing-trade">The linked Discipline entry is no longer available.</span>
                         ) : null}
                         {entry.image ? (
                           <button

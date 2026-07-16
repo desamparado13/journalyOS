@@ -94,9 +94,12 @@ create table if not exists public.journal_entries (
   image_url text not null default '',
   pair text check (pair is null or pair in ('AUDUSD', 'EURUSD', 'EURJPY', 'AUDJPY', 'GBPUSD', 'NZDJPY', 'EURAUD')),
   related_trade_id uuid references public.trades(id) on delete set null,
+  related_discipline_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.journal_entries add column if not exists related_discipline_id uuid;
 
 create index if not exists journal_entries_user_date_idx
   on public.journal_entries (user_id, entry_date desc, created_at desc);
@@ -104,6 +107,10 @@ create index if not exists journal_entries_user_date_idx
 create index if not exists journal_entries_related_trade_idx
   on public.journal_entries (related_trade_id)
   where related_trade_id is not null;
+
+create index if not exists journal_entries_related_discipline_idx
+  on public.journal_entries (related_discipline_id)
+  where related_discipline_id is not null;
 
 alter table public.trades enable row level security;
 alter table public.backtests enable row level security;
