@@ -69,6 +69,7 @@ const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
 const JOURNAL_ENTRY_LIST_COLUMNS =
   "id,user_id,entry_date,content,advice,pair,related_trade_id,related_discipline_id,created_at,updated_at";
+const PAIR_ADVICE_COLUMNS = "id,entry_date,pair,advice";
 const BACKTEST_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
 const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
@@ -425,6 +426,18 @@ type PersonalJournalEntryRow = {
   related_discipline_id: string | null;
   created_at: string;
   updated_at: string;
+};
+type PairAdvice = {
+  id: string;
+  date: string;
+  pair: string;
+  advice: string;
+};
+type PairAdviceRow = {
+  id: string;
+  entry_date: string;
+  pair: string | null;
+  advice: string | null;
 };
 type TradeRow = {
   id: string;
@@ -2088,6 +2101,9 @@ export default function App() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [journalEntries, setJournalEntries] = useState<PersonalJournalEntry[]>([]);
   const [journalForm, setJournalForm] = useState<PersonalJournalFormState>(personalJournalDefaults);
+  const [pairAdviceEntries, setPairAdviceEntries] = useState<PairAdvice[]>([]);
+  const [tradeAdviceIndex, setTradeAdviceIndex] = useState(0);
+  const [isTradeAdviceLibraryOpen, setIsTradeAdviceLibraryOpen] = useState(false);
   const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
   const [decisionForm, setDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
@@ -2137,6 +2153,7 @@ export default function App() {
   const [sessionNow, setSessionNow] = useState(() => new Date());
   const lastLoadedUserId = useRef<string | null>(null);
   const journalLoadedUserId = useRef<string | null>(null);
+  const pairAdviceLoadedUserId = useRef<string | null>(null);
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
   const editingTrade = tradeForm.id ? trades.find((trade) => trade.id === tradeForm.id) || null : null;
@@ -2169,6 +2186,12 @@ export default function App() {
         })),
     [journalEntries],
   );
+  const matchingPairAdvice = useMemo(
+    () => pairAdviceEntries.filter((entry) => entry.pair === tradeForm.pair),
+    [pairAdviceEntries, tradeForm.pair],
+  );
+  const currentPairAdvice =
+    matchingPairAdvice.length > 0 ? matchingPairAdvice[tradeAdviceIndex % matchingPairAdvice.length] : null;
   const isFinalizingTrade = Boolean(editingTrade && !editingTrade.finalizedAt);
 
   useEffect(() => {
@@ -2214,9 +2237,12 @@ export default function App() {
     if (!currentUser) {
       lastLoadedUserId.current = null;
       journalLoadedUserId.current = null;
+      pairAdviceLoadedUserId.current = null;
       setTrades([]);
       setJournalEntries([]);
       setJournalForm(personalJournalDefaults());
+      setPairAdviceEntries([]);
+      setIsTradeAdviceLibraryOpen(false);
       setTradeDecisions([]);
       setBacktests([]);
       setSyncMessage("");
@@ -2228,11 +2254,37 @@ export default function App() {
     if (lastLoadedUserId.current !== currentUser.id) {
       lastLoadedUserId.current = currentUser.id;
       journalLoadedUserId.current = null;
+      pairAdviceLoadedUserId.current = null;
       loadTrades();
       setTradeForm(todayDefaults());
       setBacktestForm(backtestDefaults());
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser && activeView === "add-trade" && pairAdviceLoadedUserId.current !== currentUser.id) {
+      void loadPairAdvice();
+    }
+  }, [activeView, currentUser]);
+
+  useEffect(() => {
+    setIsTradeAdviceLibraryOpen(false);
+    setTradeAdviceIndex(matchingPairAdvice.length > 0 ? Math.floor(Math.random() * matchingPairAdvice.length) : 0);
+  }, [matchingPairAdvice.length, tradeForm.pair]);
+
+  useEffect(() => {
+    if (activeView !== "add-trade" || matchingPairAdvice.length <= 1) return;
+
+    const intervalId = window.setInterval(() => {
+      setTradeAdviceIndex((current) => {
+        let next = Math.floor(Math.random() * matchingPairAdvice.length);
+        if (next === current % matchingPairAdvice.length) next = (next + 1) % matchingPairAdvice.length;
+        return next;
+      });
+    }, 10000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeView, matchingPairAdvice.length, tradeForm.pair]);
 
   useEffect(() => {
     if (currentUser && activeView === "journal" && journalLoadedUserId.current !== currentUser.id) {
@@ -2265,6 +2317,7 @@ export default function App() {
       if (event.key === "Escape") {
         setImageViewer(null);
         setPendingDeleteTrade(null);
+        setIsTradeAdviceLibraryOpen(false);
       }
 
       if (event.key === "ArrowLeft") {
@@ -3167,6 +3220,32 @@ export default function App() {
     }
   }
 
+  async function loadPairAdvice() {
+    if (!currentUser || !supabase) return;
+
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .select(PAIR_ADVICE_COLUMNS)
+      .eq("user_id", currentUser.id)
+      .not("pair", "is", null)
+      .neq("advice", "")
+      .order("entry_date", { ascending: false });
+
+    if (error) return;
+
+    setPairAdviceEntries(
+      ((data || []) as unknown as PairAdviceRow[])
+        .filter((row) => Boolean(row.pair && row.advice?.trim()))
+        .map((row) => ({
+          id: row.id,
+          date: row.entry_date,
+          pair: row.pair || "",
+          advice: row.advice?.trim() || "",
+        })),
+    );
+    pairAdviceLoadedUserId.current = currentUser.id;
+  }
+
   async function hydrateJournalEntryImages(entryIds: string[]) {
     if (!currentUser || !supabase || entryIds.length === 0) return;
 
@@ -3268,6 +3347,7 @@ export default function App() {
           : [saved, ...current];
         return [...next].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
       });
+      pairAdviceLoadedUserId.current = null;
       setJournalForm(personalJournalDefaults());
       showToast({
         tone: "success",
@@ -3315,6 +3395,7 @@ export default function App() {
     }
 
     setJournalEntries((current) => current.filter((item) => item.id !== entry.id));
+    pairAdviceLoadedUserId.current = null;
     if (journalForm.id === entry.id) setJournalForm(personalJournalDefaults());
     showToast({ tone: "success", title: "Journal entry deleted", message: "The entry was removed." });
   }
@@ -5377,6 +5458,68 @@ export default function App() {
                   </button>
                 </div>
               </section>
+
+              {tradeForm.pair && currentPairAdvice ? (
+                <aside
+                  key={tradeForm.pair}
+                  className={`pair-advice-ticker ${matchingPairAdvice.length > 1 ? "is-rotating" : ""}`}
+                  aria-label={`${tradeForm.pair} journal advice`}
+                >
+                  <div className="pair-advice-icon" aria-hidden="true">
+                    <Sparkles size={18} />
+                  </div>
+                  <div className="pair-advice-copy">
+                    <span>
+                      {tradeForm.pair} advice
+                      <small>{matchingPairAdvice.length} saved</small>
+                    </span>
+                    <p key={`${currentPairAdvice.id}-${tradeAdviceIndex}`} aria-live="polite">
+                      {currentPairAdvice.advice}
+                    </p>
+                  </div>
+                  <button className="pair-advice-all" type="button" onClick={() => setIsTradeAdviceLibraryOpen(true)}>
+                    View all
+                  </button>
+                </aside>
+              ) : null}
+
+              {isTradeAdviceLibraryOpen && tradeForm.pair && matchingPairAdvice.length > 0 ? (
+                <div className="pair-advice-overlay" role="dialog" aria-modal="true" aria-labelledby="pair-advice-title">
+                  <button
+                    className="pair-advice-backdrop"
+                    type="button"
+                    aria-label="Close advice library"
+                    onClick={() => setIsTradeAdviceLibraryOpen(false)}
+                  />
+                  <section className="pair-advice-dialog">
+                    <header>
+                      <div>
+                        <span>Journal wisdom</span>
+                        <h3 id="pair-advice-title">All {tradeForm.pair} advice</h3>
+                      </div>
+                      <button
+                        className="icon-button square"
+                        type="button"
+                        aria-label="Close advice library"
+                        onClick={() => setIsTradeAdviceLibraryOpen(false)}
+                      >
+                        <X size={17} />
+                      </button>
+                    </header>
+                    <div className="pair-advice-list">
+                      {matchingPairAdvice.map((entry) => (
+                        <article key={entry.id}>
+                          <Sparkles size={15} />
+                          <div>
+                            <time dateTime={entry.date}>{formatMonthDayYear(entry.date)}</time>
+                            <p>{entry.advice}</p>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              ) : null}
             </form>
             ) : null}
           </section>
