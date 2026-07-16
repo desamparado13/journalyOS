@@ -5307,6 +5307,15 @@ textarea:focus {
   line-height: 1.6;
 }
 
+.journal-advice-field textarea {
+  min-height: 112px;
+}
+
+.journal-advice-field small {
+  color: var(--brand-strong);
+  font-size: 0.72rem;
+}
+
 .journal-relation-panel {
   display: grid;
   gap: 13px;
@@ -5420,6 +5429,33 @@ textarea:focus {
   margin: 0;
   color: var(--text);
   line-height: 1.72;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.journal-entry-advice {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
+  border-radius: 8px;
+  background: linear-gradient(145deg, rgba(14, 165, 233, 0.11), rgba(125, 211, 252, 0.04));
+  padding: 13px 14px;
+}
+
+.journal-entry-advice > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--brand-strong);
+  font-size: 0.76rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.journal-entry-advice p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

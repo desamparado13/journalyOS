@@ -3,6 +3,7 @@ create table if not exists public.journal_entries (
   user_id uuid not null references auth.users(id) on delete cascade,
   entry_date date not null default current_date,
   content text not null check (length(btrim(content)) > 0),
+  advice text not null default '',
   image_url text not null default '',
   pair text check (pair is null or pair in ('AUDUSD', 'EURUSD', 'EURJPY', 'AUDJPY', 'GBPUSD', 'NZDJPY', 'EURAUD')),
   related_trade_id uuid references public.trades(id) on delete set null,
@@ -12,6 +13,7 @@ create table if not exists public.journal_entries (
 );
 
 alter table public.journal_entries add column if not exists related_discipline_id uuid;
+alter table public.journal_entries add column if not exists advice text not null default '';
 
 do $$
 begin

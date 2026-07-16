@@ -68,7 +68,7 @@ const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
 const JOURNAL_ENTRY_LIST_COLUMNS =
-  "id,user_id,entry_date,content,pair,related_trade_id,related_discipline_id,created_at,updated_at";
+  "id,user_id,entry_date,content,advice,pair,related_trade_id,related_discipline_id,created_at,updated_at";
 const BACKTEST_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
 const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
@@ -405,6 +405,7 @@ type PersonalJournalEntry = {
   userId: string;
   date: string;
   content: string;
+  advice: string;
   image: string;
   pair: string;
   relatedTradeId: string;
@@ -417,6 +418,7 @@ type PersonalJournalEntryRow = {
   user_id: string;
   entry_date: string;
   content: string;
+  advice: string | null;
   image_url?: string | null;
   pair: string | null;
   related_trade_id: string | null;
@@ -749,6 +751,7 @@ type PersonalJournalFormState = {
   id: string;
   date: string;
   content: string;
+  advice: string;
   pair: string;
   relatedTradeId: string;
   relatedDisciplineId: string;
@@ -848,6 +851,7 @@ function personalJournalDefaults(): PersonalJournalFormState {
     id: "",
     date: new Date().toISOString().slice(0, 10),
     content: "",
+    advice: "",
     pair: "",
     relatedTradeId: "",
     relatedDisciplineId: "",
@@ -1719,6 +1723,7 @@ function toPersonalJournalEntry(row: PersonalJournalEntryRow): PersonalJournalEn
     userId: row.user_id,
     date: row.entry_date,
     content: row.content,
+    advice: row.advice || "",
     image: row.image_url || "",
     pair: row.pair || "",
     relatedTradeId: row.related_trade_id || "",
@@ -3233,6 +3238,7 @@ export default function App() {
         user_id: currentUser.id,
         entry_date: journalForm.date,
         content: journalForm.content.trim(),
+        advice: journalForm.advice.trim(),
         ...(!existing || image || journalForm.removeImage
           ? { image_url: journalForm.removeImage ? "" : image }
           : {}),
@@ -3282,6 +3288,7 @@ export default function App() {
       id: entry.id,
       date: entry.date,
       content: entry.content,
+      advice: entry.advice,
       pair: entry.pair,
       relatedTradeId: entry.relatedTradeId,
       relatedDisciplineId: entry.relatedDisciplineId,
@@ -4364,6 +4371,15 @@ export default function App() {
                   />
                 </label>
 
+                <label className="journal-advice-field">
+                  <span>Advice <small>Optional</small></span>
+                  <textarea
+                    value={journalForm.advice}
+                    placeholder="What advice would you give yourself for next time?"
+                    onChange={(event) => setJournalForm((current) => ({ ...current, advice: event.target.value }))}
+                  />
+                </label>
+
                 <div className="journal-relation-panel">
                   <div className="journal-relation-copy">
                     <strong>Relate this entry</strong>
@@ -4517,6 +4533,12 @@ export default function App() {
                           </div>
                         </header>
                         <p className="journal-entry-content">{entry.content}</p>
+                        {entry.advice ? (
+                          <div className="journal-entry-advice">
+                            <span><Sparkles size={15} /> Advice</span>
+                            <p>{entry.advice}</p>
+                          </div>
+                        ) : null}
                         {linkedTrade ? (
                           <button className="journal-trade-link" type="button" onClick={() => {
                             editTrade(linkedTrade);
