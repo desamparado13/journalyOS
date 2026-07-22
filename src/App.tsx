@@ -40,7 +40,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { Fragment, FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import logoUrl from "../assets/logo.svg";
@@ -48,6 +48,7 @@ import logoUrl from "../assets/logo.svg";
 const THEME_KEY = "journaly-os-theme";
 const ACTIVE_VIEW_KEY = "journaly-os-active-view";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
+const SETUP_VARIABLES_KEY = "journaly-os-setup-variables";
 const ACCOUNT_PROFILE_KEY = "journaly-os-account-profile";
 const AI_COACH_USAGE_KEY = "journaly-os-ai-coach-usage";
 const AI_COACH_HISTORY_KEY = "journaly-os-ai-coach-history";
@@ -309,6 +310,7 @@ type AppView =
   | "research"
   | "traders"
   | "position-sizing"
+  | "trade-analysis"
   | "trade-analytics"
   | "view-trades"
   | "trade-images"
@@ -334,6 +336,7 @@ const appViews: readonly AppView[] = [
   "research",
   "traders",
   "position-sizing",
+  "trade-analysis",
   "trade-analytics",
   "view-trades",
   "trade-images",
@@ -738,6 +741,8 @@ type TradeFormState = {
   result: Result;
   notes: string;
   screenshotFile: File | null;
+  analysisStartedAt: number | null;
+  analysisChecks: string[];
 };
 
 type TradeDecisionFormState = {
@@ -832,7 +837,30 @@ function todayDefaults(): TradeFormState {
     result: "Breakeven",
     notes: "",
     screenshotFile: null,
+    analysisStartedAt: null,
+    analysisChecks: [],
   };
+}
+
+type SetupVariables = Record<string, string[]>;
+
+const defaultSetupVariables: SetupVariables = {
+  REVERSAL: ["Liquidity sweep confirmed", "Key level rejection", "Structure shift confirmed"],
+  "Internal reversal": ["Internal liquidity taken", "Rejection is visible", "Entry trigger confirmed"],
+  "Liquidity sweep": ["External liquidity swept", "Price reclaimed the level", "Risk is defined"],
+  "Break and retest": ["Level broke with displacement", "Retest held", "Continuation trigger confirmed"],
+  Flag: ["Impulse leg is clean", "Pullback respects structure", "Continuation trigger confirmed"],
+  "Flag+": ["Strong displacement present", "Flag is compact", "Higher-timeframe bias aligned"],
+  "EU timed entry": ["Entry is inside the EU window", "Session direction is clear", "Trigger candle confirmed"],
+};
+
+function readSetupVariables(): SetupVariables {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETUP_VARIABLES_KEY) || "{}") as SetupVariables;
+    return Object.fromEntries(setups.map((setup) => [setup, saved[setup] || defaultSetupVariables[setup] || []]));
+  } catch {
+    return defaultSetupVariables;
+  }
 }
 
 function tradeDecisionDefaults(): TradeDecisionFormState {
@@ -2098,6 +2126,7 @@ export default function App() {
   const [positionCalculator, setPositionCalculator] = useState<PositionCalculatorState>(positionDefaults);
   const [profileRows, setProfileRows] = useState<ProfileSizingRow[]>(readProfileRows);
   const [profileMode, setProfileMode] = useState<"main" | "half">("main");
+  const [setupVariables, setSetupVariables] = useState<SetupVariables>(readSetupVariables);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [journalEntries, setJournalEntries] = useState<PersonalJournalEntry[]>([]);
   const [journalForm, setJournalForm] = useState<PersonalJournalFormState>(personalJournalDefaults);
@@ -4027,6 +4056,8 @@ export default function App() {
       result: trade.result,
       notes: trade.notes,
       screenshotFile: null,
+      analysisStartedAt: null,
+      analysisChecks: [],
     });
     setActiveView("add-trade");
     showToast({
@@ -4263,7 +4294,11 @@ export default function App() {
             Dashboard
           </button>
           <button
-            className={activeView === "add-trade" || activeView === "position-sizing" ? "is-active" : ""}
+            className={
+              activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis"
+                ? "is-active"
+                : ""
+            }
             type="button"
             onClick={() => setActiveView("add-trade")}
           >
@@ -4983,12 +5018,18 @@ export default function App() {
           />
         ) : null}
 
-        {activeView === "add-trade" || activeView === "position-sizing" ? (
+        {activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis" ? (
           <section className="workspace-band">
             <div className="section-heading">
               <p className="eyebrow">Trade capture</p>
               <h2>
-                {activeView === "position-sizing" ? "Position sizing" : tradeForm.id ? "Edit trade" : "Add a trade"}
+                {activeView === "position-sizing"
+                  ? "Position sizing"
+                  : activeView === "trade-analysis"
+                    ? "Trade analysis"
+                    : tradeForm.id
+                      ? "Edit trade"
+                      : "Add a trade"}
               </h2>
             </div>
 
@@ -5007,7 +5048,53 @@ export default function App() {
               >
                 Position sizing
               </button>
+              <button
+                className={activeView === "trade-analysis" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveView("trade-analysis")}
+              >
+                Trade analysis
+              </button>
             </div>
+
+            {activeView === "trade-analysis" ? (
+              <TradeAnalysisPanel
+                setup={tradeForm.setup}
+                setupVariables={setupVariables}
+                screenshotFile={tradeForm.screenshotFile}
+                existingScreenshot={editingTrade?.screenshot || ""}
+                startedAt={tradeForm.analysisStartedAt}
+                checkedVariables={tradeForm.analysisChecks}
+                onSetupChange={(setup) =>
+                  setTradeForm({
+                    ...tradeForm,
+                    setup,
+                    stopLossPips: defaultStopLossForSetup(setup),
+                    analysisChecks: [],
+                  })
+                }
+                onVariablesChange={(variables) => {
+                  const next = { ...setupVariables, [tradeForm.setup]: variables };
+                  setSetupVariables(next);
+                  localStorage.setItem(SETUP_VARIABLES_KEY, JSON.stringify(next));
+                  setTradeForm((current) => ({
+                    ...current,
+                    analysisChecks: current.analysisChecks.filter((item) => variables.includes(item)),
+                  }));
+                }}
+                onChecksChange={(analysisChecks) => setTradeForm((current) => ({ ...current, analysisChecks }))}
+                onImageUpload={(screenshotFile) =>
+                  setTradeForm((current) => ({
+                    ...current,
+                    screenshotFile,
+                    analysisStartedAt: Date.now(),
+                  }))
+                }
+                onAnnotatedImageChange={(screenshotFile) =>
+                  setTradeForm((current) => ({ ...current, screenshotFile }))
+                }
+              />
+            ) : null}
 
             {activeView === "position-sizing" ? (
               <>
@@ -5412,17 +5499,14 @@ export default function App() {
                     Integrity mode: entry details are locked. You can finalize once with MAE, required PnL, required image, and optional notes.
                   </p>
                 ) : null}
-                <label className="file-field">
-                  <span>{isFinalizingTrade ? "Final image required" : "Screenshot"}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(event) =>
-                      setTradeForm({ ...tradeForm, screenshotFile: event.target.files?.[0] || null })
-                    }
-                  />
+                <button className="analysis-shortcut" type="button" onClick={() => setActiveView("trade-analysis")}>
                   <ImagePlus size={18} />
-                </label>
+                  <span>
+                    <strong>{tradeForm.screenshotFile || editingTrade?.screenshot ? "Chart ready" : "Analyze your chart"}</strong>
+                    Upload, mark up, and check your setup variables
+                  </span>
+                  <ChevronRight size={18} />
+                </button>
 
                 <label>
                   <span>Notes</span>
@@ -8587,6 +8671,329 @@ function PerformanceTable({ title, rows }: { title: string; rows: PerformanceRow
         </div>
       )}
     </article>
+  );
+}
+
+function TradeAnalysisPanel({
+  setup,
+  setupVariables,
+  screenshotFile,
+  existingScreenshot,
+  startedAt,
+  checkedVariables,
+  onSetupChange,
+  onVariablesChange,
+  onChecksChange,
+  onImageUpload,
+  onAnnotatedImageChange,
+}: {
+  setup: string;
+  setupVariables: SetupVariables;
+  screenshotFile: File | null;
+  existingScreenshot: string;
+  startedAt: number | null;
+  checkedVariables: string[];
+  onSetupChange: (setup: string) => void;
+  onVariablesChange: (variables: string[]) => void;
+  onChecksChange: (variables: string[]) => void;
+  onImageUpload: (file: File) => void;
+  onAnnotatedImageChange: (file: File) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingRef = useRef(false);
+  const baseImageRef = useRef("");
+  const [tool, setTool] = useState<"draw" | "text">("draw");
+  const [color, setColor] = useState("#ef4444");
+  const [lineWidth, setLineWidth] = useState(4);
+  const [annotationText, setAnnotationText] = useState("");
+  const [history, setHistory] = useState<string[]>([]);
+  const [newVariable, setNewVariable] = useState("");
+  const [now, setNow] = useState(Date.now());
+  const variables = setupVariables[setup] || [];
+  const hasImage = Boolean(screenshotFile || existingScreenshot);
+  const elapsedSeconds = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
+  const remainingSeconds = Math.max(0, 240 - elapsedSeconds);
+  const timerProgress = startedAt ? Math.min(1, elapsedSeconds / 240) : 0;
+  const allPresent = variables.length > 0 && variables.every((variable) => checkedVariables.includes(variable));
+  const qualityScore = variables.length ? Math.round((checkedVariables.length / variables.length) * 100) : 0;
+
+  useEffect(() => {
+    if (!startedAt || remainingSeconds === 0) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [remainingSeconds, startedAt]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const source = screenshotFile ? URL.createObjectURL(screenshotFile) : existingScreenshot;
+    if (!canvas || !source) return;
+
+    const image = new Image();
+    image.onload = () => {
+      const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+      baseImageRef.current = canvas.toDataURL("image/webp", 0.9);
+      setHistory([]);
+      if (screenshotFile) URL.revokeObjectURL(source);
+    };
+    image.src = source;
+
+    return () => {
+      image.onload = null;
+      if (screenshotFile) URL.revokeObjectURL(source);
+    };
+    // startedAt identifies a new upload; screenshotFile also changes when annotations are committed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startedAt, existingScreenshot]);
+
+  function pointFromEvent(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left) * (canvas.width / rect.width),
+      y: (event.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  }
+
+  function pushHistory() {
+    const canvas = canvasRef.current;
+    if (canvas) setHistory((current) => [...current.slice(-9), canvas.toDataURL("image/webp", 0.9)]);
+  }
+
+  function commitCanvas() {
+    canvasRef.current?.toBlob((blob) => {
+      if (blob) onAnnotatedImageChange(new File([blob], "trade-analysis.webp", { type: "image/webp" }));
+    }, "image/webp", 0.9);
+  }
+
+  function startAnnotation(event: ReactPointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    const point = pointFromEvent(event);
+    pushHistory();
+
+    if (tool === "text") {
+      const text = annotationText.trim();
+      if (!text) return;
+      context.fillStyle = color;
+      context.font = `700 ${Math.max(22, lineWidth * 7)}px Inter, sans-serif`;
+      context.strokeStyle = "rgba(0, 0, 0, 0.7)";
+      context.lineWidth = Math.max(2, lineWidth / 2);
+      context.strokeText(text, point.x, point.y);
+      context.fillText(text, point.x, point.y);
+      setAnnotationText("");
+      commitCanvas();
+      return;
+    }
+
+    drawingRef.current = true;
+    canvas.setPointerCapture(event.pointerId);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  }
+
+  function drawAnnotation(event: ReactPointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current || tool !== "draw") return;
+    const context = canvasRef.current?.getContext("2d");
+    if (!context) return;
+    const point = pointFromEvent(event);
+    context.lineTo(point.x, point.y);
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.stroke();
+  }
+
+  function finishAnnotation() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    commitCanvas();
+  }
+
+  function restoreCanvas(source: string) {
+    const canvas = canvasRef.current;
+    if (!canvas || !source) return;
+    const image = new Image();
+    image.onload = () => {
+      canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+      commitCanvas();
+    };
+    image.src = source;
+  }
+
+  function undo() {
+    const previous = history.at(-1);
+    if (!previous) return;
+    setHistory((current) => current.slice(0, -1));
+    restoreCanvas(previous);
+  }
+
+  function addVariable() {
+    const value = newVariable.trim();
+    if (!value || variables.some((item) => item.toLowerCase() === value.toLowerCase())) return;
+    onVariablesChange([...variables, value]);
+    setNewVariable("");
+  }
+
+  return (
+    <section className="trade-analysis-panel">
+      <header className="analysis-header">
+        <div>
+          <p className="eyebrow">Pre-trade focus</p>
+          <h3>Read the chart before you risk</h3>
+          <p>Your four-minute analysis starts only after a chart is uploaded.</p>
+        </div>
+        <div
+          className={`analysis-timer ${startedAt ? "is-running" : ""} ${remainingSeconds === 0 && startedAt ? "is-complete" : ""}`}
+          aria-live="polite"
+        >
+          <div
+            className="timer-ring"
+            style={{ background: `conic-gradient(var(--brand) ${timerProgress * 360}deg, var(--line) 0deg)` }}
+          >
+            <Clock3 size={18} />
+          </div>
+          <div>
+            <span>{startedAt ? (remainingSeconds ? "Time remaining" : "Analysis complete") : "Timer waiting"}</span>
+            <strong>{String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
+          </div>
+        </div>
+      </header>
+
+      {!hasImage ? (
+        <label className="analysis-upload">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onImageUpload(file);
+            }}
+          />
+          <span className="analysis-upload-icon"><ImagePlus size={28} /></span>
+          <strong>Upload your full chart screenshot</strong>
+          <span>PNG, JPG or WebP · the timer begins immediately</span>
+        </label>
+      ) : (
+        <div className="analysis-workspace">
+          <div className="chart-editor">
+            <div className="annotation-toolbar" aria-label="Chart annotation tools">
+              <button className={tool === "draw" ? "is-active" : ""} type="button" onClick={() => setTool("draw")}>
+                <Pencil size={16} /> Draw
+              </button>
+              <button className={tool === "text" ? "is-active" : ""} type="button" onClick={() => setTool("text")}>
+                <NotebookPen size={16} /> Text
+              </button>
+              {tool === "text" ? (
+                <input
+                  className="annotation-text-input"
+                  value={annotationText}
+                  placeholder="Type, then click chart"
+                  aria-label="Annotation text"
+                  onChange={(event) => setAnnotationText(event.target.value)}
+                />
+              ) : null}
+              <label className="color-tool" title="Annotation color">
+                <span>Color</span>
+                <input type="color" value={color} onChange={(event) => setColor(event.target.value)} />
+              </label>
+              <label className="width-tool">
+                <span>Size</span>
+                <input type="range" min="2" max="12" value={lineWidth} onChange={(event) => setLineWidth(Number(event.target.value))} />
+              </label>
+              <button type="button" disabled={!history.length} onClick={undo}>Undo</button>
+              <button type="button" onClick={() => { setHistory([]); restoreCanvas(baseImageRef.current); }}>Clear</button>
+              <label className="replace-image-button">
+                Replace
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) onImageUpload(file);
+                  }}
+                />
+              </label>
+            </div>
+            <div className={`canvas-shell tool-${tool}`}>
+              <canvas
+                ref={canvasRef}
+                aria-label="Uploaded chart annotation canvas"
+                onPointerDown={startAnnotation}
+                onPointerMove={drawAnnotation}
+                onPointerUp={finishAnnotation}
+                onPointerCancel={finishAnnotation}
+                onPointerLeave={finishAnnotation}
+              />
+            </div>
+          </div>
+
+          <aside className="setup-quality-panel">
+            <SelectField label="Setup" value={setup} options={setups} onChange={onSetupChange} />
+            <div className={`quality-card ${allPresent ? "is-high" : "is-low"}`}>
+              <div>
+                {allPresent ? <CheckCircle2 size={20} /> : <TriangleAlert size={20} />}
+                <span>{allPresent ? "High quality trade" : "Low quality trade"}</span>
+              </div>
+              <strong>{qualityScore}%</strong>
+              <p>{allPresent ? "Every setup variable is present." : "Confirm every variable before taking the trade."}</p>
+            </div>
+
+            <div className="variable-list">
+              <header>
+                <span>Setup variables</span>
+                <small>{checkedVariables.length}/{variables.length} present</small>
+              </header>
+              {variables.length ? variables.map((variable) => (
+                <div className={`variable-row ${checkedVariables.includes(variable) ? "is-checked" : ""}`} key={variable}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={checkedVariables.includes(variable)}
+                      onChange={(event) =>
+                        onChecksChange(
+                          event.target.checked
+                            ? [...checkedVariables, variable]
+                            : checkedVariables.filter((item) => item !== variable),
+                        )
+                      }
+                    />
+                    <span>{variable}</span>
+                  </label>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${variable}`}
+                    onClick={() => onVariablesChange(variables.filter((item) => item !== variable))}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )) : <p className="empty-variables">Add the rules that make this setup valid.</p>}
+            </div>
+
+            <div className="add-variable-row">
+              <input
+                value={newVariable}
+                placeholder="Add a setup variable"
+                onChange={(event) => setNewVariable(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addVariable();
+                  }
+                }}
+              />
+              <button type="button" aria-label="Add setup variable" onClick={addVariable}><Plus size={17} /></button>
+            </div>
+          </aside>
+        </div>
+      )}
+    </section>
   );
 }
 
