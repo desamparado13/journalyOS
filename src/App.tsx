@@ -743,6 +743,7 @@ type TradeFormState = {
   screenshotFile: File | null;
   analysisStartedAt: number | null;
   analysisChecks: string[];
+  analysisZonePins: Record<string, number[]>;
 };
 
 type TradeDecisionFormState = {
@@ -839,6 +840,7 @@ function todayDefaults(): TradeFormState {
     screenshotFile: null,
     analysisStartedAt: null,
     analysisChecks: [],
+    analysisZonePins: {},
   };
 }
 
@@ -4058,6 +4060,7 @@ export default function App() {
       screenshotFile: null,
       analysisStartedAt: null,
       analysisChecks: [],
+      analysisZonePins: {},
     });
     setActiveView("add-trade");
     showToast({
@@ -5065,6 +5068,7 @@ export default function App() {
                 existingScreenshot={editingTrade?.screenshot || ""}
                 startedAt={tradeForm.analysisStartedAt}
                 checkedVariables={tradeForm.analysisChecks}
+                zonePins={tradeForm.analysisZonePins}
                 onSetupChange={(setup) =>
                   setTradeForm({
                     ...tradeForm,
@@ -5083,11 +5087,15 @@ export default function App() {
                   }));
                 }}
                 onChecksChange={(analysisChecks) => setTradeForm((current) => ({ ...current, analysisChecks }))}
+                onZonePinsChange={(analysisZonePins) =>
+                  setTradeForm((current) => ({ ...current, analysisZonePins }))
+                }
                 onImageUpload={(screenshotFile) =>
                   setTradeForm((current) => ({
                     ...current,
                     screenshotFile,
                     analysisStartedAt: Date.now(),
+                    analysisZonePins: {},
                   }))
                 }
                 onAnnotatedImageChange={(screenshotFile) =>
@@ -8681,9 +8689,11 @@ function TradeAnalysisPanel({
   existingScreenshot,
   startedAt,
   checkedVariables,
+  zonePins,
   onSetupChange,
   onVariablesChange,
   onChecksChange,
+  onZonePinsChange,
   onImageUpload,
   onAnnotatedImageChange,
 }: {
@@ -8693,29 +8703,67 @@ function TradeAnalysisPanel({
   existingScreenshot: string;
   startedAt: number | null;
   checkedVariables: string[];
+  zonePins: Record<string, number[]>;
   onSetupChange: (setup: string) => void;
   onVariablesChange: (variables: string[]) => void;
   onChecksChange: (variables: string[]) => void;
+  onZonePinsChange: (pins: Record<string, number[]>) => void;
   onImageUpload: (file: File) => void;
   onAnnotatedImageChange: (file: File) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingRef = useRef(false);
   const baseImageRef = useRef("");
-  const [tool, setTool] = useState<"draw" | "text">("draw");
+  const zoneStartRef = useRef<{ x: number; y: number } | null>(null);
+  const zoneEndRef = useRef<{ x: number; y: number } | null>(null);
+  const zoneSnapshotRef = useRef<ImageData | null>(null);
+  const zoneVariableRef = useRef("");
+  const nextPinNumberRef = useRef(1);
+  const previousStartedAtRef = useRef<number | null>(null);
+  const [tool, setTool] = useState<"draw" | "text" | "zone">("draw");
   const [color, setColor] = useState("#ef4444");
   const [lineWidth, setLineWidth] = useState(4);
   const [annotationText, setAnnotationText] = useState("");
-  const [history, setHistory] = useState<string[]>([]);
+  const [selectedZoneVariable, setSelectedZoneVariable] = useState("");
+  const [history, setHistory] = useState<Array<{ image: string; zonePins: Record<string, number[]> }>>([]);
   const [newVariable, setNewVariable] = useState("");
   const [now, setNow] = useState(Date.now());
+  const [isFocusMode, setIsFocusMode] = useState(false);
   const variables = setupVariables[setup] || [];
+  const activeZoneVariable = variables.includes(selectedZoneVariable) ? selectedZoneVariable : variables[0] || "";
   const hasImage = Boolean(screenshotFile || existingScreenshot);
   const elapsedSeconds = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
   const remainingSeconds = Math.max(0, 240 - elapsedSeconds);
   const timerProgress = startedAt ? Math.min(1, elapsedSeconds / 240) : 0;
   const allPresent = variables.length > 0 && variables.every((variable) => checkedVariables.includes(variable));
   const qualityScore = variables.length ? Math.round((checkedVariables.length / variables.length) * 100) : 0;
+
+  useEffect(() => {
+    nextPinNumberRef.current = Math.max(0, ...Object.values(zonePins).flat()) + 1;
+  }, [zonePins]);
+
+  useEffect(() => {
+    if (startedAt && startedAt !== previousStartedAtRef.current) setIsFocusMode(true);
+    previousStartedAtRef.current = startedAt;
+  }, [startedAt]);
+
+  useEffect(() => {
+    if (!isFocusMode) return;
+
+    function exitFocusMode(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setIsFocusMode(false);
+    }
+
+    document.body.classList.add("analysis-focus-open");
+    window.addEventListener("keydown", exitFocusMode);
+
+    return () => {
+      document.body.classList.remove("analysis-focus-open");
+      window.removeEventListener("keydown", exitFocusMode);
+    };
+  }, [isFocusMode]);
 
   useEffect(() => {
     if (!startedAt || remainingSeconds === 0) return;
@@ -8760,7 +8808,13 @@ function TradeAnalysisPanel({
 
   function pushHistory() {
     const canvas = canvasRef.current;
-    if (canvas) setHistory((current) => [...current.slice(-9), canvas.toDataURL("image/webp", 0.9)]);
+    if (canvas) {
+      const pinSnapshot = Object.fromEntries(Object.entries(zonePins).map(([variable, pins]) => [variable, [...pins]]));
+      setHistory((current) => [
+        ...current.slice(-9),
+        { image: canvas.toDataURL("image/webp", 0.9), zonePins: pinSnapshot },
+      ]);
+    }
   }
 
   function commitCanvas() {
@@ -8774,11 +8828,11 @@ function TradeAnalysisPanel({
     const context = canvas?.getContext("2d");
     if (!canvas || !context) return;
     const point = pointFromEvent(event);
-    pushHistory();
 
     if (tool === "text") {
       const text = annotationText.trim();
       if (!text) return;
+      pushHistory();
       context.fillStyle = color;
       context.font = `700 ${Math.max(22, lineWidth * 7)}px Inter, sans-serif`;
       context.strokeStyle = "rgba(0, 0, 0, 0.7)";
@@ -8790,6 +8844,19 @@ function TradeAnalysisPanel({
       return;
     }
 
+    if (tool === "zone") {
+      if (!activeZoneVariable) return;
+      pushHistory();
+      drawingRef.current = true;
+      zoneStartRef.current = point;
+      zoneEndRef.current = point;
+      zoneVariableRef.current = activeZoneVariable;
+      zoneSnapshotRef.current = context.getImageData(0, 0, canvas.width, canvas.height);
+      canvas.setPointerCapture(event.pointerId);
+      return;
+    }
+
+    pushHistory();
     drawingRef.current = true;
     canvas.setPointerCapture(event.pointerId);
     context.beginPath();
@@ -8797,10 +8864,22 @@ function TradeAnalysisPanel({
   }
 
   function drawAnnotation(event: ReactPointerEvent<HTMLCanvasElement>) {
-    if (!drawingRef.current || tool !== "draw") return;
+    if (!drawingRef.current) return;
     const context = canvasRef.current?.getContext("2d");
     if (!context) return;
     const point = pointFromEvent(event);
+
+    if (tool === "zone") {
+      const start = zoneStartRef.current;
+      const snapshot = zoneSnapshotRef.current;
+      if (!start || !snapshot) return;
+      zoneEndRef.current = point;
+      context.putImageData(snapshot, 0, 0);
+      drawZone(context, start, point, zoneVariableRef.current, nextPinNumberRef.current, color);
+      return;
+    }
+
+    if (tool !== "draw") return;
     context.lineTo(point.x, point.y);
     context.strokeStyle = color;
     context.lineWidth = lineWidth;
@@ -8812,6 +8891,34 @@ function TradeAnalysisPanel({
   function finishAnnotation() {
     if (!drawingRef.current) return;
     drawingRef.current = false;
+
+    if (tool === "zone") {
+      const context = canvasRef.current?.getContext("2d");
+      const start = zoneStartRef.current;
+      const end = zoneEndRef.current;
+      const snapshot = zoneSnapshotRef.current;
+      const variable = zoneVariableRef.current;
+      if (!context || !start || !end || !snapshot || !variable) return;
+
+      context.putImageData(snapshot, 0, 0);
+      zoneStartRef.current = null;
+      zoneEndRef.current = null;
+      zoneSnapshotRef.current = null;
+
+      if (Math.abs(end.x - start.x) < 8 || Math.abs(end.y - start.y) < 8) {
+        setHistory((current) => current.slice(0, -1));
+        return;
+      }
+
+      const pinNumber = nextPinNumberRef.current;
+      drawZone(context, start, end, variable, pinNumber, color);
+      nextPinNumberRef.current += 1;
+      onZonePinsChange({ ...zonePins, [variable]: [...(zonePins[variable] || []), pinNumber] });
+      if (!checkedVariables.includes(variable)) onChecksChange([...checkedVariables, variable]);
+      commitCanvas();
+      return;
+    }
+
     commitCanvas();
   }
 
@@ -8830,7 +8937,9 @@ function TradeAnalysisPanel({
     const previous = history.at(-1);
     if (!previous) return;
     setHistory((current) => current.slice(0, -1));
-    restoreCanvas(previous);
+    onZonePinsChange(previous.zonePins);
+    nextPinNumberRef.current = Math.max(0, ...Object.values(previous.zonePins).flat()) + 1;
+    restoreCanvas(previous.image);
   }
 
   function addVariable() {
@@ -8841,26 +8950,39 @@ function TradeAnalysisPanel({
   }
 
   return (
-    <section className="trade-analysis-panel">
+    <section
+      className={`trade-analysis-panel ${isFocusMode ? "is-focus-mode" : ""}`}
+      role={isFocusMode ? "dialog" : undefined}
+      aria-modal={isFocusMode ? "true" : undefined}
+      aria-label={isFocusMode ? "Fullscreen trade analysis" : undefined}
+    >
       <header className="analysis-header">
         <div>
           <p className="eyebrow">Pre-trade focus</p>
           <h3>Read the chart before you risk</h3>
           <p>Your four-minute analysis starts only after a chart is uploaded.</p>
         </div>
-        <div
-          className={`analysis-timer ${startedAt ? "is-running" : ""} ${remainingSeconds === 0 && startedAt ? "is-complete" : ""}`}
-          aria-live="polite"
-        >
+        <div className="analysis-header-actions">
+          {hasImage && !isFocusMode ? (
+            <button className="focus-mode-button" type="button" onClick={() => setIsFocusMode(true)}>
+              <Maximize2 size={16} /> Focus chart
+            </button>
+          ) : null}
+          {isFocusMode ? <span className="escape-hint"><kbd>ESC</kbd> Exit fullscreen</span> : null}
           <div
-            className="timer-ring"
-            style={{ background: `conic-gradient(var(--brand) ${timerProgress * 360}deg, var(--line) 0deg)` }}
+            className={`analysis-timer ${startedAt ? "is-running" : ""} ${remainingSeconds === 0 && startedAt ? "is-complete" : ""}`}
+            aria-live="polite"
           >
-            <Clock3 size={18} />
-          </div>
-          <div>
-            <span>{startedAt ? (remainingSeconds ? "Time remaining" : "Analysis complete") : "Timer waiting"}</span>
-            <strong>{String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
+            <div
+              className="timer-ring"
+              style={{ background: `conic-gradient(var(--brand) ${timerProgress * 360}deg, var(--line) 0deg)` }}
+            >
+              <Clock3 size={18} />
+            </div>
+            <div>
+              <span>{startedAt ? (remainingSeconds ? "Time remaining" : "Analysis complete") : "Timer waiting"}</span>
+              <strong>{String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
+            </div>
           </div>
         </div>
       </header>
@@ -8886,9 +9008,29 @@ function TradeAnalysisPanel({
               <button className={tool === "draw" ? "is-active" : ""} type="button" onClick={() => setTool("draw")}>
                 <Pencil size={16} /> Draw
               </button>
+              <button
+                className={tool === "zone" ? "is-active" : ""}
+                type="button"
+                disabled={!variables.length}
+                onClick={() => setTool("zone")}
+              >
+                <Target size={16} /> Zone
+              </button>
               <button className={tool === "text" ? "is-active" : ""} type="button" onClick={() => setTool("text")}>
                 <NotebookPen size={16} /> Text
               </button>
+              {tool === "zone" ? (
+                <label className="zone-variable-tool">
+                  <span>Pin zone to</span>
+                  <select
+                    value={activeZoneVariable}
+                    aria-label="Variable for new zone"
+                    onChange={(event) => setSelectedZoneVariable(event.target.value)}
+                  >
+                    {variables.map((variable) => <option key={variable} value={variable}>{variable}</option>)}
+                  </select>
+                </label>
+              ) : null}
               {tool === "text" ? (
                 <input
                   className="annotation-text-input"
@@ -8907,7 +9049,17 @@ function TradeAnalysisPanel({
                 <input type="range" min="2" max="12" value={lineWidth} onChange={(event) => setLineWidth(Number(event.target.value))} />
               </label>
               <button type="button" disabled={!history.length} onClick={undo}>Undo</button>
-              <button type="button" onClick={() => { setHistory([]); restoreCanvas(baseImageRef.current); }}>Clear</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setHistory([]);
+                  onZonePinsChange({});
+                  nextPinNumberRef.current = 1;
+                  restoreCanvas(baseImageRef.current);
+                }}
+              >
+                Clear
+              </button>
               <label className="replace-image-button">
                 Replace
                 <input
@@ -8964,6 +9116,11 @@ function TradeAnalysisPanel({
                       }
                     />
                     <span>{variable}</span>
+                    {zonePins[variable]?.length ? (
+                      <span className="variable-pin-list" aria-label={`Chart pins ${zonePins[variable].join(", ")}`}>
+                        {zonePins[variable].map((pin) => <b key={pin}>{pin}</b>)}
+                      </span>
+                    ) : null}
                   </label>
                   <button
                     type="button"
@@ -8995,6 +9152,63 @@ function TradeAnalysisPanel({
       )}
     </section>
   );
+}
+
+function drawZone(
+  context: CanvasRenderingContext2D,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  variable: string,
+  pinNumber: number,
+  color: string,
+) {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+  const pinRadius = 17;
+  const pinX = x + pinRadius + 7;
+  const pinY = y + pinRadius + 7;
+
+  context.save();
+  context.globalAlpha = 0.18;
+  context.fillStyle = color;
+  context.fillRect(x, y, width, height);
+  context.globalAlpha = 1;
+  context.strokeStyle = color;
+  context.lineWidth = 4;
+  context.setLineDash([12, 7]);
+  context.strokeRect(x, y, width, height);
+  context.setLineDash([]);
+
+  context.beginPath();
+  context.arc(pinX, pinY, pinRadius, 0, Math.PI * 2);
+  context.fillStyle = color;
+  context.fill();
+  context.strokeStyle = "#ffffff";
+  context.lineWidth = 2;
+  context.stroke();
+  context.fillStyle = "#ffffff";
+  context.font = "800 18px Inter, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText(String(pinNumber), pinX, pinY + 1);
+
+  context.font = "700 17px Inter, sans-serif";
+  context.textAlign = "left";
+  const labelWidth = Math.min(context.measureText(variable).width + 20, Math.max(90, width - 54));
+  const labelX = pinX + pinRadius + 7;
+  const labelY = y + 9;
+  context.fillStyle = "rgba(15, 23, 42, 0.88)";
+  context.fillRect(labelX, labelY, labelWidth, 31);
+  context.fillStyle = "#ffffff";
+  context.save();
+  context.beginPath();
+  context.rect(labelX + 8, labelY, Math.max(1, labelWidth - 14), 31);
+  context.clip();
+  context.fillText(variable, labelX + 9, labelY + 17);
+  context.restore();
+  context.restore();
 }
 
 function SelectField({

@@ -4027,6 +4027,24 @@ button.yearly-row.is-active {
   box-shadow: var(--shadow);
 }
 
+body.analysis-focus-open {
+  overflow: hidden;
+}
+
+.trade-analysis-panel.is-focus-mode {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100vw;
+  height: 100dvh;
+  border: 0;
+  border-radius: 0;
+  background: #0b1120;
+  box-shadow: none;
+}
+
 .analysis-header {
   display: flex;
   align-items: center;
@@ -4047,6 +4065,84 @@ button.yearly-row.is-active {
 .analysis-header p:last-child {
   margin: 0;
   color: var(--muted);
+}
+
+.analysis-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.focus-mode-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line));
+  border-radius: 8px;
+  background: rgba(14, 165, 233, 0.1);
+  color: var(--text);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.escape-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.73rem;
+  font-weight: 800;
+}
+
+.escape-hint kbd {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  padding: 4px 7px;
+  font: inherit;
+  letter-spacing: 0.04em;
+}
+
+.trade-analysis-panel.is-focus-mode .analysis-header {
+  min-height: 68px;
+  padding: 8px 14px;
+  background: #0f172a;
+}
+
+.trade-analysis-panel.is-focus-mode .analysis-header .eyebrow,
+.trade-analysis-panel.is-focus-mode .analysis-header p:last-child {
+  display: none;
+}
+
+.trade-analysis-panel.is-focus-mode .analysis-header h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+}
+
+.trade-analysis-panel.is-focus-mode .analysis-timer {
+  min-width: 174px;
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.92);
+  padding-block: 6px;
+}
+
+.trade-analysis-panel.is-focus-mode .timer-ring {
+  width: 42px;
+  height: 42px;
+  box-shadow: inset 0 0 0 5px #0f172a;
+}
+
+.trade-analysis-panel.is-focus-mode .analysis-timer strong {
+  color: #f8fafc;
+  font-size: 1.18rem;
 }
 
 .analysis-timer {
@@ -4156,10 +4252,24 @@ button.yearly-row.is-active {
   min-height: 600px;
 }
 
+.trade-analysis-panel.is-focus-mode .analysis-workspace {
+  min-height: 0;
+  height: 100%;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 330px);
+  overflow: hidden;
+}
+
 .chart-editor {
   min-width: 0;
   border-right: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface-strong) 94%, #020617);
+}
+
+.trade-analysis-panel.is-focus-mode .chart-editor {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #080d18;
 }
 
 .annotation-toolbar {
@@ -4170,6 +4280,10 @@ button.yearly-row.is-active {
   min-height: 56px;
   border-bottom: 1px solid var(--line);
   padding: 8px 10px;
+}
+
+.trade-analysis-panel.is-focus-mode .annotation-toolbar {
+  background: #111827;
 }
 
 .annotation-toolbar button,
@@ -4207,6 +4321,35 @@ button.yearly-row.is-active {
   width: min(210px, 100%);
   min-height: 34px;
   padding: 0 9px;
+}
+
+.zone-variable-tool {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line));
+  border-radius: 7px;
+  background: rgba(14, 165, 233, 0.08);
+  padding: 3px 5px 3px 9px;
+}
+
+.zone-variable-tool > span {
+  flex: 0 0 auto;
+  color: var(--brand-strong);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.zone-variable-tool select {
+  width: min(220px, 24vw);
+  min-height: 28px;
+  border: 0;
+  background: var(--surface-strong);
+  padding: 0 28px 0 7px;
+  font-size: 0.76rem;
 }
 
 .color-tool,
@@ -4248,6 +4391,12 @@ button.yearly-row.is-active {
   background-size: 16px 16px;
 }
 
+.trade-analysis-panel.is-focus-mode .canvas-shell {
+  min-height: 0;
+  height: 100%;
+  padding: 8px;
+}
+
 .canvas-shell canvas {
   display: block;
   width: 100%;
@@ -4258,7 +4407,18 @@ button.yearly-row.is-active {
   touch-action: none;
 }
 
+.trade-analysis-panel.is-focus-mode .canvas-shell canvas {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(100dvh - 142px);
+}
+
 .canvas-shell.tool-draw canvas {
+  cursor: crosshair;
+}
+
+.canvas-shell.tool-zone canvas {
   cursor: crosshair;
 }
 
@@ -4272,6 +4432,13 @@ button.yearly-row.is-active {
   gap: 14px;
   padding: 18px;
   background: var(--surface);
+}
+
+.trade-analysis-panel.is-focus-mode .setup-quality-panel {
+  overflow-y: auto;
+  border-left: 1px solid rgba(148, 163, 184, 0.16);
+  background: #0f172a;
+  color: #f8fafc;
 }
 
 .quality-card {
@@ -4360,6 +4527,32 @@ button.yearly-row.is-active {
   font-size: 0.84rem;
   font-weight: 750;
   line-height: 1.3;
+}
+
+.variable-row label > span:first-of-type {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.variable-pin-list {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.variable-pin-list b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  background: var(--brand);
+  color: white;
+  font-size: 0.68rem;
+  line-height: 1;
 }
 
 .variable-row input {
