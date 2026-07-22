@@ -9468,13 +9468,14 @@ function drawSquareZone(
   const height = Math.abs(end.y - start.y);
 
   context.save();
-  context.globalAlpha = 0.7;
+  context.globalAlpha = 0.08;
   context.fillStyle = color;
   context.fillRect(x, y, width, height);
-  context.globalAlpha = 1;
+  context.globalAlpha = 0.7;
   context.strokeStyle = color;
   context.lineWidth = 3;
   context.strokeRect(x, y, width, height);
+  context.globalAlpha = 1;
   drawZonePin(context, zoneAnchor("square", [start, end]), pinNumber, color);
   context.restore();
 }
@@ -9491,13 +9492,14 @@ function drawFreeformZone(
   context.moveTo(points[0].x, points[0].y);
   points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
   context.closePath();
-  context.globalAlpha = 0.7;
+  context.globalAlpha = 0.08;
   context.fillStyle = color;
   context.fill();
-  context.globalAlpha = 1;
+  context.globalAlpha = 0.7;
   context.strokeStyle = color;
   context.lineWidth = 3;
   context.stroke();
+  context.globalAlpha = 1;
   drawZonePin(context, zoneAnchor("draw", points), pinNumber, color);
   context.restore();
 }
