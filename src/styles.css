@@ -4334,6 +4334,15 @@ body.analysis-focus-open {
   padding: 3px 5px 3px 9px;
 }
 
+.zone-variable-tool > i {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.88);
+  border-radius: 50%;
+  box-shadow: 0 0 10px currentColor;
+}
+
 .zone-variable-tool > span {
   flex: 0 0 auto;
   color: var(--brand-strong);
@@ -4397,20 +4406,24 @@ body.analysis-focus-open {
   padding: 8px;
 }
 
+.canvas-stage {
+  position: relative;
+  width: min(100%, calc(72vh * var(--canvas-ratio)));
+  aspect-ratio: var(--canvas-ratio);
+  flex: 0 0 auto;
+}
+
 .canvas-shell canvas {
   display: block;
   width: 100%;
-  max-height: 72vh;
-  object-fit: contain;
+  height: 100%;
   border-radius: 3px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
   touch-action: none;
 }
 
-.trade-analysis-panel.is-focus-mode .canvas-shell canvas {
-  width: auto;
-  max-width: 100%;
-  height: auto;
+.trade-analysis-panel.is-focus-mode .canvas-stage {
+  width: min(100%, calc((100dvh - 142px) * var(--canvas-ratio)));
   max-height: calc(100dvh - 142px);
 }
 
@@ -4418,12 +4431,91 @@ body.analysis-focus-open {
   cursor: crosshair;
 }
 
-.canvas-shell.tool-zone canvas {
+.canvas-shell.tool-zone-square canvas,
+.canvas-shell.tool-zone-draw canvas {
   cursor: crosshair;
 }
 
 .canvas-shell.tool-text canvas {
   cursor: text;
+}
+
+.zone-overlay {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.zone-glow-border {
+  fill: none;
+  stroke-width: 3;
+  stroke-dasharray: 34 18;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 7px currentColor);
+  animation: zoneBorderOrbit 9s linear infinite;
+}
+
+.zone-connector {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.88;
+  filter: drop-shadow(0 0 3px currentColor);
+}
+
+@keyframes zoneBorderOrbit {
+  to {
+    stroke-dashoffset: -104;
+  }
+}
+
+.zone-floating-label {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 21%;
+  min-height: 32px;
+  cursor: grab;
+  border: 1px solid;
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #f8fafc;
+  padding: 4px 9px 4px 5px;
+  box-shadow: 0 6px 20px rgba(2, 6, 23, 0.3);
+  font: inherit;
+  font-size: clamp(0.6rem, 0.75vw, 0.76rem);
+  font-weight: 800;
+  line-height: 1.15;
+  text-align: left;
+  touch-action: none;
+  user-select: none;
+}
+
+.zone-floating-label:active {
+  cursor: grabbing;
+}
+
+.zone-floating-label b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  color: white;
+  font-size: 0.68rem;
+}
+
+.zone-floating-label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .setup-quality-panel {
@@ -4560,6 +4652,15 @@ body.analysis-focus-open {
   height: 17px;
   flex: 0 0 auto;
   accent-color: #10b981;
+}
+
+.variable-color-dot {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
 }
 
 .variable-row button {

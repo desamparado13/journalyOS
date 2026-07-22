@@ -40,7 +40,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import logoUrl from "../assets/logo.svg";
@@ -728,6 +728,18 @@ type DaraWindowState = {
   previous?: { x: number; y: number; width: number; height: number };
 };
 
+type AnalysisPoint = { x: number; y: number };
+type AnalysisZone = {
+  id: string;
+  pin: number;
+  variable: string;
+  color: string;
+  kind: "square" | "draw";
+  points: AnalysisPoint[];
+  anchor: AnalysisPoint;
+  label: AnalysisPoint;
+};
+
 type TradeFormState = {
   id: string;
   date: string;
@@ -741,9 +753,11 @@ type TradeFormState = {
   result: Result;
   notes: string;
   screenshotFile: File | null;
+  analysisWorkingFile: File | null;
   analysisStartedAt: number | null;
   analysisChecks: string[];
   analysisZonePins: Record<string, number[]>;
+  analysisZones: AnalysisZone[];
 };
 
 type TradeDecisionFormState = {
@@ -838,9 +852,11 @@ function todayDefaults(): TradeFormState {
     result: "Breakeven",
     notes: "",
     screenshotFile: null,
+    analysisWorkingFile: null,
     analysisStartedAt: null,
     analysisChecks: [],
     analysisZonePins: {},
+    analysisZones: [],
   };
 }
 
@@ -4058,9 +4074,11 @@ export default function App() {
       result: trade.result,
       notes: trade.notes,
       screenshotFile: null,
+      analysisWorkingFile: null,
       analysisStartedAt: null,
       analysisChecks: [],
       analysisZonePins: {},
+      analysisZones: [],
     });
     setActiveView("add-trade");
     showToast({
@@ -5065,10 +5083,12 @@ export default function App() {
                 setup={tradeForm.setup}
                 setupVariables={setupVariables}
                 screenshotFile={tradeForm.screenshotFile}
+                workingFile={tradeForm.analysisWorkingFile}
                 existingScreenshot={editingTrade?.screenshot || ""}
                 startedAt={tradeForm.analysisStartedAt}
                 checkedVariables={tradeForm.analysisChecks}
                 zonePins={tradeForm.analysisZonePins}
+                zones={tradeForm.analysisZones}
                 onSetupChange={(setup) =>
                   setTradeForm({
                     ...tradeForm,
@@ -5090,13 +5110,21 @@ export default function App() {
                 onZonePinsChange={(analysisZonePins) =>
                   setTradeForm((current) => ({ ...current, analysisZonePins }))
                 }
+                onZonesChange={(analysisZones) =>
+                  setTradeForm((current) => ({ ...current, analysisZones }))
+                }
                 onImageUpload={(screenshotFile) =>
                   setTradeForm((current) => ({
                     ...current,
                     screenshotFile,
+                    analysisWorkingFile: screenshotFile,
                     analysisStartedAt: Date.now(),
                     analysisZonePins: {},
+                    analysisZones: [],
                   }))
+                }
+                onWorkingImageChange={(analysisWorkingFile) =>
+                  setTradeForm((current) => ({ ...current, analysisWorkingFile }))
                 }
                 onAnnotatedImageChange={(screenshotFile) =>
                   setTradeForm((current) => ({ ...current, screenshotFile }))
@@ -8686,51 +8714,69 @@ function TradeAnalysisPanel({
   setup,
   setupVariables,
   screenshotFile,
+  workingFile,
   existingScreenshot,
   startedAt,
   checkedVariables,
   zonePins,
+  zones,
   onSetupChange,
   onVariablesChange,
   onChecksChange,
   onZonePinsChange,
+  onZonesChange,
   onImageUpload,
+  onWorkingImageChange,
   onAnnotatedImageChange,
 }: {
   setup: string;
   setupVariables: SetupVariables;
   screenshotFile: File | null;
+  workingFile: File | null;
   existingScreenshot: string;
   startedAt: number | null;
   checkedVariables: string[];
   zonePins: Record<string, number[]>;
+  zones: AnalysisZone[];
   onSetupChange: (setup: string) => void;
   onVariablesChange: (variables: string[]) => void;
   onChecksChange: (variables: string[]) => void;
   onZonePinsChange: (pins: Record<string, number[]>) => void;
+  onZonesChange: (zones: AnalysisZone[]) => void;
   onImageUpload: (file: File) => void;
+  onWorkingImageChange: (file: File) => void;
   onAnnotatedImageChange: (file: File) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasStageRef = useRef<HTMLDivElement>(null);
   const drawingRef = useRef(false);
   const baseImageRef = useRef("");
   const zoneStartRef = useRef<{ x: number; y: number } | null>(null);
   const zoneEndRef = useRef<{ x: number; y: number } | null>(null);
+  const zonePointsRef = useRef<Array<{ x: number; y: number }>>([]);
   const zoneSnapshotRef = useRef<ImageData | null>(null);
   const zoneVariableRef = useRef("");
   const nextPinNumberRef = useRef(1);
+  const labelDragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const draggedZonesRef = useRef<AnalysisZone[] | null>(null);
   const previousStartedAtRef = useRef<number | null>(null);
-  const [tool, setTool] = useState<"draw" | "text" | "zone">("draw");
+  const [tool, setTool] = useState<"draw" | "text" | "zone-square" | "zone-draw">("draw");
   const [color, setColor] = useState("#ef4444");
   const [lineWidth, setLineWidth] = useState(4);
   const [annotationText, setAnnotationText] = useState("");
   const [selectedZoneVariable, setSelectedZoneVariable] = useState("");
-  const [history, setHistory] = useState<Array<{ image: string; zonePins: Record<string, number[]> }>>([]);
+  const [history, setHistory] = useState<Array<{
+    image: string;
+    zonePins: Record<string, number[]>;
+    zones: AnalysisZone[];
+  }>>([]);
+  const [canvasSize, setCanvasSize] = useState({ width: 16, height: 9 });
   const [newVariable, setNewVariable] = useState("");
   const [now, setNow] = useState(Date.now());
   const [isFocusMode, setIsFocusMode] = useState(false);
   const variables = setupVariables[setup] || [];
   const activeZoneVariable = variables.includes(selectedZoneVariable) ? selectedZoneVariable : variables[0] || "";
+  const activeZoneColor = variableColor(variables.indexOf(activeZoneVariable));
   const hasImage = Boolean(screenshotFile || existingScreenshot);
   const elapsedSeconds = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
   const remainingSeconds = Math.max(0, 240 - elapsedSeconds);
@@ -8773,7 +8819,8 @@ function TradeAnalysisPanel({
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const source = screenshotFile ? URL.createObjectURL(screenshotFile) : existingScreenshot;
+    const sourceFile = workingFile || screenshotFile;
+    const source = sourceFile ? URL.createObjectURL(sourceFile) : existingScreenshot;
     if (!canvas || !source) return;
 
     const image = new Image();
@@ -8781,16 +8828,17 @@ function TradeAnalysisPanel({
       const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      setCanvasSize({ width: canvas.width, height: canvas.height });
       canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
       baseImageRef.current = canvas.toDataURL("image/webp", 0.9);
       setHistory([]);
-      if (screenshotFile) URL.revokeObjectURL(source);
+      if (sourceFile) URL.revokeObjectURL(source);
     };
     image.src = source;
 
     return () => {
       image.onload = null;
-      if (screenshotFile) URL.revokeObjectURL(source);
+      if (sourceFile) URL.revokeObjectURL(source);
     };
     // startedAt identifies a new upload; screenshotFile also changes when annotations are committed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -8812,13 +8860,29 @@ function TradeAnalysisPanel({
       const pinSnapshot = Object.fromEntries(Object.entries(zonePins).map(([variable, pins]) => [variable, [...pins]]));
       setHistory((current) => [
         ...current.slice(-9),
-        { image: canvas.toDataURL("image/webp", 0.9), zonePins: pinSnapshot },
+        { image: canvas.toDataURL("image/webp", 0.9), zonePins: pinSnapshot, zones: zones.map(cloneAnalysisZone) },
       ]);
     }
   }
 
-  function commitCanvas() {
-    canvasRef.current?.toBlob((blob) => {
+  function commitCanvas(nextZones: AnalysisZone[] = zones, updateWorkingImage = true) {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (updateWorkingImage) {
+      canvas.toBlob((blob) => {
+        if (blob) onWorkingImageChange(new File([blob], "trade-analysis-working.webp", { type: "image/webp" }));
+      }, "image/webp", 0.9);
+    }
+
+    const composite = document.createElement("canvas");
+    composite.width = canvas.width;
+    composite.height = canvas.height;
+    const context = composite.getContext("2d");
+    if (!context) return;
+    context.drawImage(canvas, 0, 0);
+    nextZones.forEach((zone) => drawZoneLabel(context, zone, composite.width, composite.height));
+    composite.toBlob((blob) => {
       if (blob) onAnnotatedImageChange(new File([blob], "trade-analysis.webp", { type: "image/webp" }));
     }, "image/webp", 0.9);
   }
@@ -8844,12 +8908,13 @@ function TradeAnalysisPanel({
       return;
     }
 
-    if (tool === "zone") {
+    if (tool === "zone-square" || tool === "zone-draw") {
       if (!activeZoneVariable) return;
       pushHistory();
       drawingRef.current = true;
       zoneStartRef.current = point;
       zoneEndRef.current = point;
+      zonePointsRef.current = [point];
       zoneVariableRef.current = activeZoneVariable;
       zoneSnapshotRef.current = context.getImageData(0, 0, canvas.width, canvas.height);
       canvas.setPointerCapture(event.pointerId);
@@ -8869,13 +8934,20 @@ function TradeAnalysisPanel({
     if (!context) return;
     const point = pointFromEvent(event);
 
-    if (tool === "zone") {
+    if (tool === "zone-square" || tool === "zone-draw") {
       const start = zoneStartRef.current;
       const snapshot = zoneSnapshotRef.current;
       if (!start || !snapshot) return;
       zoneEndRef.current = point;
       context.putImageData(snapshot, 0, 0);
-      drawZone(context, start, point, zoneVariableRef.current, nextPinNumberRef.current, color);
+      if (tool === "zone-square") {
+        drawSquareZone(context, start, point, nextPinNumberRef.current, activeZoneColor);
+      } else {
+        const points = zonePointsRef.current;
+        const previous = points.at(-1);
+        if (!previous || Math.hypot(point.x - previous.x, point.y - previous.y) >= 4) points.push(point);
+        drawFreeformZone(context, points, nextPinNumberRef.current, activeZoneColor);
+      }
       return;
     }
 
@@ -8892,43 +8964,70 @@ function TradeAnalysisPanel({
     if (!drawingRef.current) return;
     drawingRef.current = false;
 
-    if (tool === "zone") {
+    if (tool === "zone-square" || tool === "zone-draw") {
       const context = canvasRef.current?.getContext("2d");
+      const canvas = canvasRef.current;
       const start = zoneStartRef.current;
       const end = zoneEndRef.current;
       const snapshot = zoneSnapshotRef.current;
       const variable = zoneVariableRef.current;
-      if (!context || !start || !end || !snapshot || !variable) return;
+      const drawnPoints = zonePointsRef.current;
+      if (!context || !canvas || !start || !end || !snapshot || !variable) return;
 
       context.putImageData(snapshot, 0, 0);
       zoneStartRef.current = null;
       zoneEndRef.current = null;
       zoneSnapshotRef.current = null;
+      zonePointsRef.current = [];
 
-      if (Math.abs(end.x - start.x) < 8 || Math.abs(end.y - start.y) < 8) {
+      const squareIsTooSmall = tool === "zone-square" && (Math.abs(end.x - start.x) < 8 || Math.abs(end.y - start.y) < 8);
+      const drawingIsTooSmall = tool === "zone-draw" && drawnPoints.length < 3;
+      if (squareIsTooSmall || drawingIsTooSmall) {
         setHistory((current) => current.slice(0, -1));
         return;
       }
 
       const pinNumber = nextPinNumberRef.current;
-      drawZone(context, start, end, variable, pinNumber, color);
+      const zoneColor = variableColor(variables.indexOf(variable));
+      const rawPoints = tool === "zone-square" ? [start, end] : drawnPoints;
+      if (tool === "zone-square") drawSquareZone(context, start, end, pinNumber, zoneColor);
+      else drawFreeformZone(context, drawnPoints, pinNumber, zoneColor);
+
+      const anchorInPixels = zoneAnchor(tool === "zone-square" ? "square" : "draw", rawPoints);
+      const anchor = normalizeAnalysisPoint(anchorInPixels, canvas.width, canvas.height);
+      const label = {
+        x: clampNumber(anchor.x + (anchor.x > 0.7 ? -0.22 : 0.05), 0.02, 0.78),
+        y: clampNumber(anchor.y + (anchor.y > 0.75 ? -0.1 : 0.05), 0.02, 0.9),
+      };
+      const nextZone: AnalysisZone = {
+        id: crypto.randomUUID(),
+        pin: pinNumber,
+        variable,
+        color: zoneColor,
+        kind: tool === "zone-square" ? "square" : "draw",
+        points: rawPoints.map((point) => normalizeAnalysisPoint(point, canvas.width, canvas.height)),
+        anchor,
+        label,
+      };
+      const nextZones = [...zones, nextZone];
       nextPinNumberRef.current += 1;
       onZonePinsChange({ ...zonePins, [variable]: [...(zonePins[variable] || []), pinNumber] });
+      onZonesChange(nextZones);
       if (!checkedVariables.includes(variable)) onChecksChange([...checkedVariables, variable]);
-      commitCanvas();
+      commitCanvas(nextZones);
       return;
     }
 
     commitCanvas();
   }
 
-  function restoreCanvas(source: string) {
+  function restoreCanvas(source: string, nextZones: AnalysisZone[] = zones) {
     const canvas = canvasRef.current;
     if (!canvas || !source) return;
     const image = new Image();
     image.onload = () => {
       canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
-      commitCanvas();
+      commitCanvas(nextZones);
     };
     image.src = source;
   }
@@ -8938,8 +9037,9 @@ function TradeAnalysisPanel({
     if (!previous) return;
     setHistory((current) => current.slice(0, -1));
     onZonePinsChange(previous.zonePins);
+    onZonesChange(previous.zones);
     nextPinNumberRef.current = Math.max(0, ...Object.values(previous.zonePins).flat()) + 1;
-    restoreCanvas(previous.image);
+    restoreCanvas(previous.image, previous.zones);
   }
 
   function addVariable() {
@@ -8947,6 +9047,39 @@ function TradeAnalysisPanel({
     if (!value || variables.some((item) => item.toLowerCase() === value.toLowerCase())) return;
     onVariablesChange([...variables, value]);
     setNewVariable("");
+  }
+
+  function startZoneLabelDrag(event: ReactPointerEvent<HTMLButtonElement>, zone: AnalysisZone) {
+    const stage = canvasStageRef.current;
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    labelDragRef.current = {
+      id: zone.id,
+      offsetX: (event.clientX - rect.left) / rect.width - zone.label.x,
+      offsetY: (event.clientY - rect.top) / rect.height - zone.label.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveZoneLabel(event: ReactPointerEvent<HTMLButtonElement>) {
+    const stage = canvasStageRef.current;
+    const drag = labelDragRef.current;
+    if (!stage || !drag) return;
+    const rect = stage.getBoundingClientRect();
+    const label = {
+      x: clampNumber((event.clientX - rect.left) / rect.width - drag.offsetX, 0.01, 0.79),
+      y: clampNumber((event.clientY - rect.top) / rect.height - drag.offsetY, 0.01, 0.92),
+    };
+    const nextZones = zones.map((zone) => zone.id === drag.id ? { ...zone, label } : zone);
+    draggedZonesRef.current = nextZones;
+    onZonesChange(nextZones);
+  }
+
+  function finishZoneLabelDrag() {
+    const nextZones = draggedZonesRef.current;
+    labelDragRef.current = null;
+    draggedZonesRef.current = null;
+    if (nextZones) commitCanvas(nextZones, false);
   }
 
   return (
@@ -9009,18 +9142,27 @@ function TradeAnalysisPanel({
                 <Pencil size={16} /> Draw
               </button>
               <button
-                className={tool === "zone" ? "is-active" : ""}
+                className={tool === "zone-square" ? "is-active" : ""}
                 type="button"
                 disabled={!variables.length}
-                onClick={() => setTool("zone")}
+                onClick={() => setTool("zone-square")}
               >
-                <Target size={16} /> Zone
+                <Target size={16} /> Zone square
+              </button>
+              <button
+                className={tool === "zone-draw" ? "is-active" : ""}
+                type="button"
+                disabled={!variables.length}
+                onClick={() => setTool("zone-draw")}
+              >
+                <Pencil size={16} /> Zone draw
               </button>
               <button className={tool === "text" ? "is-active" : ""} type="button" onClick={() => setTool("text")}>
                 <NotebookPen size={16} /> Text
               </button>
-              {tool === "zone" ? (
+              {tool === "zone-square" || tool === "zone-draw" ? (
                 <label className="zone-variable-tool">
+                  <i style={{ background: activeZoneColor }} aria-hidden="true" />
                   <span>Pin zone to</span>
                   <select
                     value={activeZoneVariable}
@@ -9040,10 +9182,12 @@ function TradeAnalysisPanel({
                   onChange={(event) => setAnnotationText(event.target.value)}
                 />
               ) : null}
-              <label className="color-tool" title="Annotation color">
-                <span>Color</span>
-                <input type="color" value={color} onChange={(event) => setColor(event.target.value)} />
-              </label>
+              {tool === "draw" || tool === "text" ? (
+                <label className="color-tool" title="Annotation color">
+                  <span>Color</span>
+                  <input type="color" value={color} onChange={(event) => setColor(event.target.value)} />
+                </label>
+              ) : null}
               <label className="width-tool">
                 <span>Size</span>
                 <input type="range" min="2" max="12" value={lineWidth} onChange={(event) => setLineWidth(Number(event.target.value))} />
@@ -9054,8 +9198,9 @@ function TradeAnalysisPanel({
                 onClick={() => {
                   setHistory([]);
                   onZonePinsChange({});
+                  onZonesChange([]);
                   nextPinNumberRef.current = 1;
-                  restoreCanvas(baseImageRef.current);
+                  restoreCanvas(baseImageRef.current, []);
                 }}
               >
                 Clear
@@ -9073,15 +9218,71 @@ function TradeAnalysisPanel({
               </label>
             </div>
             <div className={`canvas-shell tool-${tool}`}>
-              <canvas
-                ref={canvasRef}
-                aria-label="Uploaded chart annotation canvas"
-                onPointerDown={startAnnotation}
-                onPointerMove={drawAnnotation}
-                onPointerUp={finishAnnotation}
-                onPointerCancel={finishAnnotation}
-                onPointerLeave={finishAnnotation}
-              />
+              <div
+                ref={canvasStageRef}
+                className="canvas-stage"
+                style={{ "--canvas-ratio": String(canvasSize.width / canvasSize.height) } as CSSProperties}
+              >
+                <canvas
+                  ref={canvasRef}
+                  aria-label="Uploaded chart annotation canvas"
+                  onPointerDown={startAnnotation}
+                  onPointerMove={drawAnnotation}
+                  onPointerUp={finishAnnotation}
+                  onPointerCancel={finishAnnotation}
+                  onPointerLeave={finishAnnotation}
+                />
+                <svg className="zone-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                  {zones.map((zone) => {
+                    const xs = zone.points.map((point) => point.x * 100);
+                    const ys = zone.points.map((point) => point.y * 100);
+                    return (
+                      <Fragment key={zone.id}>
+                        {zone.kind === "square" ? (
+                          <rect
+                            className="zone-glow-border"
+                            x={Math.min(...xs)}
+                            y={Math.min(...ys)}
+                            width={Math.max(...xs) - Math.min(...xs)}
+                            height={Math.max(...ys) - Math.min(...ys)}
+                            style={{ stroke: zone.color, color: zone.color }}
+                          />
+                        ) : (
+                          <polygon
+                            className="zone-glow-border"
+                            points={zone.points.map((point) => `${point.x * 100},${point.y * 100}`).join(" ")}
+                            style={{ stroke: zone.color, color: zone.color }}
+                          />
+                        )}
+                        <line
+                          className="zone-connector"
+                          x1={zone.anchor.x * 100}
+                          y1={zone.anchor.y * 100}
+                          x2={zone.label.x * 100}
+                          y2={zone.label.y * 100}
+                          style={{ stroke: zone.color, color: zone.color }}
+                        />
+                      </Fragment>
+                    );
+                  })}
+                </svg>
+                {zones.map((zone) => (
+                  <button
+                    className="zone-floating-label"
+                    key={zone.id}
+                    type="button"
+                    style={{ left: `${zone.label.x * 100}%`, top: `${zone.label.y * 100}%`, borderColor: zone.color }}
+                    aria-label={`Move pin ${zone.pin}, ${zone.variable}`}
+                    onPointerDown={(event) => startZoneLabelDrag(event, zone)}
+                    onPointerMove={moveZoneLabel}
+                    onPointerUp={finishZoneLabelDrag}
+                    onPointerCancel={finishZoneLabelDrag}
+                  >
+                    <b style={{ background: zone.color }}>{zone.pin}</b>
+                    <span>{zone.variable}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -9115,10 +9316,20 @@ function TradeAnalysisPanel({
                         )
                       }
                     />
+                    <i
+                      className="variable-color-dot"
+                      style={{
+                        background: variableColor(variables.indexOf(variable)),
+                        color: variableColor(variables.indexOf(variable)),
+                      }}
+                      aria-hidden="true"
+                    />
                     <span>{variable}</span>
                     {zonePins[variable]?.length ? (
                       <span className="variable-pin-list" aria-label={`Chart pins ${zonePins[variable].join(", ")}`}>
-                        {zonePins[variable].map((pin) => <b key={pin}>{pin}</b>)}
+                        {zonePins[variable].map((pin) => (
+                          <b key={pin} style={{ background: variableColor(variables.indexOf(variable)) }}>{pin}</b>
+                        ))}
                       </span>
                     ) : null}
                   </label>
@@ -9154,36 +9365,44 @@ function TradeAnalysisPanel({
   );
 }
 
-function drawZone(
-  context: CanvasRenderingContext2D,
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  variable: string,
-  pinNumber: number,
-  color: string,
-) {
-  const x = Math.min(start.x, end.x);
-  const y = Math.min(start.y, end.y);
-  const width = Math.abs(end.x - start.x);
-  const height = Math.abs(end.y - start.y);
+function variableColor(index: number) {
+  const safeIndex = Math.max(0, index);
+  return `hsl(${Math.round((safeIndex * 137.508 + 198) % 360)} 82% 54%)`;
+}
+
+function cloneAnalysisZone(zone: AnalysisZone): AnalysisZone {
+  return {
+    ...zone,
+    points: zone.points.map((point) => ({ ...point })),
+    anchor: { ...zone.anchor },
+    label: { ...zone.label },
+  };
+}
+
+function normalizeAnalysisPoint(point: AnalysisPoint, width: number, height: number): AnalysisPoint {
+  return { x: point.x / width, y: point.y / height };
+}
+
+function zoneAnchor(kind: AnalysisZone["kind"], points: AnalysisPoint[]): AnalysisPoint {
+  if (kind === "square") {
+    return {
+      x: Math.min(points[0].x, points[1].x) + 24,
+      y: Math.min(points[0].y, points[1].y) + 24,
+    };
+  }
+
+  return {
+    x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
+    y: points.reduce((sum, point) => sum + point.y, 0) / points.length,
+  };
+}
+
+function drawZonePin(context: CanvasRenderingContext2D, point: AnalysisPoint, pinNumber: number, color: string) {
   const pinRadius = 17;
-  const pinX = x + pinRadius + 7;
-  const pinY = y + pinRadius + 7;
-
-  context.save();
-  context.globalAlpha = 0.18;
-  context.fillStyle = color;
-  context.fillRect(x, y, width, height);
-  context.globalAlpha = 1;
-  context.strokeStyle = color;
-  context.lineWidth = 4;
-  context.setLineDash([12, 7]);
-  context.strokeRect(x, y, width, height);
-  context.setLineDash([]);
-
   context.beginPath();
-  context.arc(pinX, pinY, pinRadius, 0, Math.PI * 2);
+  context.arc(point.x, point.y, pinRadius, 0, Math.PI * 2);
   context.fillStyle = color;
+  context.globalAlpha = 1;
   context.fill();
   context.strokeStyle = "#ffffff";
   context.lineWidth = 2;
@@ -9192,22 +9411,85 @@ function drawZone(
   context.font = "800 18px Inter, sans-serif";
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.fillText(String(pinNumber), pinX, pinY + 1);
+  context.fillText(String(pinNumber), point.x, point.y + 1);
+}
 
-  context.font = "700 17px Inter, sans-serif";
-  context.textAlign = "left";
-  const labelWidth = Math.min(context.measureText(variable).width + 20, Math.max(90, width - 54));
-  const labelX = pinX + pinRadius + 7;
-  const labelY = y + 9;
-  context.fillStyle = "rgba(15, 23, 42, 0.88)";
-  context.fillRect(labelX, labelY, labelWidth, 31);
-  context.fillStyle = "#ffffff";
+function drawSquareZone(
+  context: CanvasRenderingContext2D,
+  start: AnalysisPoint,
+  end: AnalysisPoint,
+  pinNumber: number,
+  color: string,
+) {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const width = Math.abs(end.x - start.x);
+  const height = Math.abs(end.y - start.y);
+
+  context.save();
+  context.globalAlpha = 0.7;
+  context.fillStyle = color;
+  context.fillRect(x, y, width, height);
+  context.globalAlpha = 1;
+  context.strokeStyle = color;
+  context.lineWidth = 3;
+  context.strokeRect(x, y, width, height);
+  drawZonePin(context, zoneAnchor("square", [start, end]), pinNumber, color);
+  context.restore();
+}
+
+function drawFreeformZone(
+  context: CanvasRenderingContext2D,
+  points: AnalysisPoint[],
+  pinNumber: number,
+  color: string,
+) {
+  if (points.length < 2) return;
   context.save();
   context.beginPath();
-  context.rect(labelX + 8, labelY, Math.max(1, labelWidth - 14), 31);
-  context.clip();
-  context.fillText(variable, labelX + 9, labelY + 17);
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
+  context.closePath();
+  context.globalAlpha = 0.7;
+  context.fillStyle = color;
+  context.fill();
+  context.globalAlpha = 1;
+  context.strokeStyle = color;
+  context.lineWidth = 3;
+  context.stroke();
+  drawZonePin(context, zoneAnchor("draw", points), pinNumber, color);
   context.restore();
+}
+
+function drawZoneLabel(
+  context: CanvasRenderingContext2D,
+  zone: AnalysisZone,
+  width: number,
+  height: number,
+) {
+  const anchor = { x: zone.anchor.x * width, y: zone.anchor.y * height };
+  const label = { x: zone.label.x * width, y: zone.label.y * height };
+  context.save();
+  context.strokeStyle = zone.color;
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(anchor.x, anchor.y);
+  context.lineTo(label.x, label.y + 18);
+  context.stroke();
+
+  context.font = "700 17px Inter, sans-serif";
+  const labelWidth = Math.min(340, context.measureText(zone.variable).width + 64);
+  context.fillStyle = "rgba(15, 23, 42, 0.88)";
+  context.fillRect(label.x, label.y, labelWidth, 38);
+  context.strokeStyle = zone.color;
+  context.lineWidth = 2;
+  context.strokeRect(label.x, label.y, labelWidth, 38);
+  drawZonePin(context, { x: label.x + 20, y: label.y + 19 }, zone.pin, zone.color);
+  context.fillStyle = "#ffffff";
+  context.font = "700 17px Inter, sans-serif";
+  context.textAlign = "left";
+  context.textBaseline = "middle";
+  context.fillText(zone.variable, label.x + 44, label.y + 20);
   context.restore();
 }
 
