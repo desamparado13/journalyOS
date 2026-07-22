@@ -49,6 +49,8 @@ const THEME_KEY = "journaly-os-theme";
 const ACTIVE_VIEW_KEY = "journaly-os-active-view";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
 const SETUP_VARIABLES_KEY = "journaly-os-setup-variables";
+const ANALYSIS_HISTORY_DB = "journaly-os-analysis-history";
+const ANALYSIS_HISTORY_STORE = "drawings";
 const ACCOUNT_PROFILE_KEY = "journaly-os-account-profile";
 const AI_COACH_USAGE_KEY = "journaly-os-ai-coach-usage";
 const AI_COACH_HISTORY_KEY = "journaly-os-ai-coach-history";
@@ -864,6 +866,15 @@ function todayDefaults(): TradeFormState {
 }
 
 type SetupVariables = Record<string, string[]>;
+type SavedAnalysisDrawing = {
+  id: string;
+  ownerId: string;
+  savedAt: string;
+  pair: string;
+  setup: string;
+  image: string;
+  tradeId: string;
+};
 
 const defaultSetupVariables: SetupVariables = {
   REVERSAL: ["Liquidity sweep confirmed", "Key level rejection", "Structure shift confirmed"],
@@ -882,6 +893,53 @@ function readSetupVariables(): SetupVariables {
   } catch {
     return defaultSetupVariables;
   }
+}
+
+function openAnalysisHistoryDb() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(ANALYSIS_HISTORY_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(ANALYSIS_HISTORY_STORE)) {
+        request.result.createObjectStore(ANALYSIS_HISTORY_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open analysis history."));
+  });
+}
+
+async function readAnalysisHistory(ownerId: string) {
+  const database = await openAnalysisHistoryDb();
+  return new Promise<SavedAnalysisDrawing[]>((resolve, reject) => {
+    const request = database.transaction(ANALYSIS_HISTORY_STORE, "readonly").objectStore(ANALYSIS_HISTORY_STORE).getAll();
+    request.onsuccess = () => {
+      database.close();
+      resolve(
+        (request.result as SavedAnalysisDrawing[])
+          .filter((drawing) => drawing.ownerId === ownerId)
+          .sort((a, b) => b.savedAt.localeCompare(a.savedAt)),
+      );
+    };
+    request.onerror = () => {
+      database.close();
+      reject(request.error || new Error("Could not read analysis history."));
+    };
+  });
+}
+
+async function writeAnalysisDrawing(drawing: SavedAnalysisDrawing) {
+  const database = await openAnalysisHistoryDb();
+  return new Promise<void>((resolve, reject) => {
+    const request = database.transaction(ANALYSIS_HISTORY_STORE, "readwrite").objectStore(ANALYSIS_HISTORY_STORE).put(drawing);
+    request.onsuccess = () => {
+      database.close();
+      resolve();
+    };
+    request.onerror = () => {
+      database.close();
+      reject(request.error || new Error("Could not save the analysis drawing."));
+    };
+  });
 }
 
 function tradeDecisionDefaults(): TradeDecisionFormState {
@@ -5084,6 +5142,9 @@ export default function App() {
 
             {activeView === "trade-analysis" ? (
               <TradeAnalysisPanel
+                ownerId={currentUser.id}
+                pair={tradeForm.pair}
+                trades={trades}
                 setup={tradeForm.setup}
                 setupVariables={setupVariables}
                 screenshotFile={tradeForm.screenshotFile}
@@ -8720,6 +8781,9 @@ function PerformanceTable({ title, rows }: { title: string; rows: PerformanceRow
 }
 
 function TradeAnalysisPanel({
+  ownerId,
+  pair,
+  trades,
   setup,
   setupVariables,
   screenshotFile,
@@ -8740,6 +8804,9 @@ function TradeAnalysisPanel({
   onWorkingImageChange,
   onAnnotatedImageChange,
 }: {
+  ownerId: string;
+  pair: string;
+  trades: Trade[];
   setup: string;
   setupVariables: SetupVariables;
   screenshotFile: File | null;
@@ -8787,6 +8854,12 @@ function TradeAnalysisPanel({
   const [newVariable, setNewVariable] = useState("");
   const [now, setNow] = useState(Date.now());
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [savedDrawings, setSavedDrawings] = useState<SavedAnalysisDrawing[]>([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [selectedDrawingId, setSelectedDrawingId] = useState("");
+  const [linkedTradeId, setLinkedTradeId] = useState("");
+  const [isSavingAnalysis, setIsSavingAnalysis] = useState(false);
+  const [historyMessage, setHistoryMessage] = useState("");
   const variables = setupVariables[setup] || [];
   const activeZoneVariable = variables.includes(selectedZoneVariable) ? selectedZoneVariable : variables[0] || "";
   const activeZoneColor = variableColor(variables.indexOf(activeZoneVariable));
@@ -8796,6 +8869,7 @@ function TradeAnalysisPanel({
   const timerProgress = startedAt ? Math.min(1, elapsedSeconds / 240) : 0;
   const allPresent = variables.length > 0 && variables.every((variable) => checkedVariables.includes(variable));
   const qualityScore = variables.length ? Math.round((checkedVariables.length / variables.length) * 100) : 0;
+  const selectedDrawing = savedDrawings.find((drawing) => drawing.id === selectedDrawingId) || null;
 
   useEffect(() => {
     nextPinNumberRef.current = Math.max(0, ...Object.values(zonePins).flat()) + 1;
@@ -8812,6 +8886,10 @@ function TradeAnalysisPanel({
     function exitFocusMode(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      if (isHistoryOpen) {
+        setIsHistoryOpen(false);
+        return;
+      }
       setIsFocusMode(false);
     }
 
@@ -8822,7 +8900,7 @@ function TradeAnalysisPanel({
       document.body.classList.remove("analysis-focus-open");
       window.removeEventListener("keydown", exitFocusMode);
     };
-  }, [isFocusMode]);
+  }, [isFocusMode, isHistoryOpen]);
 
   useEffect(() => {
     if (!startedAt || remainingSeconds === 0) return;
@@ -9055,6 +9133,65 @@ function TradeAnalysisPanel({
     restoreCanvas(previous.image, previous.zones);
   }
 
+  function exportCurrentDrawing() {
+    const source = screenshotFile ? URL.createObjectURL(screenshotFile) : existingScreenshot;
+    if (!source) return;
+    const link = document.createElement("a");
+    link.href = source;
+    link.download = `journaly-analysis-${pair}-${new Date().toISOString().slice(0, 10)}.webp`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    if (screenshotFile) window.setTimeout(() => URL.revokeObjectURL(source), 1000);
+  }
+
+  async function openDrawingHistory() {
+    setHistoryMessage("");
+    setIsHistoryOpen(true);
+    try {
+      setSavedDrawings(await readAnalysisHistory(ownerId));
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : "Could not load analysis history.");
+    }
+  }
+
+  async function saveCurrentDrawing() {
+    if (!screenshotFile && !existingScreenshot) return;
+    setIsSavingAnalysis(true);
+    setHistoryMessage("");
+    try {
+      const image = screenshotFile ? await fileToDataUrl(screenshotFile) : existingScreenshot;
+      const drawing: SavedAnalysisDrawing = {
+        id: crypto.randomUUID(),
+        ownerId,
+        savedAt: new Date().toISOString(),
+        pair,
+        setup,
+        image,
+        tradeId: "",
+      };
+      await writeAnalysisDrawing(drawing);
+      setSavedDrawings((current) => [drawing, ...current]);
+      setHistoryMessage("Drawing saved to analysis history.");
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : "Could not save this drawing.");
+    } finally {
+      setIsSavingAnalysis(false);
+    }
+  }
+
+  async function linkSelectedDrawing() {
+    if (!selectedDrawing || !linkedTradeId) return;
+    const nextDrawing = { ...selectedDrawing, tradeId: linkedTradeId };
+    try {
+      await writeAnalysisDrawing(nextDrawing);
+      setSavedDrawings((current) => current.map((drawing) => drawing.id === nextDrawing.id ? nextDrawing : drawing));
+      setHistoryMessage("Drawing linked to the selected trade.");
+    } catch (error) {
+      setHistoryMessage(error instanceof Error ? error.message : "Could not link this drawing.");
+    }
+  }
+
   function addVariable() {
     const value = newVariable.trim();
     if (!value || variables.some((item) => item.toLowerCase() === value.toLowerCase())) return;
@@ -9102,6 +9239,17 @@ function TradeAnalysisPanel({
       aria-modal={isFocusMode ? "true" : undefined}
       aria-label={isFocusMode ? "Fullscreen trade analysis" : undefined}
     >
+      {decision === "take" ? (
+        <div className="locked-in-banner" role="status" aria-live="assertive">
+          <span className="flame flame-one" aria-hidden="true">🔥</span>
+          <span className="flame flame-two" aria-hidden="true">🔥</span>
+          <span className="flame flame-three" aria-hidden="true">🔥</span>
+          <strong>LOCKED IN</strong>
+          <b>PULL THE FUCKING TRIGGER</b>
+          <span className="flame flame-four" aria-hidden="true">🔥</span>
+          <span className="flame flame-five" aria-hidden="true">🔥</span>
+        </div>
+      ) : null}
       <header className="analysis-header">
         <div>
           <p className="eyebrow">Pre-trade focus</p>
@@ -9246,6 +9394,17 @@ function TradeAnalysisPanel({
               >
                 Clear
               </button>
+              <button type="button" onClick={exportCurrentDrawing}>
+                <ImagePlus size={15} /> Export
+              </button>
+              <button type="button" disabled={isSavingAnalysis} onClick={() => void saveCurrentDrawing()}>
+                <CheckCircle2 size={15} /> {isSavingAnalysis ? "Saving..." : "Save"}
+              </button>
+              <button type="button" onClick={() => void openDrawingHistory()}>
+                <BookOpen size={15} /> History
+                {savedDrawings.length ? <small className="history-count">{savedDrawings.length}</small> : null}
+              </button>
+              {historyMessage && !isHistoryOpen ? <span className="analysis-save-status" role="status">{historyMessage}</span> : null}
               <label className="replace-image-button">
                 Replace
                 <input
@@ -9282,6 +9441,7 @@ function TradeAnalysisPanel({
                         {zone.kind === "square" ? (
                           <rect
                             className="zone-glow-border"
+                            pathLength={100}
                             x={Math.min(...xs)}
                             y={Math.min(...ys)}
                             width={Math.max(...xs) - Math.min(...xs)}
@@ -9291,6 +9451,7 @@ function TradeAnalysisPanel({
                         ) : (
                           <polygon
                             className="zone-glow-border"
+                            pathLength={100}
                             points={zone.points.map((point) => `${point.x * 100},${point.y * 100}`).join(" ")}
                             style={{ stroke: zone.color, color: zone.color }}
                           />
@@ -9402,6 +9563,77 @@ function TradeAnalysisPanel({
           </aside>
         </div>
       )}
+      {isHistoryOpen ? (
+        <div className="analysis-history-overlay" role="dialog" aria-modal="true" aria-labelledby="analysis-history-title">
+          <button className="analysis-history-backdrop" type="button" aria-label="Close analysis history" onClick={() => setIsHistoryOpen(false)} />
+          <section className="analysis-history-dialog">
+            <header>
+              <div>
+                <p className="eyebrow">Chart library</p>
+                <h3 id="analysis-history-title">Analysis history</h3>
+              </div>
+              <button type="button" aria-label="Close analysis history" onClick={() => setIsHistoryOpen(false)}><X size={18} /></button>
+            </header>
+            {historyMessage ? <p className="analysis-history-message" role="status">{historyMessage}</p> : null}
+            <div className="analysis-history-content">
+              <div className="analysis-history-grid">
+                {savedDrawings.length ? savedDrawings.map((drawing) => {
+                  const linkedTrade = trades.find((trade) => trade.id === drawing.tradeId);
+                  return (
+                    <button
+                      className={drawing.id === selectedDrawingId ? "is-selected" : ""}
+                      type="button"
+                      key={drawing.id}
+                      onClick={() => {
+                        setSelectedDrawingId(drawing.id);
+                        setLinkedTradeId(drawing.tradeId);
+                      }}
+                    >
+                      <img src={drawing.image} alt={`${drawing.pair} ${drawing.setup} saved analysis`} />
+                      <span><strong>{drawing.pair}</strong><small>{drawing.setup}</small></span>
+                      <time dateTime={drawing.savedAt}>{new Date(drawing.savedAt).toLocaleString()}</time>
+                      {linkedTrade ? <em>Linked · {linkedTrade.pair} {formatMonthDayYear(linkedTrade.date)}</em> : null}
+                    </button>
+                  );
+                }) : (
+                  <div className="analysis-history-empty">
+                    <BookOpen size={26} />
+                    <strong>No saved drawings yet</strong>
+                    <span>Use Save in the chart toolbar to build your library.</span>
+                  </div>
+                )}
+              </div>
+              {selectedDrawing ? (
+                <aside className="analysis-history-detail">
+                  <img src={selectedDrawing.image} alt={`${selectedDrawing.pair} selected analysis`} />
+                  <div>
+                    <span>Link this analysis</span>
+                    <strong>{selectedDrawing.pair} · {selectedDrawing.setup}</strong>
+                  </div>
+                  {trades.length ? (
+                    <>
+                      <label>
+                        <span>Journal trade</span>
+                        <select value={linkedTradeId} onChange={(event) => setLinkedTradeId(event.target.value)}>
+                          <option value="">Choose a trade</option>
+                          {trades.map((trade) => (
+                            <option key={trade.id} value={trade.id}>
+                              {formatMonthDayYear(trade.date)} · {trade.pair} · {trade.setup} · {formatNumber(trade.pnl)}R
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button className="primary-action" type="button" disabled={!linkedTradeId} onClick={() => void linkSelectedDrawing()}>
+                        <CheckCircle2 size={17} /> Link to trade
+                      </button>
+                    </>
+                  ) : <p>Save a journal trade first, then return here to link this drawing.</p>}
+                </aside>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }
