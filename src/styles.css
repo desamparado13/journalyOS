@@ -4193,6 +4193,105 @@ body.analysis-focus-open {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
 }
 
+.analysis-decision {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  border-radius: 11px;
+  background:
+    linear-gradient(120deg, rgba(14, 165, 233, 0.12), rgba(15, 23, 42, 0.2)),
+    var(--surface-strong);
+  padding: 7px 8px 7px 13px;
+  box-shadow: 0 10px 28px rgba(14, 165, 233, 0.12);
+}
+
+.analysis-decision.is-take {
+  border-color: rgba(16, 185, 129, 0.55);
+  box-shadow: 0 10px 30px rgba(16, 185, 129, 0.14);
+}
+
+.analysis-decision.is-skip {
+  border-color: rgba(239, 68, 68, 0.55);
+  box-shadow: 0 10px 30px rgba(239, 68, 68, 0.12);
+}
+
+.analysis-decision-copy {
+  min-width: 118px;
+}
+
+.analysis-decision-copy span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.63rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.analysis-decision-copy strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.analysis-decision-actions {
+  display: flex;
+  gap: 7px;
+}
+
+.analysis-decision-actions button {
+  display: inline-flex;
+  min-width: 78px;
+  min-height: 42px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.analysis-decision-actions button:hover,
+.analysis-decision-actions button[aria-pressed="true"] {
+  transform: translateY(-1px);
+}
+
+.decision-take {
+  border-color: rgba(16, 185, 129, 0.58);
+  color: #10b981;
+}
+
+.decision-take:hover,
+.decision-take[aria-pressed="true"] {
+  background: rgba(16, 185, 129, 0.16);
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.18);
+}
+
+.decision-skip {
+  border-color: rgba(239, 68, 68, 0.58);
+  color: #ef4444;
+}
+
+.decision-skip:hover,
+.decision-skip[aria-pressed="true"] {
+  background: rgba(239, 68, 68, 0.14);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.16);
+}
+
+.trade-analysis-panel.is-focus-mode .analysis-decision {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.94);
+}
+
 .analysis-upload {
   display: grid;
   min-height: 420px;

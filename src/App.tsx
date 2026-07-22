@@ -739,6 +739,7 @@ type AnalysisZone = {
   anchor: AnalysisPoint;
   label: AnalysisPoint;
 };
+type AnalysisDecision = "take" | "skip" | null;
 
 type TradeFormState = {
   id: string;
@@ -758,6 +759,7 @@ type TradeFormState = {
   analysisChecks: string[];
   analysisZonePins: Record<string, number[]>;
   analysisZones: AnalysisZone[];
+  analysisDecision: AnalysisDecision;
 };
 
 type TradeDecisionFormState = {
@@ -857,6 +859,7 @@ function todayDefaults(): TradeFormState {
     analysisChecks: [],
     analysisZonePins: {},
     analysisZones: [],
+    analysisDecision: null,
   };
 }
 
@@ -4079,6 +4082,7 @@ export default function App() {
       analysisChecks: [],
       analysisZonePins: {},
       analysisZones: [],
+      analysisDecision: null,
     });
     setActiveView("add-trade");
     showToast({
@@ -5089,6 +5093,7 @@ export default function App() {
                 checkedVariables={tradeForm.analysisChecks}
                 zonePins={tradeForm.analysisZonePins}
                 zones={tradeForm.analysisZones}
+                decision={tradeForm.analysisDecision}
                 onSetupChange={(setup) =>
                   setTradeForm({
                     ...tradeForm,
@@ -5113,6 +5118,9 @@ export default function App() {
                 onZonesChange={(analysisZones) =>
                   setTradeForm((current) => ({ ...current, analysisZones }))
                 }
+                onDecisionChange={(analysisDecision) =>
+                  setTradeForm((current) => ({ ...current, analysisDecision }))
+                }
                 onImageUpload={(screenshotFile) =>
                   setTradeForm((current) => ({
                     ...current,
@@ -5121,6 +5129,7 @@ export default function App() {
                     analysisStartedAt: Date.now(),
                     analysisZonePins: {},
                     analysisZones: [],
+                    analysisDecision: null,
                   }))
                 }
                 onWorkingImageChange={(analysisWorkingFile) =>
@@ -8720,11 +8729,13 @@ function TradeAnalysisPanel({
   checkedVariables,
   zonePins,
   zones,
+  decision,
   onSetupChange,
   onVariablesChange,
   onChecksChange,
   onZonePinsChange,
   onZonesChange,
+  onDecisionChange,
   onImageUpload,
   onWorkingImageChange,
   onAnnotatedImageChange,
@@ -8738,11 +8749,13 @@ function TradeAnalysisPanel({
   checkedVariables: string[];
   zonePins: Record<string, number[]>;
   zones: AnalysisZone[];
+  decision: AnalysisDecision;
   onSetupChange: (setup: string) => void;
   onVariablesChange: (variables: string[]) => void;
   onChecksChange: (variables: string[]) => void;
   onZonePinsChange: (pins: Record<string, number[]>) => void;
   onZonesChange: (zones: AnalysisZone[]) => void;
+  onDecisionChange: (decision: AnalysisDecision) => void;
   onImageUpload: (file: File) => void;
   onWorkingImageChange: (file: File) => void;
   onAnnotatedImageChange: (file: File) => void;
@@ -9102,21 +9115,49 @@ function TradeAnalysisPanel({
             </button>
           ) : null}
           {isFocusMode ? <span className="escape-hint"><kbd>ESC</kbd> Exit fullscreen</span> : null}
-          <div
-            className={`analysis-timer ${startedAt ? "is-running" : ""} ${remainingSeconds === 0 && startedAt ? "is-complete" : ""}`}
-            aria-live="polite"
-          >
-            <div
-              className="timer-ring"
-              style={{ background: `conic-gradient(var(--brand) ${timerProgress * 360}deg, var(--line) 0deg)` }}
-            >
-              <Clock3 size={18} />
+          {startedAt && remainingSeconds === 0 ? (
+            <div className={`analysis-decision ${decision ? `is-${decision}` : ""}`} role="group" aria-label="Trade decision">
+              <div className="analysis-decision-copy" aria-live="polite">
+                <span>Analysis complete</span>
+                <strong>{decision === "take" ? "Trade approved" : decision === "skip" ? "No trade" : "Take the trade?"}</strong>
+              </div>
+              <div className="analysis-decision-actions">
+                <button
+                  className="decision-take"
+                  type="button"
+                  aria-pressed={decision === "take"}
+                  aria-label="Take the trade"
+                  onClick={() => onDecisionChange("take")}
+                >
+                  <CheckCircle2 size={20} />
+                  <span>Take</span>
+                </button>
+                <button
+                  className="decision-skip"
+                  type="button"
+                  aria-pressed={decision === "skip"}
+                  aria-label="Do not take the trade"
+                  onClick={() => onDecisionChange("skip")}
+                >
+                  <X size={21} />
+                  <span>No trade</span>
+                </button>
+              </div>
             </div>
-            <div>
-              <span>{startedAt ? (remainingSeconds ? "Time remaining" : "Analysis complete") : "Timer waiting"}</span>
-              <strong>{String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
+          ) : (
+            <div className={`analysis-timer ${startedAt ? "is-running" : ""}`} aria-live="polite">
+              <div
+                className="timer-ring"
+                style={{ background: `conic-gradient(var(--brand) ${timerProgress * 360}deg, var(--line) 0deg)` }}
+              >
+                <Clock3 size={18} />
+              </div>
+              <div>
+                <span>{startedAt ? "Time remaining" : "Timer waiting"}</span>
+                <strong>{String(Math.floor(remainingSeconds / 60)).padStart(2, "0")}:{String(remainingSeconds % 60).padStart(2, "0")}</strong>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </header>
 
