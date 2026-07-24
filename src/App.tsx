@@ -5605,6 +5605,27 @@ export default function App() {
                     Integrity mode: entry details are locked. You can finalize once with MAE, required PnL, required image, and optional notes.
                   </p>
                 ) : null}
+                {isFinalizingTrade ? (
+                  <label className="file-field">
+                    <span>
+                      Post image {tradeForm.screenshotFile ? `(${tradeForm.screenshotFile.name})` : editingTrade?.screenshot ? "(saved — choose to replace)" : "(required)"}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(event) => {
+                        const screenshotFile = event.target.files?.[0] || null;
+                        setTradeForm((current) => ({
+                          ...current,
+                          screenshotFile,
+                          analysisWorkingFile: screenshotFile,
+                          analysisStartedAt: screenshotFile ? Date.now() : current.analysisStartedAt,
+                        }));
+                      }}
+                    />
+                    <ImagePlus size={18} />
+                  </label>
+                ) : null}
                 <button className="analysis-shortcut" type="button" onClick={() => setActiveView("trade-analysis")}>
                   <ImagePlus size={18} />
                   <span>
