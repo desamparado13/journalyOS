@@ -34,7 +34,7 @@ type DayTradeRecord = {
   entryRetracement: EntryRetracement;
   durationHours: number;
   hasNews: YesNo;
-  newsDetails: string;
+  newsEvents: string[];
   previousImbalance: PreviousImbalance;
   liquidityContext: LiquidityContext;
   mae: number;
@@ -88,7 +88,7 @@ function blankForm(): DayTradeForm {
     entryRetracement: "0.618",
     durationHours: 2,
     hasNews: "No",
-    newsDetails: "",
+    newsEvents: [],
     previousImbalance: "None",
     liquidityContext: "None",
     mae: 0,
@@ -127,7 +127,9 @@ function fromRow(row: any): DayTradeRecord {
     entryRetracement: row.retracement_depth || "0.618",
     durationHours: Number(row.trade_duration_hours || 0),
     hasNews: row.has_news ? "Yes" : "No",
-    newsDetails: row.news_details || "",
+    newsEvents: Array.isArray(row.news_events) && row.news_events.length
+      ? row.news_events.filter((event: unknown) => typeof event === "string" && event.trim())
+      : String(row.news_details || "").split(",").map((event) => event.trim()).filter(Boolean),
     previousImbalance: row.previous_imbalance_sessions || "None",
     liquidityContext: row.liquidity_context || "None",
     mae: Number(row.mae_r || 0),
@@ -299,7 +301,8 @@ export default function DayTradeJournal({
         retracement_depth: form.entryRetracement,
         trade_duration_hours: form.durationHours,
         has_news: form.hasNews === "Yes",
-        news_details: form.hasNews === "Yes" ? form.newsDetails.trim() : "",
+        news_events: form.hasNews === "Yes" ? form.newsEvents.map((event) => event.trim()).filter(Boolean) : [],
+        news_details: form.hasNews === "Yes" ? form.newsEvents.map((event) => event.trim()).filter(Boolean).join(", ") : "",
         previous_imbalance_sessions: form.previousImbalance,
         liquidity_context: form.liquidityContext,
         mae_r: form.mae,
@@ -411,10 +414,19 @@ export default function DayTradeJournal({
               <Field label="Timeframe"><input readOnly value="15M" /></Field>
               <Field label="Direction"><select value={form.direction} onChange={(event) => setForm({ ...form, direction: event.target.value as Direction })}><option>Buy</option><option>Sell</option></select></Field>
               <Field label="Trade grade"><select value={form.grade} onChange={(event) => setForm({ ...form, grade: event.target.value as Grade })}>{(["A+", "A", "B", "C"] as Grade[]).map((grade) => <option key={grade}>{grade}</option>)}</select></Field>
-              <Field label="News on this day?"><select value={form.hasNews} onChange={(event) => setForm({ ...form, hasNews: event.target.value as YesNo, newsDetails: event.target.value === "Yes" ? form.newsDetails : "" })}><option>No</option><option>Yes</option></select></Field>
+              <Field label="News on this day?"><select value={form.hasNews} onChange={(event) => setForm({ ...form, hasNews: event.target.value as YesNo, newsEvents: event.target.value === "Yes" ? (form.newsEvents.length ? form.newsEvents : [""]) : [] })}><option>No</option><option>Yes</option></select></Field>
               <a className="daytrade-news-check" href={newsHistoryUrl(form.date)} target="_blank" rel="noreferrer">Check {form.date} news history ↗</a>
               {form.hasNews === "Yes" ? (
-                <Field label="News details" wide><input required value={form.newsDetails} placeholder="e.g. ISM Services PMI, JOLTS Job Openings" onChange={(event) => setForm({ ...form, newsDetails: event.target.value })} /></Field>
+                <div className="daytrade-news-events daytrade-wide">
+                  <span>News events</span>
+                  {form.newsEvents.map((newsEvent, index) => (
+                    <div key={index}>
+                      <input required value={newsEvent} placeholder={index === 0 ? "e.g. ISM Services PMI" : "e.g. JOLTS Job Openings"} onChange={(event) => setForm({ ...form, newsEvents: form.newsEvents.map((item, itemIndex) => itemIndex === index ? event.target.value : item) })} />
+                      {form.newsEvents.length > 1 ? <button type="button" aria-label={`Remove news event ${index + 1}`} onClick={() => setForm({ ...form, newsEvents: form.newsEvents.filter((_, itemIndex) => itemIndex !== index) })}><Trash2 size={16} /></button> : null}
+                    </div>
+                  ))}
+                  <button className="daytrade-add-news" type="button" onClick={() => setForm({ ...form, newsEvents: [...form.newsEvents, ""] })}><Plus size={16} />Add another news event</button>
+                </div>
               ) : null}
               <Field label="Previous-session imbalance taken out?"><select value={form.previousImbalance === "None" ? "No" : "Yes"} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value === "Yes" ? "Prev" : "None" })}><option>No</option><option>Yes</option></select></Field>
               {form.previousImbalance !== "None" ? (
@@ -483,7 +495,9 @@ export default function DayTradeJournal({
                   <span>Prev imbalance taken <strong>{trade.previousImbalance === "None" ? "No" : `Yes · ${trade.previousImbalance}`}</strong></span>
                   <span>OB / liquidity <strong>{trade.liquidityContext}</strong></span>
                 </div>
-                {trade.hasNews === "Yes" && trade.newsDetails ? <p className="daytrade-psychology">News: {trade.newsDetails}</p> : null}
+                {trade.hasNews === "Yes" && trade.newsEvents.length ? (
+                  <div className="daytrade-news-list"><strong>News events</strong>{trade.newsEvents.map((newsEvent, index) => <span key={`${newsEvent}-${index}`}>{newsEvent}</span>)}</div>
+                ) : null}
                 {trade.notes ? <p>{trade.notes}</p> : null}
                 <button className="icon-button danger" type="button" onClick={() => deleteTrade(trade)}><Trash2 size={15} />Delete</button>
               </div>

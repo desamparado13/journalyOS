@@ -4373,6 +4373,69 @@ button.yearly-row.is-active {
   background: color-mix(in srgb, var(--brand) 14%, var(--surface-strong));
 }
 
+.daytrade-news-events {
+  display: grid;
+  gap: 8px;
+}
+
+.daytrade-news-events > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.daytrade-news-events > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.daytrade-news-events > div > button {
+  display: grid;
+  width: 42px;
+  border: 1px solid color-mix(in srgb, var(--negative) 35%, var(--line));
+  border-radius: 9px;
+  background: transparent;
+  color: var(--negative);
+  cursor: pointer;
+  place-items: center;
+}
+
+.daytrade-add-news {
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  align-items: center;
+  min-height: 40px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 50%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+  color: var(--brand-strong);
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.daytrade-news-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.daytrade-news-list > strong {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.daytrade-news-list > span {
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .daytrade-field-grid input[type="range"] {
   padding: 6px 0;
   accent-color: var(--brand);
