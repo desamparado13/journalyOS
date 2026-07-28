@@ -18,7 +18,7 @@ type Grade = "A+" | "A" | "B" | "C";
 type Outcome = "Win" | "Loss" | "Breakeven";
 type TradingDay = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
 type YesNo = "Yes" | "No";
-type PreviousImbalance = "None" | "Prev" | "1" | "2" | "3";
+type PreviousImbalance = "None" | "Prev" | "1" | "2" | "3" | "4" | "5";
 type LiquidityContext = "None" | "Order block" | "Liquidity area" | "Both";
 type EntryRetracement = "0.618" | "0.786";
 type DurationUnit = "Minutes" | "Hours";
@@ -451,7 +451,7 @@ export default function DayTradeJournal({
               ) : null}
               <Field label="Previous-session imbalance taken out?"><select value={form.previousImbalance === "None" ? "No" : "Yes"} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value === "Yes" ? "Prev" : "None" })}><option>No</option><option>Yes</option></select></Field>
               {form.previousImbalance !== "None" ? (
-                <Field label="How far back?"><select value={form.previousImbalance} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value as PreviousImbalance })}><option>Prev</option><option>1</option><option>2</option><option>3</option></select></Field>
+                <Field label="How far back?"><select value={form.previousImbalance} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value as PreviousImbalance })}><option>Prev</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></Field>
               ) : null}
               <Field label="OB or liquidity area?"><select value={form.liquidityContext} onChange={(event) => setForm({ ...form, liquidityContext: event.target.value as LiquidityContext })}><option>None</option><option>Order block</option><option>Liquidity area</option><option>Both</option></select></Field>
             </div>

@@ -16,7 +16,7 @@ create table if not exists public.daytrade_live_trades (
   has_news boolean not null default false,
   news_details text not null default '',
   news_events jsonb not null default '[]'::jsonb,
-  previous_imbalance_sessions text not null default 'None' check (previous_imbalance_sessions in ('None', 'Prev', '1', '2', '3')),
+  previous_imbalance_sessions text not null default 'None' check (previous_imbalance_sessions in ('None', 'Prev', '1', '2', '3', '4', '5')),
   liquidity_context text not null default 'None' check (liquidity_context in ('None', 'Order block', 'Liquidity area', 'Both')),
   accumulation_image_url text,
   imbalance_image_url text,
@@ -62,7 +62,7 @@ create table if not exists public.daytrade_backtests (
   has_news boolean not null default false,
   news_details text not null default '',
   news_events jsonb not null default '[]'::jsonb,
-  previous_imbalance_sessions text not null default 'None' check (previous_imbalance_sessions in ('None', 'Prev', '1', '2', '3')),
+  previous_imbalance_sessions text not null default 'None' check (previous_imbalance_sessions in ('None', 'Prev', '1', '2', '3', '4', '5')),
   liquidity_context text not null default 'None' check (liquidity_context in ('None', 'Order block', 'Liquidity area', 'Both')),
   accumulation_image_url text,
   imbalance_image_url text,
@@ -119,6 +119,12 @@ alter table public.daytrade_backtests
 alter table public.daytrade_backtests
   add constraint daytrade_backtests_trading_day_check
   check (trading_day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')) not valid;
+
+alter table public.daytrade_backtests
+  drop constraint if exists daytrade_backtests_previous_imbalance_sessions_check;
+alter table public.daytrade_backtests
+  add constraint daytrade_backtests_previous_imbalance_sessions_check
+  check (previous_imbalance_sessions in ('None', 'Prev', '1', '2', '3', '4', '5')) not valid;
 
 alter table public.daytrade_live_trades enable row level security;
 alter table public.daytrade_backtests enable row level security;
