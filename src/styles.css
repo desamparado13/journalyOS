@@ -4159,6 +4159,7 @@ button.yearly-row.is-active {
 }
 
 .daytrade-filters select,
+.daytrade-filters input,
 .daytrade-field-grid input,
 .daytrade-field-grid select,
 .daytrade-field-grid textarea,
@@ -4174,6 +4175,7 @@ button.yearly-row.is-active {
 }
 
 .daytrade-filters select:focus,
+.daytrade-filters input:focus,
 .daytrade-field-grid input:focus,
 .daytrade-field-grid select:focus,
 .daytrade-field-grid textarea:focus,
@@ -4350,6 +4352,25 @@ button.yearly-row.is-active {
 
 .daytrade-wide {
   grid-column: 1 / -1;
+}
+
+.daytrade-news-check {
+  display: flex;
+  align-items: center;
+  align-self: end;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface-strong));
+  padding: 9px 11px;
+  color: var(--brand-strong);
+  font-size: 0.82rem;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.daytrade-news-check:hover {
+  background: color-mix(in srgb, var(--brand) 14%, var(--surface-strong));
 }
 
 .daytrade-field-grid input[type="range"] {
@@ -4547,11 +4568,12 @@ button.yearly-row.is-active {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+  align-content: start;
 }
 
 .daytrade-record-images figure {
   position: relative;
-  min-height: 180px;
+  min-height: 150px;
   margin: 0;
   overflow: hidden;
   border-radius: 9px;
