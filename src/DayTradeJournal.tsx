@@ -20,6 +20,7 @@ type TradingDay = "Monday" | "Tuesday" | "Wednesday";
 type YesNo = "Yes" | "No";
 type PreviousImbalance = "None" | "Prev" | "1" | "2" | "3";
 type LiquidityContext = "None" | "Order block" | "Liquidity area" | "Both";
+type EntryRetracement = "0.618" | "0.786";
 
 type DayTradeRecord = {
   id: string;
@@ -30,6 +31,7 @@ type DayTradeRecord = {
   direction: Direction;
   accumulationQuality: string;
   imbalanceQuality: string;
+  entryRetracement: EntryRetracement;
   durationHours: number;
   hasNews: YesNo;
   previousImbalance: PreviousImbalance;
@@ -83,6 +85,7 @@ function blankForm(): DayTradeForm {
     direction: "Buy",
     accumulationQuality: "Clear",
     imbalanceQuality: "Strong",
+    entryRetracement: "0.618",
     durationHours: 2,
     hasNews: "No",
     previousImbalance: "None",
@@ -121,6 +124,7 @@ function fromRow(row: any): DayTradeRecord {
     direction: row.direction,
     accumulationQuality: row.accumulation_quality,
     imbalanceQuality: row.imbalance_quality,
+    entryRetracement: row.retracement_depth || "0.618",
     durationHours: Number(row.trade_duration_hours || 0),
     hasNews: row.has_news ? "Yes" : "No",
     previousImbalance: row.previous_imbalance_sessions || "None",
@@ -292,6 +296,7 @@ export default function DayTradeJournal({
         direction: form.direction,
         accumulation_quality: form.accumulationQuality,
         imbalance_quality: form.imbalanceQuality,
+        retracement_depth: form.entryRetracement,
         trade_duration_hours: form.durationHours,
         has_news: form.hasNews === "Yes",
         previous_imbalance_sessions: form.previousImbalance,
@@ -418,6 +423,7 @@ export default function DayTradeJournal({
             <div className="daytrade-field-grid">
               <Field label="Accumulation quality"><select value={form.accumulationQuality} onChange={(event) => setForm({ ...form, accumulationQuality: event.target.value })}><option>Clear</option><option>Acceptable</option><option>Weak</option></select></Field>
               <Field label="Imbalance quality"><select value={form.imbalanceQuality} onChange={(event) => setForm({ ...form, imbalanceQuality: event.target.value })}><option>Strong</option><option>Clean</option><option>Partial</option><option>Weak</option></select></Field>
+              <Field label="Entry retracement"><select value={form.entryRetracement} onChange={(event) => setForm({ ...form, entryRetracement: event.target.value as EntryRetracement })}><option value="0.618">61%</option><option value="0.786">78%</option></select></Field>
             </div>
             <div className="daytrade-upload-grid">
               <label className="daytrade-upload"><ImagePlus size={24} /><strong>Accumulation structure</strong><span>{form.accumulationFile?.name || "Upload accumulation reference"}</span><input required type="file" accept="image/*" onChange={(event) => setForm({ ...form, accumulationFile: event.target.files?.[0] || null })} /></label>
@@ -462,7 +468,7 @@ export default function DayTradeJournal({
           {filtered.map((trade) => (
             <article className="daytrade-record" key={trade.id}>
               <div className="daytrade-record-main">
-                <header><span>GBPUSD</span><span>{trade.direction}</span><span>{trade.tradingDay}</span><span>{trade.grade}</span></header>
+                <header><span>GBPUSD</span><span>{trade.direction}</span><span>{trade.tradingDay}</span><span>{trade.entryRetracement === "0.618" ? "61% entry" : "78% entry"}</span><span>{trade.grade}</span></header>
                 <div className="daytrade-record-title"><div><strong>GBPUSD · {trade.date}</strong><span>{trade.accumulationQuality} accumulation · {trade.imbalanceQuality} imbalance</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
                 <div className="daytrade-record-stats">
                   <span>Duration <strong>{trade.durationHours}h</strong></span>
