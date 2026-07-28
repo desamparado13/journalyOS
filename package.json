@@ -6,7 +6,7 @@
   "description": "Premium trading journal for FX execution review.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "tsc -p tsconfig.json && vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
