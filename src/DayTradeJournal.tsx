@@ -413,7 +413,10 @@ export default function DayTradeJournal({
               <Field label="Trade grade"><select value={form.grade} onChange={(event) => setForm({ ...form, grade: event.target.value as Grade })}>{(["A+", "A", "B", "C"] as Grade[]).map((grade) => <option key={grade}>{grade}</option>)}</select></Field>
               <Field label="News on this day?"><select value={form.hasNews} onChange={(event) => setForm({ ...form, hasNews: event.target.value as YesNo })}><option>No</option><option>Yes</option></select></Field>
               <a className="daytrade-news-check" href={newsHistoryUrl(form.date)} target="_blank" rel="noreferrer">Check {form.date} news history ↗</a>
-              <Field label="Previous-session imbalance"><select value={form.previousImbalance} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value as PreviousImbalance })}><option>None</option><option>Prev</option><option>1</option><option>2</option><option>3</option></select></Field>
+              <Field label="Previous-session imbalance taken out?"><select value={form.previousImbalance === "None" ? "No" : "Yes"} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value === "Yes" ? "Prev" : "None" })}><option>No</option><option>Yes</option></select></Field>
+              {form.previousImbalance !== "None" ? (
+                <Field label="How far back?"><select value={form.previousImbalance} onChange={(event) => setForm({ ...form, previousImbalance: event.target.value as PreviousImbalance })}><option>Prev</option><option>1</option><option>2</option><option>3</option></select></Field>
+              ) : null}
               <Field label="OB or liquidity area?"><select value={form.liquidityContext} onChange={(event) => setForm({ ...form, liquidityContext: event.target.value as LiquidityContext })}><option>None</option><option>Order block</option><option>Liquidity area</option><option>Both</option></select></Field>
             </div>
           </section>
@@ -475,7 +478,7 @@ export default function DayTradeJournal({
                   <span>MAE <strong>{trade.mae.toFixed(2)}R</strong></span>
                   <span>MFE <strong>{trade.mfe.toFixed(2)}R</strong></span>
                   <span>News <strong>{trade.hasNews}</strong></span>
-                  <span>Prev imbalance <strong>{trade.previousImbalance}</strong></span>
+                  <span>Prev imbalance taken <strong>{trade.previousImbalance === "None" ? "No" : `Yes · ${trade.previousImbalance}`}</strong></span>
                   <span>OB / liquidity <strong>{trade.liquidityContext}</strong></span>
                 </div>
                 {trade.notes ? <p>{trade.notes}</p> : null}
