@@ -21,6 +21,7 @@ type YesNo = "Yes" | "No";
 type PreviousImbalance = "None" | "Prev" | "1" | "2" | "3";
 type LiquidityContext = "None" | "Order block" | "Liquidity area" | "Both";
 type EntryRetracement = "0.618" | "0.786";
+type DurationUnit = "Minutes" | "Hours";
 
 type DayTradeRecord = {
   id: string;
@@ -54,6 +55,7 @@ type DayTradeForm = Omit<
   DayTradeRecord,
   "id" | "createdAt" | "accumulationImage" | "imbalanceImage" | "beforeImage" | "afterImage"
 > & {
+  durationUnit: DurationUnit;
   accumulationFile: File | null;
   imbalanceFile: File | null;
   beforeFile: File | null;
@@ -87,6 +89,7 @@ function blankForm(): DayTradeForm {
     imbalanceQuality: "Strong",
     entryRetracement: "0.618",
     durationHours: 2,
+    durationUnit: "Hours",
     hasNews: "No",
     newsEvents: [],
     previousImbalance: "None",
@@ -180,6 +183,12 @@ function calculateMetrics(records: DayTradeRecord[]) {
     bestWinRun,
     worstLossRun,
   };
+}
+
+function formatDuration(hours: number) {
+  if (hours < 1) return `${Math.round(hours * 60)}m`;
+  const rounded = Number(hours.toFixed(1));
+  return `${rounded}h`;
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail?: string }) {
@@ -299,7 +308,7 @@ export default function DayTradeJournal({
         accumulation_quality: form.accumulationQuality,
         imbalance_quality: form.imbalanceQuality,
         retracement_depth: form.entryRetracement,
-        trade_duration_hours: form.durationHours,
+        trade_duration_hours: form.durationUnit === "Minutes" ? form.durationHours / 60 : form.durationHours,
         has_news: form.hasNews === "Yes",
         news_events: form.hasNews === "Yes" ? form.newsEvents.map((event) => event.trim()).filter(Boolean) : [],
         news_details: form.hasNews === "Yes" ? form.newsEvents.map((event) => event.trim()).filter(Boolean).join(", ") : "",
@@ -370,7 +379,7 @@ export default function DayTradeJournal({
             <Metric label="Win rate" value={`${metrics.winRate.toFixed(0)}%`} detail={`${metrics.count} filtered samples`} />
             <Metric label="Average R" value={`${metrics.averageR.toFixed(2)}R`} detail="Expectancy per backtest" />
             <Metric label="Profit factor" value={metrics.profitFactor.toFixed(2)} />
-            <Metric label="Average duration" value={`${metrics.duration.toFixed(1)}h`} />
+            <Metric label="Average duration" value={formatDuration(metrics.duration)} />
             <Metric label="Average MAE" value={`${metrics.mae.toFixed(2)}R`} />
             <Metric label="Average MFE" value={`${metrics.mfe.toFixed(2)}R`} />
             <Metric label="Max drawdown" value={`${metrics.drawdown.toFixed(2)}R`} />
@@ -452,7 +461,8 @@ export default function DayTradeJournal({
           <section className="daytrade-form-section">
             <h3>Excursion & outcome</h3>
             <div className="daytrade-field-grid">
-              <Field label="Trade duration (hours)"><input required min="0.1" type="number" step="0.1" value={form.durationHours || ""} onChange={(event) => setForm({ ...form, durationHours: Number(event.target.value) })} /></Field>
+              <Field label="Trade duration"><input required min={form.durationUnit === "Minutes" ? "1" : "0.1"} type="number" step={form.durationUnit === "Minutes" ? "1" : "0.1"} value={form.durationHours || ""} onChange={(event) => setForm({ ...form, durationHours: Number(event.target.value) })} /></Field>
+              <Field label="Duration unit"><select value={form.durationUnit} onChange={(event) => setForm({ ...form, durationUnit: event.target.value as DurationUnit })}><option>Minutes</option><option>Hours</option></select></Field>
               {[
                 ["MAE (R)", "mae"],
                 ["MFE (R)", "mfe"],
@@ -488,7 +498,7 @@ export default function DayTradeJournal({
                 <header><span>GBPUSD</span><span>{trade.direction}</span><span>{trade.tradingDay}</span><span>{trade.entryRetracement === "0.618" ? "61% entry" : "78% entry"}</span><span>{trade.grade}</span></header>
                 <div className="daytrade-record-title"><div><strong>GBPUSD · {trade.date}</strong><span>{trade.accumulationQuality} accumulation · {trade.imbalanceQuality} imbalance</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
                 <div className="daytrade-record-stats">
-                  <span>Duration <strong>{trade.durationHours}h</strong></span>
+                  <span>Duration <strong>{formatDuration(trade.durationHours)}</strong></span>
                   <span>MAE <strong>{trade.mae.toFixed(2)}R</strong></span>
                   <span>MFE <strong>{trade.mfe.toFixed(2)}R</strong></span>
                   <span>News <strong>{trade.hasNews}</strong></span>
