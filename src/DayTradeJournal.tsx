@@ -36,7 +36,6 @@ type DayTradeRecord = {
   hasNews: YesNo;
   previousImbalance: PreviousImbalance;
   liquidityContext: LiquidityContext;
-  target: number;
   mae: number;
   mfe: number;
   resultR: number;
@@ -90,7 +89,6 @@ function blankForm(): DayTradeForm {
     hasNews: "No",
     previousImbalance: "None",
     liquidityContext: "None",
-    target: 0,
     mae: 0,
     mfe: 0,
     resultR: 0,
@@ -129,7 +127,6 @@ function fromRow(row: any): DayTradeRecord {
     hasNews: row.has_news ? "Yes" : "No",
     previousImbalance: row.previous_imbalance_sessions || "None",
     liquidityContext: row.liquidity_context || "None",
-    target: Number(row.target_price || 0),
     mae: Number(row.mae_r || 0),
     mfe: Number(row.mfe_r || 0),
     resultR: Number(row.result_r || 0),
@@ -301,7 +298,6 @@ export default function DayTradeJournal({
         has_news: form.hasNews === "Yes",
         previous_imbalance_sessions: form.previousImbalance,
         liquidity_context: form.liquidityContext,
-        target_price: form.target,
         mae_r: form.mae,
         mfe_r: form.mfe,
         result_r: form.resultR,
@@ -439,7 +435,6 @@ export default function DayTradeJournal({
             <div className="daytrade-field-grid">
               <Field label="Trade duration (hours)"><input required min="0.1" type="number" step="0.1" value={form.durationHours || ""} onChange={(event) => setForm({ ...form, durationHours: Number(event.target.value) })} /></Field>
               {[
-                ["Target", "target"],
                 ["MAE (R)", "mae"],
                 ["MFE (R)", "mfe"],
                 ["Result (R)", "resultR"],

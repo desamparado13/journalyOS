@@ -23,7 +23,7 @@ create table if not exists public.daytrade_live_trades (
   retracement_depth text check (retracement_depth in ('0.618', '0.786')),
   entry_price numeric,
   stop_price numeric,
-  target_price numeric not null,
+  target_price numeric,
   planned_rr numeric,
   mae_r numeric not null default 0,
   mfe_r numeric not null default 0,
@@ -67,7 +67,7 @@ create table if not exists public.daytrade_backtests (
   retracement_depth text check (retracement_depth in ('0.618', '0.786')),
   entry_price numeric,
   stop_price numeric,
-  target_price numeric not null,
+  target_price numeric,
   planned_rr numeric,
   mae_r numeric not null default 0,
   mfe_r numeric not null default 0,
@@ -99,6 +99,7 @@ alter table public.daytrade_backtests
   alter column retracement_depth drop not null,
   alter column entry_price drop not null,
   alter column stop_price drop not null,
+  alter column target_price drop not null,
   alter column planned_rr drop not null,
   alter column rule_checklist drop not null;
 
