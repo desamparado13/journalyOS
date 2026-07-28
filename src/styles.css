@@ -525,7 +525,7 @@ label span,
   top: 0;
   z-index: 10;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   align-content: start;
   gap: 18px;
   min-height: 100vh;
@@ -4019,6 +4019,564 @@ button.yearly-row.is-active {
   line-height: 1.45;
 }
 
+.trading-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-strong) 76%, transparent);
+  padding: 4px;
+}
+
+.trading-mode-switch button {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 8px 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.trading-mode-switch button small {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+.trading-mode-switch button.is-active {
+  background: var(--brand);
+  color: var(--ink);
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.daytrade-app {
+  display: grid;
+  gap: 18px;
+  padding-bottom: 36px;
+}
+
+.daytrade-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--brand) 25%, transparent), transparent 20rem),
+    linear-gradient(135deg, color-mix(in srgb, var(--surface-strong) 92%, transparent), var(--surface));
+  padding: clamp(24px, 4vw, 46px);
+  box-shadow: var(--shadow);
+}
+
+.daytrade-hero::after {
+  position: absolute;
+  right: 12%;
+  bottom: -44px;
+  width: 220px;
+  height: 90px;
+  border-top: 2px solid color-mix(in srgb, var(--brand) 60%, transparent);
+  border-radius: 50%;
+  content: "";
+  transform: rotate(-9deg);
+}
+
+.daytrade-hero h1 {
+  max-width: 720px;
+  margin: 6px 0 12px;
+  font-size: clamp(2rem, 5vw, 4.4rem);
+  line-height: 0.96;
+  letter-spacing: -0.055em;
+}
+
+.daytrade-hero p:not(.eyebrow) {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1.65;
+}
+
+.daytrade-rule-score {
+  z-index: 1;
+  display: grid;
+  align-content: center;
+  min-width: 152px;
+  border-left: 1px solid var(--line);
+  padding-left: 28px;
+}
+
+.daytrade-rule-score span,
+.daytrade-rule-score small,
+.daytrade-panel-heading span,
+.daytrade-records-heading span,
+.daytrade-form-heading span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.daytrade-rule-score strong {
+  margin: 4px 0;
+  color: var(--brand-strong);
+  font-size: 2.5rem;
+}
+
+.daytrade-message {
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  padding: 12px 16px;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.daytrade-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.daytrade-filters label,
+.daytrade-field-grid label,
+.daytrade-form-section > label {
+  display: grid;
+  gap: 6px;
+}
+
+.daytrade-filters select,
+.daytrade-field-grid input,
+.daytrade-field-grid select,
+.daytrade-field-grid textarea,
+.daytrade-form-section > label textarea {
+  width: 100%;
+  min-height: 43px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  padding: 9px 11px;
+  color: var(--text);
+  outline: none;
+}
+
+.daytrade-filters select:focus,
+.daytrade-field-grid input:focus,
+.daytrade-field-grid select:focus,
+.daytrade-field-grid textarea:focus,
+.daytrade-form-section > label textarea:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+.daytrade-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.daytrade-metric {
+  display: grid;
+  gap: 7px;
+  min-height: 128px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 17px;
+}
+
+.daytrade-metric span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.daytrade-metric strong {
+  align-self: end;
+  font-size: clamp(1.6rem, 3vw, 2.35rem);
+  letter-spacing: -0.05em;
+}
+
+.daytrade-metric small {
+  color: var(--muted);
+}
+
+.daytrade-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1.25fr 0.75fr;
+  gap: 12px;
+}
+
+.daytrade-panel,
+.daytrade-form,
+.daytrade-records {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.daytrade-panel {
+  padding: 20px;
+}
+
+.daytrade-panel-heading,
+.daytrade-records-heading,
+.daytrade-form-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.daytrade-panel-heading h2,
+.daytrade-records-heading h2,
+.daytrade-form-heading h2 {
+  margin: 4px 0 0;
+}
+
+.daytrade-panel-heading svg {
+  color: var(--brand);
+}
+
+.daytrade-compare {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 18px;
+  align-items: center;
+  margin-top: 24px;
+}
+
+.daytrade-compare > div {
+  display: grid;
+  gap: 6px;
+  border-top: 2px solid var(--brand);
+  padding-top: 12px;
+}
+
+.daytrade-compare span,
+.daytrade-compare small {
+  color: var(--muted);
+}
+
+.daytrade-compare strong {
+  font-size: 2rem;
+}
+
+.daytrade-edge-table {
+  display: grid;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.daytrade-edge-table > div {
+  display: grid;
+  grid-template-columns: 0.65fr 1fr 1fr 0.8fr;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+
+.daytrade-edge-table span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.daytrade-form {
+  overflow: hidden;
+}
+
+.daytrade-form-heading {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 12%, transparent), transparent);
+  padding: 24px;
+}
+
+.daytrade-form-heading p {
+  max-width: 680px;
+  margin: 7px 0 0;
+  color: var(--muted);
+}
+
+.daytrade-compliance {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.daytrade-compliance.is-complete {
+  border-color: color-mix(in srgb, var(--positive) 40%, var(--line));
+  background: color-mix(in srgb, var(--positive) 10%, transparent);
+  color: var(--positive);
+}
+
+.daytrade-form-section {
+  display: grid;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding: 22px 24px;
+}
+
+.daytrade-form-section h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.daytrade-field-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 13px;
+}
+
+.daytrade-wide {
+  grid-column: 1 / -1;
+}
+
+.daytrade-field-grid input[type="range"] {
+  padding: 6px 0;
+  accent-color: var(--brand);
+}
+
+.daytrade-upload-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.daytrade-upload {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-height: 150px;
+  border: 1px dashed color-mix(in srgb, var(--brand) 50%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand) 5%, var(--surface-strong));
+  padding: 26px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.daytrade-upload svg {
+  color: var(--brand);
+}
+
+.daytrade-upload span {
+  color: var(--muted);
+  font-size: 0.83rem;
+}
+
+.daytrade-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.daytrade-checklist {
+  display: grid;
+  gap: 8px;
+}
+
+.daytrade-checklist label {
+  display: grid;
+  grid-template-columns: auto 28px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 11px 12px;
+  cursor: pointer;
+}
+
+.daytrade-checklist input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--brand);
+}
+
+.daytrade-checklist label > span {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  color: var(--brand-strong);
+}
+
+.daytrade-checklist strong {
+  font-size: 0.88rem;
+}
+
+.daytrade-save {
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+  align-items: center;
+  min-height: 52px;
+  border: 0;
+  background: var(--brand);
+  padding: 14px 24px;
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.daytrade-save:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.daytrade-records {
+  display: grid;
+  gap: 12px;
+  padding: 22px;
+}
+
+.daytrade-records-heading {
+  margin-bottom: 4px;
+}
+
+.daytrade-records-heading > strong {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+}
+
+.daytrade-empty {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  min-height: 230px;
+  place-content: center;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.daytrade-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 0.58fr);
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  padding: 16px;
+}
+
+.daytrade-record-main {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.daytrade-record-main header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.daytrade-record-main header span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.daytrade-record-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.daytrade-record-title > div {
+  display: grid;
+  gap: 4px;
+}
+
+.daytrade-record-title span,
+.daytrade-psychology,
+.daytrade-record-main > p {
+  color: var(--muted);
+}
+
+.daytrade-record-title b {
+  font-size: 1.75rem;
+}
+
+.daytrade-record-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.daytrade-record-stats span {
+  border-left: 2px solid var(--brand);
+  background: var(--surface);
+  padding: 7px 9px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.daytrade-record-images {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.daytrade-record-images figure {
+  position: relative;
+  min-height: 180px;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 9px;
+  background: var(--ink);
+}
+
+.daytrade-record-images img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.daytrade-record-images figcaption {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  border-radius: 999px;
+  background: rgba(3, 16, 26, 0.82);
+  padding: 4px 8px;
+  color: white;
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
 .trade-analysis-panel {
   position: relative;
   overflow: hidden;
@@ -6921,8 +7479,12 @@ textarea:focus {
   }
 
   .topbar {
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto auto auto;
     min-height: auto;
+  }
+
+  .trading-mode-switch {
+    max-width: 320px;
   }
 
   .topbar::before {
@@ -6937,6 +7499,16 @@ textarea:focus {
 
   .sidebar-nav button {
     min-width: max-content;
+  }
+
+  .daytrade-metric-grid,
+  .daytrade-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .daytrade-dashboard-grid,
+  .daytrade-record {
+    grid-template-columns: 1fr;
   }
 
   .top-actions {
@@ -7060,6 +7632,49 @@ textarea:focus {
 
   .lot-result div:last-child {
     text-align: left;
+  }
+}
+
+@media (max-width: 620px) {
+  .daytrade-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .daytrade-rule-score {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+    padding-top: 16px;
+    padding-left: 0;
+  }
+
+  .daytrade-filters,
+  .daytrade-metric-grid,
+  .daytrade-field-grid,
+  .daytrade-upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daytrade-form-heading,
+  .daytrade-panel-heading,
+  .daytrade-records-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .daytrade-compare {
+    grid-template-columns: 1fr;
+  }
+
+  .daytrade-compare > svg {
+    transform: rotate(90deg);
+  }
+
+  .daytrade-edge-table > div {
+    grid-template-columns: 0.7fr 1fr;
+  }
+
+  .daytrade-record-images {
+    grid-template-columns: 1fr;
   }
 }
 

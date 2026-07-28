@@ -43,10 +43,12 @@ import {
 import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
+import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
 const ACTIVE_VIEW_KEY = "journaly-os-active-view";
+const TRADING_MODE_KEY = "journaly-os-trading-mode";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
 const SETUP_VARIABLES_KEY = "journaly-os-setup-variables";
 const ANALYSIS_HISTORY_DB = "journaly-os-analysis-history";
@@ -233,6 +235,7 @@ type Result = (typeof results)[number];
 type TradeDecisionStatus = (typeof decisionStatuses)[number];
 type TradeDecisionOutcome = (typeof decisionOutcomes)[number];
 type Theme = "light" | "dark";
+type TradingMode = "swing" | "daytrade";
 type ClockPeriod = "AM" | "PM";
 type ClockSource = "live" | "backtest";
 type EdgeMode = "clock" | "session" | "week";
@@ -2201,6 +2204,10 @@ export default function App() {
   const [syncMessage, setSyncMessage] = useState("");
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [theme, setTheme] = useState<Theme>(getPreferredTheme);
+  const [tradingMode, setTradingMode] = useState<TradingMode>(() =>
+    localStorage.getItem(TRADING_MODE_KEY) === "daytrade" ? "daytrade" : "swing",
+  );
+  const [dayTradeView, setDayTradeView] = useState<DayTradeView>("daytrade-dashboard");
   const [tradeForm, setTradeForm] = useState<TradeFormState>(todayDefaults);
   const [positionCalculator, setPositionCalculator] = useState<PositionCalculatorState>(positionDefaults);
   const [profileRows, setProfileRows] = useState<ProfileSizingRow[]>(readProfileRows);
@@ -2310,6 +2317,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(ACTIVE_VIEW_KEY, activeView);
   }, [activeView]);
+
+  useEffect(() => {
+    localStorage.setItem(TRADING_MODE_KEY, tradingMode);
+  }, [tradingMode]);
 
   useEffect(() => {
     if (!supabase) {
@@ -4365,9 +4376,36 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="topbar">
-        <Brand className="brand" onHome={() => setActiveView("dashboard")} />
+        <Brand
+          className="brand"
+          onHome={() => {
+            setTradingMode("swing");
+            setActiveView("dashboard");
+          }}
+        />
+
+        <div className="trading-mode-switch" role="group" aria-label="Trading journal">
+          <button
+            className={tradingMode === "swing" ? "is-active" : ""}
+            type="button"
+            onClick={() => setTradingMode("swing")}
+          >
+            Swing
+            <small>Main</small>
+          </button>
+          <button
+            className={tradingMode === "daytrade" ? "is-active" : ""}
+            type="button"
+            onClick={() => setTradingMode("daytrade")}
+          >
+            DayTrade
+            <small>15M</small>
+          </button>
+        </div>
 
         <nav className="sidebar-nav" aria-label="Primary">
+          {tradingMode === "swing" ? (
+            <>
           <button
             className={activeView === "dashboard" ? "is-active" : ""}
             type="button"
@@ -4486,6 +4524,20 @@ export default function App() {
             <Brain size={18} />
             AI Coach
           </button>
+            </>
+          ) : (
+            dayTradeNavigation.map(({ view, label, icon: Icon }) => (
+              <button
+                className={dayTradeView === view ? "is-active" : ""}
+                type="button"
+                key={view}
+                onClick={() => setDayTradeView(view)}
+              >
+                <Icon size={18} />
+                {label}
+              </button>
+            ))
+          )}
         </nav>
 
         <div className="top-actions">
@@ -4514,6 +4566,8 @@ export default function App() {
         {toast ? <Toast toast={toast} onClose={() => setToast(null)} /> : null}
 
         <main>
+        {tradingMode === "swing" ? (
+        <>
         {syncMessage ? <p className="sync-message">{syncMessage}</p> : null}
         {licenseState.isInGrace ? (
           <div className="license-banner">
@@ -6288,6 +6342,10 @@ export default function App() {
             ) : null}
           </section>
         ) : null}
+        </>
+        ) : (
+          <DayTradeJournal userId={currentUser.id} activeView={dayTradeView} onViewChange={setDayTradeView} />
+        )}
 
         {imageViewer ? (
           <div className="image-viewer" role="dialog" aria-modal="true" aria-label="Screenshot viewer">
@@ -6388,7 +6446,7 @@ export default function App() {
         ) : null}
         </main>
       </div>
-      <DaraMiniChatbar context={daraContext} onOpenCoach={() => setActiveView("ai-coach")} />
+      {tradingMode === "swing" ? <DaraMiniChatbar context={daraContext} onOpenCoach={() => setActiveView("ai-coach")} /> : null}
     </div>
   );
 }
