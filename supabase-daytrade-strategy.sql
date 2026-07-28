@@ -110,11 +110,15 @@ alter table public.daytrade_backtests
 alter table public.daytrade_live_trades enable row level security;
 alter table public.daytrade_backtests enable row level security;
 
+drop policy if exists "Users manage their own daytrade live trades"
+  on public.daytrade_live_trades;
 create policy "Users manage their own daytrade live trades"
   on public.daytrade_live_trades for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users manage their own daytrade backtests"
+  on public.daytrade_backtests;
 create policy "Users manage their own daytrade backtests"
   on public.daytrade_backtests for all
   using (auth.uid() = user_id)
