@@ -16,7 +16,7 @@ export type DayTradeView = "daytrade-dashboard" | "daytrade-add" | "daytrade-bac
 type Direction = "Buy" | "Sell";
 type Grade = "A+" | "A" | "B" | "C";
 type Outcome = "Win" | "Loss" | "Breakeven";
-type TradingDay = "Monday" | "Tuesday" | "Wednesday";
+type TradingDay = "Monday" | "Tuesday" | "Wednesday" | "Thursday" | "Friday";
 type YesNo = "Yes" | "No";
 type PreviousImbalance = "None" | "Prev" | "1" | "2" | "3";
 type LiquidityContext = "None" | "Order block" | "Liquidity area" | "Both";
@@ -62,13 +62,21 @@ type DayTradeForm = Omit<
   afterFile: File | null;
 };
 
-const tradingDays: TradingDay[] = ["Monday", "Tuesday", "Wednesday"];
+const tradingDays: TradingDay[] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
 function tradingDayFromDate(date: string): TradingDay {
   const day = new Date(`${date}T12:00:00`).getDay();
   if (day === 1) return "Monday";
   if (day === 2) return "Tuesday";
-  return "Wednesday";
+  if (day === 3) return "Wednesday";
+  if (day === 4) return "Thursday";
+  if (day === 5) return "Friday";
+  return "Monday";
+}
+
+function isWeekday(date: string) {
+  const day = new Date(`${date}T12:00:00`).getDay();
+  return day >= 1 && day <= 5;
 }
 
 function newsHistoryUrl(date: string) {
@@ -284,6 +292,10 @@ export default function DayTradeJournal({
   async function saveTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
+    if (!isWeekday(form.date)) {
+      setMessage("DayTrade backtests can only be logged from Monday through Friday.");
+      return;
+    }
     if (!form.accumulationFile || !form.imbalanceFile || !form.beforeFile || !form.afterFile) {
       setMessage("Accumulation, imbalance, before-entry, and after-entry images are required.");
       return;

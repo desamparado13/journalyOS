@@ -11,7 +11,7 @@ create table if not exists public.daytrade_live_trades (
   direction text not null check (direction in ('Buy', 'Sell')),
   accumulation_quality text not null,
   imbalance_quality text not null,
-  trading_day text check (trading_day in ('Monday', 'Tuesday', 'Wednesday')),
+  trading_day text check (trading_day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')),
   trade_duration_hours numeric check (trade_duration_hours > 0),
   has_news boolean not null default false,
   news_details text not null default '',
@@ -57,7 +57,7 @@ create table if not exists public.daytrade_backtests (
   direction text not null check (direction in ('Buy', 'Sell')),
   accumulation_quality text not null,
   imbalance_quality text not null,
-  trading_day text check (trading_day in ('Monday', 'Tuesday', 'Wednesday')),
+  trading_day text check (trading_day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')),
   trade_duration_hours numeric check (trade_duration_hours > 0),
   has_news boolean not null default false,
   news_details text not null default '',
@@ -113,6 +113,12 @@ alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_pair_gbpusd_check;
 alter table public.daytrade_backtests
   add constraint daytrade_backtests_pair_gbpusd_check check (pair = 'GBPUSD') not valid;
+
+alter table public.daytrade_backtests
+  drop constraint if exists daytrade_backtests_trading_day_check;
+alter table public.daytrade_backtests
+  add constraint daytrade_backtests_trading_day_check
+  check (trading_day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')) not valid;
 
 alter table public.daytrade_live_trades enable row level security;
 alter table public.daytrade_backtests enable row level security;
