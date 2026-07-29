@@ -4321,6 +4321,61 @@ button.yearly-row.is-active {
   grid-template-columns: 1fr;
 }
 
+.daytrade-inline-edit {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.daytrade-inline-edit label {
+  display: grid;
+  gap: 7px;
+}
+
+.daytrade-inline-edit label > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.daytrade-inline-edit input,
+.daytrade-inline-edit select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 10px 11px;
+  color: var(--ink);
+}
+
+.daytrade-edit-image {
+  position: relative;
+  display: flex !important;
+  grid-column: 1 / -1;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  border: 1px dashed color-mix(in srgb, var(--brand) 45%, var(--line));
+  border-radius: 9px;
+  padding: 10px 11px;
+  color: var(--brand-strong);
+  cursor: pointer;
+}
+
+.daytrade-edit-image input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.daytrade-edit-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .daytrade-result-win {
   border-color: color-mix(in srgb, var(--positive) 50%, var(--line)) !important;
   color: var(--positive);

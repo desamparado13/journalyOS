@@ -1,4 +1,4 @@
-import { BarChart3, ClipboardCheck, FlaskConical, ImagePlus, Plus, Target, Trash2, TrendingUp } from "lucide-react";
+import { BarChart3, Check, ClipboardCheck, FlaskConical, ImagePlus, Pencil, Plus, Target, Trash2, TrendingUp, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 
@@ -18,6 +18,13 @@ type DayTradeRecord = {
 };
 
 type DayTradeForm = {
+  date: string;
+  entryType: EntryType;
+  resultR: string;
+  imageFile: File | null;
+};
+
+type DayTradeEditForm = {
   date: string;
   entryType: EntryType;
   resultR: string;
@@ -139,6 +146,8 @@ export default function DayTradeJournal({
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [entryFilter, setEntryFilter] = useState("All");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<DayTradeEditForm | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -234,6 +243,56 @@ export default function DayTradeJournal({
     setRecords((current) => current.filter((item) => item.id !== trade.id));
   }
 
+  function startEditing(trade: DayTradeRecord) {
+    setEditingId(trade.id);
+    setEditForm({
+      date: trade.date,
+      entryType: trade.entryType,
+      resultR: String(trade.resultR),
+      imageFile: null,
+    });
+    setMessage("");
+  }
+
+  async function saveEdit(trade: DayTradeRecord) {
+    if (!supabase || !editForm) return;
+    const resultR = Number(editForm.resultR);
+    if (!editForm.resultR.trim() || !Number.isFinite(resultR)) {
+      setMessage("Enter a valid RR, such as 3, 0, or -1.");
+      return;
+    }
+    setIsLoading(true);
+    setMessage("");
+    try {
+      const payload: Record<string, unknown> = {
+        trade_date: editForm.date,
+        entry_type: editForm.entryType,
+        result_r: resultR,
+        outcome: outcomeFromR(resultR),
+      };
+      if (editForm.imageFile) payload.before_image_url = await fileToDataUrl(editForm.imageFile);
+      const { data, error } = await supabase
+        .from("daytrade_backtests")
+        .update(payload)
+        .eq("id", trade.id)
+        .eq("user_id", userId)
+        .select("*")
+        .single();
+      if (error) throw error;
+      const updated = fromRow(data);
+      setRecords((current) =>
+        current.map((item) => item.id === updated.id ? updated : item).sort((a, b) => b.date.localeCompare(a.date)),
+      );
+      setEditingId(null);
+      setEditForm(null);
+      setMessage(`Updated backtest from ${updated.date}.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update this backtest.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
     <section className="daytrade-app">
       <header className="daytrade-hero">
@@ -307,9 +366,28 @@ export default function DayTradeJournal({
           {filtered.map((trade) => (
             <article className="daytrade-record daytrade-quick-record" key={trade.id}>
               <div className="daytrade-record-main">
-                <header><span>GBPUSD</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
-                <div className="daytrade-record-title"><div><strong>{trade.date}</strong><span>{trade.entryType}</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
-                <button className="icon-button danger" type="button" onClick={() => deleteTrade(trade)}><Trash2 size={15} />Delete</button>
+                {editingId === trade.id && editForm ? (
+                  <div className="daytrade-inline-edit">
+                    <Field label="Date"><input required type="date" value={editForm.date} onChange={(event) => setEditForm({ ...editForm, date: event.target.value })} /></Field>
+                    <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}><option>Golden entry</option><option>FVG Hunt</option></select></Field>
+                    <Field label="RR"><input required type="number" step="any" value={editForm.resultR} onChange={(event) => setEditForm({ ...editForm, resultR: event.target.value })} /></Field>
+                    <Field label="Result"><input readOnly value={editForm.resultR.trim() && Number.isFinite(Number(editForm.resultR)) ? outcomeFromR(Number(editForm.resultR)) : "Enter RR"} /></Field>
+                    <label className="daytrade-edit-image"><ImagePlus size={18} /><span>{editForm.imageFile?.name || "Replace chart image (optional)"}</span><input type="file" accept="image/*" onChange={(event) => setEditForm({ ...editForm, imageFile: event.target.files?.[0] || null })} /></label>
+                    <div className="daytrade-edit-actions">
+                      <button className="icon-button" type="button" disabled={isLoading} onClick={() => void saveEdit(trade)}><Check size={15} />Save changes</button>
+                      <button className="icon-button" type="button" onClick={() => { setEditingId(null); setEditForm(null); }}><X size={15} />Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <header><span>GBPUSD</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
+                    <div className="daytrade-record-title"><div><strong>{trade.date}</strong><span>{trade.entryType}</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
+                    <div className="daytrade-edit-actions">
+                      <button className="icon-button" type="button" onClick={() => startEditing(trade)}><Pencil size={15} />Edit</button>
+                      <button className="icon-button danger" type="button" onClick={() => deleteTrade(trade)}><Trash2 size={15} />Delete</button>
+                    </div>
+                  </>
+                )}
               </div>
               {trade.image ? <div className="daytrade-record-images daytrade-quick-image"><figure><img src={trade.image} alt={`${trade.entryType} trade from ${trade.date}`} /><figcaption>Chart</figcaption></figure></div> : null}
             </article>
