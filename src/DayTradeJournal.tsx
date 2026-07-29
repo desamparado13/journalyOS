@@ -20,7 +20,7 @@ type DayTradeRecord = {
 type DayTradeForm = {
   date: string;
   entryType: EntryType;
-  resultR: number;
+  resultR: string;
   imageFile: File | null;
 };
 
@@ -40,7 +40,7 @@ function blankForm(date = localDateString(new Date())): DayTradeForm {
   return {
     date,
     entryType: "Golden entry",
-    resultR: 0,
+    resultR: "",
     imageFile: null,
   };
 }
@@ -183,13 +183,19 @@ export default function DayTradeJournal({
     })),
     [filtered],
   );
-  const automaticOutcome = outcomeFromR(form.resultR);
+  const parsedResultR = Number(form.resultR);
+  const hasValidResultR = form.resultR.trim() !== "" && Number.isFinite(parsedResultR);
+  const automaticOutcome = hasValidResultR ? outcomeFromR(parsedResultR) : null;
 
   async function saveTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
     if (!form.imageFile) {
       setMessage("Add a chart image before saving.");
+      return;
+    }
+    if (!hasValidResultR || !automaticOutcome) {
+      setMessage("Enter a valid RR, such as 3, 0, or -1.");
       return;
     }
     setIsLoading(true);
@@ -201,7 +207,7 @@ export default function DayTradeJournal({
         trade_date: form.date,
         pair: "GBPUSD",
         entry_type: form.entryType,
-        result_r: form.resultR,
+        result_r: parsedResultR,
         outcome: automaticOutcome,
         before_image_url: image,
       };
@@ -284,8 +290,8 @@ export default function DayTradeJournal({
             <div className="daytrade-field-grid">
               <Field label="Date"><input required type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></Field>
               <Field label="Entry"><select value={form.entryType} onChange={(event) => setForm({ ...form, entryType: event.target.value as EntryType })}><option>Golden entry</option><option>FVG Hunt</option></select></Field>
-              <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: Number(event.target.value) })} /></Field>
-              <Field label="Result"><input readOnly className={`daytrade-result-${automaticOutcome.toLowerCase()}`} value={automaticOutcome} /></Field>
+              <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: event.target.value })} /></Field>
+              <Field label="Result"><input readOnly className={automaticOutcome ? `daytrade-result-${automaticOutcome.toLowerCase()}` : ""} value={automaticOutcome || "Enter RR"} /></Field>
             </div>
             <label className="daytrade-upload daytrade-quick-upload"><ImagePlus size={24} /><strong>Chart image</strong><span>{form.imageFile?.name || "Upload trade chart"}</span><input required type="file" accept="image/*" onChange={(event) => setForm({ ...form, imageFile: event.target.files?.[0] || null })} /></label>
           </section>
