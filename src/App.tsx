@@ -1019,7 +1019,7 @@ function backtestDefaults(): BacktestFormState {
     stopLossPips: "",
     maePips: "",
     pnl: "0",
-    result: "Win",
+    result: "Breakeven",
     notes: "",
     scaleIn: "No",
     screenshotFile: null,
@@ -2224,6 +2224,8 @@ export default function App() {
   const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
   const [decisionForm, setDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
+  const [isSavingBacktest, setIsSavingBacktest] = useState(false);
+  const [backtestFormError, setBacktestFormError] = useState("");
   const [backtests, setBacktests] = useState<Backtest[]>([]);
   const [resultFilter, setResultFilter] = useState<"All" | Result>("All");
   const [pairFilter, setPairFilter] = useState("All");
@@ -4010,51 +4012,93 @@ export default function App() {
 
   async function handleBacktestSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!currentUser || !supabase) return;
-
-    setIsSyncing(true);
+    setBacktestFormError("");
     setSyncMessage("");
 
-    const existing = backtests.find((item) => item.id === backtestForm.id);
-    const uploadedShot = await fileToDataUrl(backtestForm.screenshotFile);
-    const payload = {
-      user_id: currentUser.id,
-      trade_date: backtestForm.date,
-      trade_time: backtestForm.time,
-      pair: backtestForm.pair,
-      setup: backtestForm.setup,
-      direction: backtestForm.direction,
-      duration_minutes: backtestForm.durationMinutes ? Number(backtestForm.durationMinutes) : null,
-      stop_loss_pips: backtestForm.stopLossPips ? Number(backtestForm.stopLossPips) : null,
-      mae_pips: backtestForm.maePips ? Number(backtestForm.maePips) : null,
-      pnl_r: Number(backtestForm.pnl || 0),
-      result: backtestForm.result,
-      notes: backtestForm.notes.trim(),
-      scale_in: backtestForm.scaleIn.trim() || "No",
-      screenshot_url: uploadedShot || existing?.screenshot || "",
-      source_app: existing?.sourceApp || null,
-      legacy_id: existing?.legacyId || null,
-      updated_at: new Date().toISOString(),
-    };
-
-    const query = existing
-      ? supabase.from("backtests").update(payload).eq("id", existing.id).select("*").single()
-      : supabase.from("backtests").insert(payload).select("*").single();
-
-    const { data, error } = await query;
-    setIsSyncing(false);
-
-    if (error) {
-      setSyncMessage(`Could not save backtest: ${error.message}`);
+    if (!currentUser || !supabase) {
+      const message = "Your session is not ready. Refresh the page and sign in again.";
+      setBacktestFormError(message);
+      showToast({ tone: "error", title: "Backtest not saved", message });
       return;
     }
 
-    const saved = toBacktest(data as BacktestRow);
-    setBacktests(
-      existing ? backtests.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...backtests],
-    );
-    setBacktestForm(backtestDefaults());
-    setActiveView("view-backtests");
+    const parseOptionalNumber = (value: string, label: string) => {
+      if (!value.trim()) return null;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) throw new Error(`${label} must be a valid number.`);
+      return parsed;
+    };
+
+    setIsSavingBacktest(true);
+
+    try {
+      const pnl = Number(backtestForm.pnl);
+      if (!Number.isFinite(pnl)) throw new Error("PnL R must be a valid number, such as -1 or 2.5.");
+
+      const durationMinutes = parseOptionalNumber(backtestForm.durationMinutes, "Duration");
+      if (durationMinutes !== null && (!Number.isInteger(durationMinutes) || durationMinutes < 0)) {
+        throw new Error("Duration must be a positive whole number of minutes.");
+      }
+
+      const stopLossPips = parseOptionalNumber(backtestForm.stopLossPips, "Stop loss pips");
+      const maePips = parseOptionalNumber(backtestForm.maePips, "MAE pips");
+      if (stopLossPips !== null && stopLossPips < 0) throw new Error("Stop loss pips cannot be negative.");
+      if (maePips !== null && maePips < 0) throw new Error("MAE pips cannot be negative.");
+
+      const existing = backtests.find((item) => item.id === backtestForm.id);
+      const uploadedShot = await fileToDataUrl(backtestForm.screenshotFile);
+      const payload = {
+        user_id: currentUser.id,
+        trade_date: backtestForm.date,
+        trade_time: backtestForm.time,
+        pair: backtestForm.pair,
+        setup: backtestForm.setup,
+        direction: backtestForm.direction,
+        duration_minutes: durationMinutes,
+        stop_loss_pips: stopLossPips,
+        mae_pips: maePips,
+        pnl_r: pnl,
+        result: resultFromPnl(pnl),
+        notes: backtestForm.notes.trim(),
+        scale_in: backtestForm.scaleIn.trim() || "No",
+        screenshot_url: uploadedShot || existing?.screenshot || "",
+        source_app: existing?.sourceApp || null,
+        legacy_id: existing?.legacyId || null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const query = existing
+        ? supabase
+            .from("backtests")
+            .update(payload)
+            .eq("id", existing.id)
+            .eq("user_id", currentUser.id)
+            .select("*")
+            .single()
+        : supabase.from("backtests").insert(payload).select("*").single();
+      const { data, error } = await query;
+
+      if (error) throw new Error(error.message);
+
+      const saved = toBacktest(data as BacktestRow);
+      setBacktests((current) =>
+        existing ? current.map((item) => (item.id === saved.id ? saved : item)) : [saved, ...current],
+      );
+      setBacktestForm(backtestDefaults());
+      setActiveView("view-backtests");
+      showToast({
+        tone: "success",
+        title: existing ? "Backtest updated" : "Backtest saved",
+        message: `${saved.pair} ${saved.direction.toLowerCase()} · ${formatNumber(saved.pnl)}R`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save the backtest.";
+      setBacktestFormError(message);
+      setSyncMessage(`Could not save backtest: ${message}`);
+      showToast({ tone: "error", title: "Backtest not saved", message });
+    } finally {
+      setIsSavingBacktest(false);
+    }
   }
 
   async function handleBacktestImportZip(file: File | null) {
@@ -6348,7 +6392,11 @@ export default function App() {
             ) : null}
 
             {activeView === "add-backtest" ? (
-            <form className="trade-form backtest-form" onSubmit={handleBacktestSubmit}>
+            <form
+              className="trade-form backtest-form"
+              onSubmit={handleBacktestSubmit}
+              aria-busy={isSavingBacktest}
+            >
               <label>
                 <span>Date</span>
                 <input
@@ -6389,8 +6437,10 @@ export default function App() {
                 <span>Duration</span>
                 <input
                   value={backtestForm.durationMinutes}
-                  type="text"
+                  type="number"
                   inputMode="numeric"
+                  min="0"
+                  step="1"
                   onChange={(event) =>
                     setBacktestForm({ ...backtestForm, durationMinutes: event.target.value })
                   }
@@ -6400,8 +6450,10 @@ export default function App() {
                 <span>Stop loss pips</span>
                 <input
                   value={backtestForm.stopLossPips}
-                  type="text"
+                  type="number"
                   inputMode="decimal"
+                  min="0"
+                  step="any"
                   onChange={(event) =>
                     setBacktestForm({ ...backtestForm, stopLossPips: event.target.value })
                   }
@@ -6411,8 +6463,10 @@ export default function App() {
                 <span>MAE pips</span>
                 <input
                   value={backtestForm.maePips}
-                  type="text"
+                  type="number"
                   inputMode="decimal"
+                  min="0"
+                  step="any"
                   onChange={(event) => setBacktestForm({ ...backtestForm, maePips: event.target.value })}
                 />
               </label>
@@ -6420,18 +6474,24 @@ export default function App() {
                 <span>PnL R</span>
                 <input
                   value={backtestForm.pnl}
-                  type="text"
+                  type="number"
                   inputMode="decimal"
+                  step="any"
                   required
-                  onChange={(event) => setBacktestForm({ ...backtestForm, pnl: event.target.value })}
+                  onChange={(event) => {
+                    const pnl = Number(event.target.value);
+                    setBacktestForm({
+                      ...backtestForm,
+                      pnl: event.target.value,
+                      result: event.target.value && Number.isFinite(pnl) ? resultFromPnl(pnl) : backtestForm.result,
+                    });
+                  }}
                 />
               </label>
-              <SelectField
-                label="Result"
-                value={backtestForm.result}
-                options={results}
-                onChange={(value) => setBacktestForm({ ...backtestForm, result: value as Result })}
-              />
+              <label>
+                <span>Result (automatic)</span>
+                <input value={backtestForm.result} type="text" readOnly aria-readonly="true" />
+              </label>
               <label>
                 <span>Scale in</span>
                 <input
@@ -6460,14 +6520,32 @@ export default function App() {
                 />
               </label>
               <div className="form-actions wide-field">
-                <button className="primary-action" type="submit" disabled={isSyncing}>
+                <button className="primary-action" type="submit" disabled={isSavingBacktest}>
                   <CalendarClock size={18} />
-                  {backtestForm.id ? "Update backtest" : "Save backtest"}
+                  {isSavingBacktest
+                    ? "Saving..."
+                    : backtestForm.id
+                      ? "Update backtest"
+                      : "Save backtest"}
                 </button>
-                <button className="ghost-action" type="button" onClick={() => setBacktestForm(backtestDefaults())}>
+                <button
+                  className="ghost-action"
+                  type="button"
+                  disabled={isSavingBacktest}
+                  onClick={() => {
+                    setBacktestForm(backtestDefaults());
+                    setBacktestFormError("");
+                  }}
+                >
                   <RefreshCcw size={18} />
                   Clear
                 </button>
+                {backtestFormError ? (
+                  <p className="backtest-form-error" role="alert">
+                    <TriangleAlert size={17} />
+                    {backtestFormError}
+                  </p>
+                ) : null}
               </div>
             </form>
             ) : null}

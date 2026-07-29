@@ -6731,6 +6731,26 @@ body.analysis-focus-open {
   margin-bottom: 18px;
 }
 
+.backtest-form-error {
+  display: flex;
+  flex: 1 0 100%;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+  margin: 0;
+  padding: 11px 13px;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.backtest-form-error svg {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 760px) {
   .comparison-toolbar,
   .comparison-subheading {
