@@ -4393,6 +4393,127 @@ button.yearly-row.is-active {
   font-weight: 900;
 }
 
+.daytrade-calendar-panel {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+
+.daytrade-calendar-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--brand);
+}
+
+.daytrade-calendar-controls button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  place-items: center;
+}
+
+.daytrade-calendar-weekdays,
+.daytrade-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 7px;
+  min-width: 560px;
+}
+
+.daytrade-calendar-weekdays {
+  margin-top: 20px;
+}
+
+.daytrade-calendar-weekdays span {
+  padding: 4px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.daytrade-calendar-day {
+  display: grid;
+  align-content: space-between;
+  gap: 4px;
+  min-height: 92px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  padding: 9px;
+}
+
+.daytrade-calendar-day > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.daytrade-calendar-day strong {
+  font-size: 1rem;
+}
+
+.daytrade-calendar-day small {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.daytrade-calendar-day.is-positive {
+  border-color: color-mix(in srgb, var(--positive) 50%, var(--line));
+  background: color-mix(in srgb, var(--positive) 16%, var(--surface));
+}
+
+.daytrade-calendar-day.is-negative {
+  border-color: color-mix(in srgb, var(--negative) 50%, var(--line));
+  background: color-mix(in srgb, var(--negative) 15%, var(--surface));
+}
+
+.daytrade-calendar-day.is-flat {
+  background: color-mix(in srgb, var(--muted) 12%, var(--surface));
+}
+
+.daytrade-calendar-day.is-empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.daytrade-calendar-legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 13px;
+}
+
+.daytrade-calendar-legend span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.daytrade-calendar-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--muted);
+}
+
+.daytrade-calendar-legend i.is-positive {
+  background: var(--positive);
+}
+
+.daytrade-calendar-legend i.is-negative {
+  background: var(--negative);
+}
+
 .daytrade-form-heading {
   background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 12%, transparent), transparent);
   padding: 24px;

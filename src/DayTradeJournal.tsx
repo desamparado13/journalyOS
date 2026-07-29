@@ -1,4 +1,4 @@
-import { BarChart3, Check, ClipboardCheck, FlaskConical, ImagePlus, Pencil, Plus, Target, Trash2, TrendingUp, X } from "lucide-react";
+import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, ClipboardCheck, FlaskConical, ImagePlus, Pencil, Plus, Target, Trash2, TrendingUp, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 
@@ -41,6 +41,12 @@ function localDateString(date: Date) {
 function nextDate(date: string) {
   const [year, month, day] = date.split("-").map(Number);
   return localDateString(new Date(year, month - 1, day + 1, 12));
+}
+
+function shiftMonth(monthValue: string, amount: number) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const shifted = new Date(year, month - 1 + amount, 1, 12);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function blankForm(date = localDateString(new Date())): DayTradeForm {
@@ -146,6 +152,7 @@ export default function DayTradeJournal({
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [entryFilter, setEntryFilter] = useState("All");
+  const [calendarMonth, setCalendarMonth] = useState(localDateString(new Date()).slice(0, 7));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<DayTradeEditForm | null>(null);
 
@@ -170,7 +177,10 @@ export default function DayTradeJournal({
       } else {
         const loadedRecords = (backtest.data || []).map(fromRow);
         setRecords(loadedRecords);
-        if (loadedRecords.length) setForm(blankForm(nextDate(loadedRecords[0].date)));
+        if (loadedRecords.length) {
+          setForm(blankForm(nextDate(loadedRecords[0].date)));
+          setCalendarMonth(loadedRecords[0].date.slice(0, 7));
+        }
       }
       setIsLoading(false);
     }
@@ -192,6 +202,30 @@ export default function DayTradeJournal({
     })),
     [filtered],
   );
+  const calendarCells = useMemo(() => {
+    const [year, month] = calendarMonth.split("-").map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const leadingBlanks = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+    const byDate = new Map<string, DayTradeRecord[]>();
+    filtered.forEach((trade) => byDate.set(trade.date, [...(byDate.get(trade.date) || []), trade]));
+    return [
+      ...Array.from({ length: leadingBlanks }, () => null),
+      ...Array.from({ length: daysInMonth }, (_, index) => {
+        const date = `${calendarMonth}-${String(index + 1).padStart(2, "0")}`;
+        const trades = byDate.get(date) || [];
+        return {
+          date,
+          day: index + 1,
+          count: trades.length,
+          totalR: trades.reduce((sum, trade) => sum + trade.resultR, 0),
+        };
+      }),
+    ];
+  }, [calendarMonth, filtered]);
+  const calendarMonthLabel = useMemo(() => {
+    const [year, month] = calendarMonth.split("-").map(Number);
+    return new Date(year, month - 1, 1, 12).toLocaleString("en-US", { month: "long", year: "numeric" });
+  }, [calendarMonth]);
   const parsedResultR = Number(form.resultR);
   const hasValidResultR = form.resultR.trim() !== "" && Number.isFinite(parsedResultR);
   const automaticOutcome = hasValidResultR ? outcomeFromR(parsedResultR) : null;
@@ -335,6 +369,30 @@ export default function DayTradeJournal({
                   <div key={row.entryType}><strong>{row.entryType}</strong><span>{row.count} trades</span><b className={row.averageR >= 0 ? "positive-r" : "negative-r"}>{row.averageR.toFixed(2)}R avg</b><span>{row.winRate.toFixed(0)}% win</span></div>
                 ))}
               </div>
+            </article>
+            <article className="daytrade-panel daytrade-calendar-panel">
+              <div className="daytrade-panel-heading">
+                <div><span>Trading heatmap</span><h2>{calendarMonthLabel}</h2></div>
+                <div className="daytrade-calendar-controls">
+                  <button type="button" aria-label="Previous month" onClick={() => setCalendarMonth((current) => shiftMonth(current, -1))}><ChevronLeft size={18} /></button>
+                  <CalendarDays size={22} />
+                  <button type="button" aria-label="Next month" onClick={() => setCalendarMonth((current) => shiftMonth(current, 1))}><ChevronRight size={18} /></button>
+                </div>
+              </div>
+              <div className="daytrade-calendar-weekdays">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <span key={day}>{day}</span>)}</div>
+              <div className="daytrade-calendar-grid">
+                {calendarCells.map((cell, index) => cell ? (
+                  <div
+                    className={`daytrade-calendar-day ${cell.count ? (cell.totalR > 0 ? "is-positive" : cell.totalR < 0 ? "is-negative" : "is-flat") : ""}`}
+                    key={cell.date}
+                    title={cell.count ? `${cell.count} trade${cell.count === 1 ? "" : "s"} · ${cell.totalR.toFixed(2)}R` : "No trades"}
+                  >
+                    <span>{cell.day}</span>
+                    {cell.count ? <><strong>{cell.totalR > 0 ? "+" : ""}{cell.totalR.toFixed(1)}R</strong><small>{cell.count} trade{cell.count === 1 ? "" : "s"}</small></> : null}
+                  </div>
+                ) : <div className="daytrade-calendar-day is-empty" key={`empty-${index}`} />)}
+              </div>
+              <div className="daytrade-calendar-legend"><span><i className="is-positive" />Profit</span><span><i className="is-flat" />Breakeven</span><span><i className="is-negative" />Loss</span></div>
             </article>
           </div>
         </>
