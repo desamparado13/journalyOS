@@ -326,6 +326,7 @@ type AppView =
   | "yearly-comparison"
   | "discipline"
   | "ai-coach"
+  | "backtest-comparison"
   | "backtesting-analytics"
   | "add-backtest"
   | "view-backtests";
@@ -351,6 +352,7 @@ const appViews: readonly AppView[] = [
   "yearly-comparison",
   "discipline",
   "ai-coach",
+  "backtest-comparison",
   "backtesting-analytics",
   "add-backtest",
   "view-backtests",
@@ -2240,6 +2242,7 @@ export default function App() {
   const [backtestAnalyticsYearFilter, setBacktestAnalyticsYearFilter] = useState("All");
   const [backtestYearFilter, setBacktestYearFilter] = useState("All");
   const [backtestMonthFilter, setBacktestMonthFilter] = useState("All");
+  const [backtestComparisonMonth, setBacktestComparisonMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [activeView, setActiveView] = useState<AppView>(readActiveView);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -2420,7 +2423,8 @@ export default function App() {
   useEffect(() => {
     if (
       currentUser &&
-      (activeView === "backtesting-analytics" ||
+      (activeView === "backtest-comparison" ||
+        activeView === "backtesting-analytics" ||
         activeView === "add-backtest" ||
         activeView === "view-backtests" ||
         (activeView === "edge" && clockSource === "backtest") ||
@@ -2921,6 +2925,67 @@ export default function App() {
   const backtestYears = useMemo(() => {
     return ["All", ...Array.from(new Set(backtests.map((item) => item.date.slice(0, 4)))).sort().reverse()];
   }, [backtests]);
+
+  const backtestComparisonMonths = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...trades.map((item) => item.date.slice(0, 7)),
+          ...backtests.map((item) => item.date.slice(0, 7)),
+        ]),
+      ).sort().reverse(),
+    [backtests, trades],
+  );
+
+  useEffect(() => {
+    if (
+      backtestComparisonMonths.length > 0 &&
+      !backtestComparisonMonths.includes(backtestComparisonMonth)
+    ) {
+      setBacktestComparisonMonth(backtestComparisonMonths[0]);
+    }
+  }, [backtestComparisonMonth, backtestComparisonMonths]);
+
+  const monthlyBacktestComparison = useMemo(() => {
+    const liveItems = toJournalItems(trades, []).filter((item) => item.date.startsWith(backtestComparisonMonth));
+    const testedItems = toJournalItems([], backtests).filter((item) => item.date.startsWith(backtestComparisonMonth));
+    const actual = summarizeJournalItems(backtestComparisonMonth, liveItems);
+    const tested = summarizeJournalItems(backtestComparisonMonth, testedItems);
+    const dimensionLabels = Array.from(
+      new Set([...liveItems.map((item) => item.pair), ...testedItems.map((item) => item.pair)]),
+    );
+    const pairRows = dimensionLabels
+      .map((pair) => {
+        const actualPairItems = liveItems.filter((item) => item.pair === pair);
+        const testedPairItems = testedItems.filter((item) => item.pair === pair);
+        const actualR = actualPairItems.reduce((sum, item) => sum + item.pnl, 0);
+        const testedR = testedPairItems.reduce((sum, item) => sum + item.pnl, 0);
+
+        return {
+          pair,
+          actualSamples: actualPairItems.length,
+          testedSamples: testedPairItems.length,
+          actualR,
+          testedR,
+          gap: actualR - testedR,
+        };
+      })
+      .sort((a, b) => Math.max(Math.abs(b.actualR), Math.abs(b.testedR)) - Math.max(Math.abs(a.actualR), Math.abs(a.testedR)));
+    const [year, month] = backtestComparisonMonth.split("-").map(Number);
+    const monthEnded = new Date(year, month, 1).getTime() <= new Date().setHours(0, 0, 0, 0);
+
+    return {
+      actual,
+      tested,
+      pairRows,
+      monthEnded,
+      hasActual: liveItems.length > 0,
+      hasBacktest: testedItems.length > 0,
+      rGap: actual.totalR - tested.totalR,
+      winRateGap: actual.winRate - tested.winRate,
+      expectancyGap: actual.expectancy - tested.expectancy,
+    };
+  }, [backtestComparisonMonth, backtests, trades]);
 
   const filteredBacktests = useMemo(() => {
     return backtests
@@ -4504,6 +4569,7 @@ export default function App() {
           </button>
           <button
             className={
+              activeView === "backtest-comparison" ||
               activeView === "backtesting-analytics" ||
               activeView === "add-backtest" ||
               activeView === "view-backtests"
@@ -4511,10 +4577,10 @@ export default function App() {
                 : ""
             }
             type="button"
-            onClick={() => setActiveView("backtesting-analytics")}
+            onClick={() => setActiveView("backtest-comparison")}
           >
             <FlaskConical size={18} />
-            Backtesting
+            Backtest
           </button>
           <button
             className={activeView === "ai-coach" ? "is-active" : ""}
@@ -4848,10 +4914,10 @@ export default function App() {
               <button
                 className="secondary-action"
                 type="button"
-                onClick={() => setActiveView("backtesting-analytics")}
+                onClick={() => setActiveView("backtest-comparison")}
               >
                 <FlaskConical size={18} />
-                Backtesting
+                Backtest
               </button>
             </div>
 
@@ -6068,14 +6134,17 @@ export default function App() {
           </section>
         ) : null}
 
-        {activeView === "backtesting-analytics" ||
+        {activeView === "backtest-comparison" ||
+        activeView === "backtesting-analytics" ||
         activeView === "add-backtest" ||
         activeView === "view-backtests" ? (
           <section className="journal-band">
             <div className="section-heading">
               <p className="eyebrow">Research engine</p>
               <h2>
-                {activeView === "backtesting-analytics"
+                {activeView === "backtest-comparison"
+                  ? `${formatMonthLabel(backtestComparisonMonth)} backtest vs actual`
+                  : activeView === "backtesting-analytics"
                   ? "Backtesting analytics"
                   : activeView === "add-backtest"
                     ? backtestForm.id
@@ -6086,6 +6155,13 @@ export default function App() {
             </div>
 
             <div className="module-tabs" aria-label="Backtesting sections">
+              <button
+                className={activeView === "backtest-comparison" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveView("backtest-comparison")}
+              >
+                Monthly comparison
+              </button>
               <button
                 className={activeView === "backtesting-analytics" ? "is-active" : ""}
                 type="button"
@@ -6108,6 +6184,132 @@ export default function App() {
                 View trades
               </button>
             </div>
+
+            {activeView === "backtest-comparison" ? (
+              <section className="monthly-backtest-comparison" aria-label="Monthly backtest versus actual comparison">
+                <div className="comparison-toolbar">
+                  <div>
+                    <p className="eyebrow">Month-end review</p>
+                    <h3>Backtest {formatMonthLabel(backtestComparisonMonth)} vs actual {formatMonthLabel(backtestComparisonMonth)}</h3>
+                    <p>
+                      Compare the month you replayed with the trades you actually took during the same period.
+                    </p>
+                  </div>
+                  <label className="comparison-month-field">
+                    <span>Review month</span>
+                    <select
+                      value={backtestComparisonMonth}
+                      onChange={(event) => setBacktestComparisonMonth(event.target.value)}
+                    >
+                      {backtestComparisonMonths.length === 0 ? (
+                        <option value={backtestComparisonMonth}>{formatMonthLabel(backtestComparisonMonth)}</option>
+                      ) : (
+                        backtestComparisonMonths.map((month) => (
+                          <option key={month} value={month}>{formatMonthLabel(month)}</option>
+                        ))
+                      )}
+                    </select>
+                  </label>
+                </div>
+
+                <div className={`comparison-status ${monthlyBacktestComparison.monthEnded ? "is-closed" : "is-open"}`}>
+                  <CalendarDays size={18} />
+                  <div>
+                    <strong>{monthlyBacktestComparison.monthEnded ? "Month closed · ready for review" : "Month still in progress"}</strong>
+                    <span>
+                      {monthlyBacktestComparison.monthEnded
+                        ? "Add your replay trades, then use the gaps below to review execution."
+                        : "You can add samples now; the final comparison is most useful after month-end."}
+                    </span>
+                  </div>
+                </div>
+
+                {!monthlyBacktestComparison.hasActual || !monthlyBacktestComparison.hasBacktest ? (
+                  <div className="comparison-empty-note">
+                    <Info size={18} />
+                    <span>
+                      {!monthlyBacktestComparison.hasActual && !monthlyBacktestComparison.hasBacktest
+                        ? "No actual or backtest trades are logged for this month yet."
+                        : !monthlyBacktestComparison.hasBacktest
+                          ? "Actual trades are ready. Add backtest trades for this month to complete the comparison."
+                          : "Backtest trades are ready. Add your actual trades for this month to complete the comparison."}
+                    </span>
+                  </div>
+                ) : null}
+
+                <div className="comparison-scorecards">
+                  <article className="comparison-scorecard is-backtest">
+                    <span>Backtest</span>
+                    <strong>{formatNumber(monthlyBacktestComparison.tested.totalR)}R</strong>
+                    <small>{monthlyBacktestComparison.tested.samples} trades · {monthlyBacktestComparison.tested.winRate}% win rate</small>
+                  </article>
+                  <article className="comparison-scorecard is-gap">
+                    <span>Actual minus backtest</span>
+                    <strong className={monthlyBacktestComparison.rGap >= 0 ? "positive-r" : "negative-r"}>
+                      {monthlyBacktestComparison.rGap >= 0 ? "+" : ""}{formatNumber(monthlyBacktestComparison.rGap)}R
+                    </strong>
+                    <small>
+                      {monthlyBacktestComparison.winRateGap >= 0 ? "+" : ""}{monthlyBacktestComparison.winRateGap}% win-rate gap
+                    </small>
+                  </article>
+                  <article className="comparison-scorecard is-actual">
+                    <span>Actual</span>
+                    <strong>{formatNumber(monthlyBacktestComparison.actual.totalR)}R</strong>
+                    <small>{monthlyBacktestComparison.actual.samples} trades · {monthlyBacktestComparison.actual.winRate}% win rate</small>
+                  </article>
+                </div>
+
+                <div className="comparison-metric-table" role="table" aria-label="Backtest and actual monthly metrics">
+                  <div className="comparison-metric-row is-head" role="row">
+                    <span role="columnheader">Metric</span>
+                    <span role="columnheader">Backtest</span>
+                    <span role="columnheader">Actual</span>
+                    <span role="columnheader">Gap</span>
+                  </div>
+                  {[
+                    { label: "Trades", tested: String(monthlyBacktestComparison.tested.samples), actual: String(monthlyBacktestComparison.actual.samples), gap: `${monthlyBacktestComparison.actual.samples - monthlyBacktestComparison.tested.samples}` },
+                    { label: "Total R", tested: `${formatNumber(monthlyBacktestComparison.tested.totalR)}R`, actual: `${formatNumber(monthlyBacktestComparison.actual.totalR)}R`, gap: `${monthlyBacktestComparison.rGap >= 0 ? "+" : ""}${formatNumber(monthlyBacktestComparison.rGap)}R` },
+                    { label: "Win rate", tested: `${monthlyBacktestComparison.tested.winRate}%`, actual: `${monthlyBacktestComparison.actual.winRate}%`, gap: `${monthlyBacktestComparison.winRateGap >= 0 ? "+" : ""}${monthlyBacktestComparison.winRateGap}%` },
+                    { label: "Expectancy", tested: `${formatNumber(monthlyBacktestComparison.tested.expectancy)}R`, actual: `${formatNumber(monthlyBacktestComparison.actual.expectancy)}R`, gap: `${monthlyBacktestComparison.expectancyGap >= 0 ? "+" : ""}${formatNumber(monthlyBacktestComparison.expectancyGap)}R` },
+                    { label: "Profit factor", tested: formatNumber(monthlyBacktestComparison.tested.profitFactor), actual: formatNumber(monthlyBacktestComparison.actual.profitFactor), gap: `${formatNumber(monthlyBacktestComparison.actual.profitFactor - monthlyBacktestComparison.tested.profitFactor)}` },
+                    { label: "Max drawdown", tested: `${formatNumber(monthlyBacktestComparison.tested.maxDrawdown)}R`, actual: `${formatNumber(monthlyBacktestComparison.actual.maxDrawdown)}R`, gap: `${formatNumber(monthlyBacktestComparison.actual.maxDrawdown - monthlyBacktestComparison.tested.maxDrawdown)}R` },
+                    { label: "Average win", tested: `${formatNumber(monthlyBacktestComparison.tested.averageWin)}R`, actual: `${formatNumber(monthlyBacktestComparison.actual.averageWin)}R`, gap: `${formatNumber(monthlyBacktestComparison.actual.averageWin - monthlyBacktestComparison.tested.averageWin)}R` },
+                    { label: "Average loss", tested: `${formatNumber(monthlyBacktestComparison.tested.averageLoss)}R`, actual: `${formatNumber(monthlyBacktestComparison.actual.averageLoss)}R`, gap: `${formatNumber(monthlyBacktestComparison.actual.averageLoss - monthlyBacktestComparison.tested.averageLoss)}R` },
+                  ].map((metric) => (
+                    <div className="comparison-metric-row" role="row" key={metric.label}>
+                      <strong role="cell">{metric.label}</strong>
+                      <span role="cell">{metric.tested}</span>
+                      <span role="cell">{metric.actual}</span>
+                      <span role="cell">{metric.gap}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {monthlyBacktestComparison.pairRows.length > 0 ? (
+                  <div className="comparison-pairs">
+                    <div className="comparison-subheading">
+                      <div>
+                        <p className="eyebrow">Where the gap came from</p>
+                        <h3>Pair breakdown</h3>
+                      </div>
+                      <span>{monthlyBacktestComparison.pairRows.length} pairs reviewed</span>
+                    </div>
+                    <div className="comparison-pair-list">
+                      {monthlyBacktestComparison.pairRows.map((row) => (
+                        <div className="comparison-pair-row" key={row.pair}>
+                          <strong>{row.pair}</strong>
+                          <span><small>Backtest</small>{formatNumber(row.testedR)}R · {row.testedSamples}</span>
+                          <span><small>Actual</small>{formatNumber(row.actualR)}R · {row.actualSamples}</span>
+                          <span className={row.gap >= 0 ? "positive-r" : "negative-r"}>
+                            <small>Gap</small>{row.gap >= 0 ? "+" : ""}{formatNumber(row.gap)}R
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             {activeView === "backtesting-analytics" ? (
             <section className="market-panel backtest-panel" aria-label="Backtesting analytics">

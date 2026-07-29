@@ -1304,6 +1304,210 @@ label span,
   margin-bottom: 18px;
 }
 
+.monthly-backtest-comparison {
+  display: grid;
+  gap: 18px;
+}
+
+.comparison-toolbar,
+.comparison-status,
+.comparison-empty-note,
+.comparison-scorecard,
+.comparison-metric-table,
+.comparison-pairs {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.comparison-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.comparison-toolbar h3,
+.comparison-subheading h3 {
+  margin: 4px 0 0;
+  font-size: clamp(1.25rem, 2vw, 1.7rem);
+}
+
+.comparison-toolbar p:not(.eyebrow) {
+  max-width: 680px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.comparison-month-field {
+  flex: 0 0 220px;
+}
+
+.comparison-status,
+.comparison-empty-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+}
+
+.comparison-status.is-closed {
+  border-color: color-mix(in srgb, var(--positive) 35%, var(--line));
+  background: color-mix(in srgb, var(--positive) 8%, var(--surface));
+}
+
+.comparison-status.is-open {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.comparison-status svg,
+.comparison-empty-note svg {
+  flex: 0 0 auto;
+  color: var(--brand-strong);
+}
+
+.comparison-status div {
+  display: grid;
+  gap: 3px;
+}
+
+.comparison-status span,
+.comparison-empty-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.comparison-scorecards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.comparison-scorecard {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 7px;
+  min-height: 154px;
+  align-content: center;
+  padding: 22px;
+}
+
+.comparison-scorecard::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  content: "";
+  background: var(--brand);
+}
+
+.comparison-scorecard.is-actual::before {
+  background: var(--positive);
+}
+
+.comparison-scorecard.is-gap::before {
+  background: var(--accent);
+}
+
+.comparison-scorecard > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.comparison-scorecard > strong {
+  font-size: clamp(1.75rem, 4vw, 2.6rem);
+  letter-spacing: -0.04em;
+}
+
+.comparison-scorecard small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.comparison-metric-table {
+  overflow: hidden;
+}
+
+.comparison-metric-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.3fr) repeat(3, minmax(100px, 1fr));
+  align-items: center;
+  gap: 12px;
+  min-width: 560px;
+  border-top: 1px solid var(--line);
+  padding: 14px 18px;
+}
+
+.comparison-metric-row:first-child {
+  border-top: 0;
+}
+
+.comparison-metric-row.is-head {
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface));
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.comparison-metric-row span:not(:first-child) {
+  font-variant-numeric: tabular-nums;
+}
+
+.comparison-pairs {
+  padding: 22px;
+}
+
+.comparison-subheading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.comparison-subheading > span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.comparison-pair-list {
+  display: grid;
+}
+
+.comparison-pair-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) repeat(3, minmax(120px, 1fr));
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid var(--line);
+  padding: 14px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.comparison-pair-row span {
+  display: grid;
+  gap: 3px;
+  font-weight: 800;
+}
+
+.comparison-pair-row small {
+  color: var(--muted);
+  font-size: 0.67rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .equity-card {
   position: relative;
   overflow: hidden;
@@ -6525,6 +6729,35 @@ body.analysis-focus-open {
 
 .backtest-form {
   margin-bottom: 18px;
+}
+
+@media (max-width: 760px) {
+  .comparison-toolbar,
+  .comparison-subheading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .comparison-month-field {
+    flex-basis: auto;
+  }
+
+  .comparison-scorecards {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-scorecard {
+    min-height: 132px;
+  }
+
+  .comparison-metric-table,
+  .comparison-pair-list {
+    overflow-x: auto;
+  }
+
+  .comparison-pair-row {
+    min-width: 580px;
+  }
 }
 
 label {
