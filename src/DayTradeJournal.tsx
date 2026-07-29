@@ -110,6 +110,7 @@ function calculateMetrics(records: DayTradeRecord[]) {
   });
   return {
     count: ordered.length,
+    totalR: ordered.reduce((sum, trade) => sum + trade.resultR, 0),
     winRate: ordered.length ? (wins.length / ordered.length) * 100 : 0,
     averageR: ordered.length ? ordered.reduce((sum, trade) => sum + trade.resultR, 0) / ordered.length : 0,
     profitFactor: grossLoss ? grossProfit / grossLoss : grossProfit,
@@ -354,6 +355,7 @@ export default function DayTradeJournal({
       {activeView === "daytrade-dashboard" ? (
         <>
           <div className="daytrade-metric-grid">
+            <Metric label="Total R" value={`${metrics.totalR > 0 ? "+" : ""}${metrics.totalR.toFixed(2)}R`} detail={`${metrics.count} filtered samples`} />
             <Metric label="Win rate" value={`${metrics.winRate.toFixed(0)}%`} detail={`${metrics.count} filtered samples`} />
             <Metric label="Average R" value={`${metrics.averageR.toFixed(2)}R`} />
             <Metric label="Profit factor" value={metrics.profitFactor.toFixed(2)} />
