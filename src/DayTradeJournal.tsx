@@ -156,6 +156,7 @@ export default function DayTradeJournal({
   const [calendarMonth, setCalendarMonth] = useState(localDateString(new Date()).slice(0, 7));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<DayTradeEditForm | null>(null);
+  const [loadingImageId, setLoadingImageId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -168,7 +169,7 @@ export default function DayTradeJournal({
       setIsLoading(true);
       const backtest = await supabase
         .from("daytrade_backtests")
-        .select("*")
+        .select("id,trade_date,entry_type,result_r,outcome,created_at")
         .eq("user_id", userId)
         .eq("pair", "GBPUSD")
         .order("trade_date", { ascending: false });
@@ -255,7 +256,11 @@ export default function DayTradeJournal({
         outcome: automaticOutcome,
         before_image_url: image,
       };
-      const { data, error } = await supabase.from("daytrade_backtests").insert(payload).select("*").single();
+      const { data, error } = await supabase
+        .from("daytrade_backtests")
+        .insert(payload)
+        .select("id,trade_date,entry_type,result_r,outcome,created_at")
+        .single();
       if (error) throw error;
       const saved = fromRow(data);
       setRecords((current) => [saved, ...current]);
@@ -276,6 +281,29 @@ export default function DayTradeJournal({
       return;
     }
     setRecords((current) => current.filter((item) => item.id !== trade.id));
+  }
+
+  async function loadTradeImage(trade: DayTradeRecord) {
+    if (!supabase || trade.image || loadingImageId) return;
+    setLoadingImageId(trade.id);
+    setMessage("");
+    try {
+      const { data, error } = await supabase
+        .from("daytrade_backtests")
+        .select("before_image_url")
+        .eq("id", trade.id)
+        .eq("user_id", userId)
+        .single();
+      if (error) throw error;
+      setRecords((current) =>
+        current.map((item) => item.id === trade.id ? { ...item, image: data.before_image_url || "" } : item),
+      );
+      if (!data.before_image_url) setMessage("This backtest has no chart image.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load this chart image.");
+    } finally {
+      setLoadingImageId(null);
+    }
   }
 
   function startEditing(trade: DayTradeRecord) {
@@ -299,22 +327,26 @@ export default function DayTradeJournal({
     setIsLoading(true);
     setMessage("");
     try {
+      let replacementImage = "";
       const payload: Record<string, unknown> = {
         trade_date: editForm.date,
         entry_type: editForm.entryType,
         result_r: resultR,
         outcome: outcomeFromR(resultR),
       };
-      if (editForm.imageFile) payload.before_image_url = await fileToDataUrl(editForm.imageFile);
+      if (editForm.imageFile) {
+        replacementImage = await fileToDataUrl(editForm.imageFile);
+        payload.before_image_url = replacementImage;
+      }
       const { data, error } = await supabase
         .from("daytrade_backtests")
         .update(payload)
         .eq("id", trade.id)
         .eq("user_id", userId)
-        .select("*")
+        .select("id,trade_date,entry_type,result_r,outcome,created_at")
         .single();
       if (error) throw error;
-      const updated = fromRow(data);
+      const updated = { ...fromRow(data), image: replacementImage || trade.image };
       setRecords((current) =>
         current.map((item) => item.id === updated.id ? updated : item).sort((a, b) => b.date.localeCompare(a.date)),
       );
@@ -449,7 +481,13 @@ export default function DayTradeJournal({
                   </>
                 )}
               </div>
-              {trade.image ? <div className="daytrade-record-images daytrade-quick-image"><figure><img src={trade.image} alt={`${trade.entryType} trade from ${trade.date}`} /><figcaption>Chart</figcaption></figure></div> : null}
+              {trade.image ? (
+                <div className="daytrade-record-images daytrade-quick-image"><figure><img loading="lazy" decoding="async" src={trade.image} alt={`${trade.entryType} trade from ${trade.date}`} /><figcaption>Chart</figcaption></figure></div>
+              ) : (
+                <button className="daytrade-load-image" type="button" disabled={loadingImageId !== null} onClick={() => void loadTradeImage(trade)}>
+                  <ImagePlus size={20} />{loadingImageId === trade.id ? "Loading chart…" : "View chart"}
+                </button>
+              )}
             </article>
           ))}
         </div>
