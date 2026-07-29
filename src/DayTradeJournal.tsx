@@ -7,6 +7,21 @@ export type DayTradeView = "daytrade-dashboard" | "daytrade-add" | "daytrade-bac
 type EntryType = "Golden entry" | "FVG Hunt";
 type Outcome = "Win" | "Loss" | "Breakeven";
 
+const monthOptions = [
+  ["01", "January"],
+  ["02", "February"],
+  ["03", "March"],
+  ["04", "April"],
+  ["05", "May"],
+  ["06", "June"],
+  ["07", "July"],
+  ["08", "August"],
+  ["09", "September"],
+  ["10", "October"],
+  ["11", "November"],
+  ["12", "December"],
+] as const;
+
 type DayTradeRecord = {
   id: string;
   date: string;
@@ -153,6 +168,8 @@ export default function DayTradeJournal({
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [entryFilter, setEntryFilter] = useState("All");
+  const [monthFilter, setMonthFilter] = useState("All");
+  const [yearFilter, setYearFilter] = useState("All");
   const [calendarMonth, setCalendarMonth] = useState(localDateString(new Date()).slice(0, 7));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<DayTradeEditForm | null>(null);
@@ -192,9 +209,18 @@ export default function DayTradeJournal({
     };
   }, [userId]);
 
+  const availableYears = useMemo(
+    () => [...new Set(records.map((trade) => trade.date.slice(0, 4)))].sort((a, b) => b.localeCompare(a)),
+    [records],
+  );
   const filtered = useMemo(
-    () => records.filter((trade) => entryFilter === "All" || trade.entryType === entryFilter),
-    [entryFilter, records],
+    () => records.filter(
+      (trade) =>
+        (entryFilter === "All" || trade.entryType === entryFilter) &&
+        (monthFilter === "All" || trade.date.slice(5, 7) === monthFilter) &&
+        (yearFilter === "All" || trade.date.slice(0, 4) === yearFilter),
+    ),
+    [entryFilter, monthFilter, records, yearFilter],
   );
   const metrics = useMemo(() => calculateMetrics(filtered), [filtered]);
   const entryRows = useMemo(
@@ -381,6 +407,16 @@ export default function DayTradeJournal({
         <div className="daytrade-filters" aria-label="DayTrade filters">
           <Field label="Pair"><input readOnly value="GBPUSD" /></Field>
           <Field label="Entry"><select value={entryFilter} onChange={(event) => setEntryFilter(event.target.value)}><option>All</option><option>Golden entry</option><option>FVG Hunt</option></select></Field>
+          <Field label="Month"><select value={monthFilter} onChange={(event) => {
+            const month = event.target.value;
+            setMonthFilter(month);
+            if (month !== "All") setCalendarMonth(`${yearFilter !== "All" ? yearFilter : calendarMonth.slice(0, 4)}-${month}`);
+          }}><option value="All">All months</option>{monthOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></Field>
+          <Field label="Year"><select value={yearFilter} onChange={(event) => {
+            const year = event.target.value;
+            setYearFilter(year);
+            if (year !== "All") setCalendarMonth(`${year}-${monthFilter !== "All" ? monthFilter : calendarMonth.slice(5, 7)}`);
+          }}><option value="All">All years</option>{availableYears.map((year) => <option value={year} key={year}>{year}</option>)}</select></Field>
         </div>
       ) : null}
 
