@@ -4304,6 +4304,32 @@ button.yearly-row.is-active {
   overflow: hidden;
 }
 
+.daytrade-quick-form {
+  max-width: 900px;
+  margin-inline: auto;
+}
+
+.daytrade-quick-record {
+  grid-template-columns: 1fr;
+}
+
+.daytrade-result-win {
+  border-color: color-mix(in srgb, var(--positive) 50%, var(--line)) !important;
+  color: var(--positive);
+  font-weight: 900;
+}
+
+.daytrade-result-loss {
+  border-color: color-mix(in srgb, var(--negative) 50%, var(--line)) !important;
+  color: var(--negative);
+  font-weight: 900;
+}
+
+.daytrade-result-breakeven {
+  color: var(--muted);
+  font-weight: 900;
+}
+
 .daytrade-form-heading {
   background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 12%, transparent), transparent);
   padding: 24px;

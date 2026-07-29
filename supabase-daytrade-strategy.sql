@@ -54,9 +54,10 @@ create table if not exists public.daytrade_backtests (
   pair text not null default 'GBPUSD',
   session text not null default 'London' check (session = 'London'),
   timeframe text not null default '15M' check (timeframe = '15M'),
-  direction text not null check (direction in ('Buy', 'Sell')),
-  accumulation_quality text not null,
-  imbalance_quality text not null,
+  direction text check (direction in ('Buy', 'Sell')),
+  accumulation_quality text,
+  imbalance_quality text,
+  entry_type text not null default 'Golden entry' check (entry_type in ('Golden entry', 'FVG Hunt')),
   trading_day text check (trading_day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')),
   trade_duration_hours numeric check (trade_duration_hours > 0),
   has_news boolean not null default false,
@@ -77,9 +78,9 @@ create table if not exists public.daytrade_backtests (
   mfe_r numeric not null default 0,
   result_r numeric not null default 0,
   outcome text not null check (outcome in ('Win', 'Loss', 'Breakeven')),
-  trade_grade text not null check (trade_grade in ('A+', 'A', 'B', 'C')),
-  before_image_url text not null,
-  after_image_url text not null,
+  trade_grade text check (trade_grade in ('A+', 'A', 'B', 'C')),
+  before_image_url text,
+  after_image_url text,
   notes text not null default '',
   rule_checklist jsonb,
   created_at timestamptz not null default now(),
@@ -88,6 +89,7 @@ create table if not exists public.daytrade_backtests (
 
 -- Upgrade existing backtest tables without deleting historical records.
 alter table public.daytrade_backtests
+  add column if not exists entry_type text not null default 'Golden entry',
   add column if not exists trading_day text,
   add column if not exists trade_duration_hours numeric,
   add column if not exists has_news boolean not null default false,
@@ -100,6 +102,9 @@ alter table public.daytrade_backtests
 
 alter table public.daytrade_backtests
   alter column pair set default 'GBPUSD',
+  alter column direction drop not null,
+  alter column accumulation_quality drop not null,
+  alter column imbalance_quality drop not null,
   alter column fib_low drop not null,
   alter column fib_high drop not null,
   alter column retracement_depth drop not null,
@@ -107,6 +112,9 @@ alter table public.daytrade_backtests
   alter column stop_price drop not null,
   alter column target_price drop not null,
   alter column planned_rr drop not null,
+  alter column trade_grade drop not null,
+  alter column before_image_url drop not null,
+  alter column after_image_url drop not null,
   alter column rule_checklist drop not null;
 
 alter table public.daytrade_backtests
@@ -125,6 +133,12 @@ alter table public.daytrade_backtests
 alter table public.daytrade_backtests
   add constraint daytrade_backtests_previous_imbalance_sessions_check
   check (previous_imbalance_sessions in ('None', 'Prev', '1', '2', '3', '4', '5')) not valid;
+
+alter table public.daytrade_backtests
+  drop constraint if exists daytrade_backtests_entry_type_check;
+alter table public.daytrade_backtests
+  add constraint daytrade_backtests_entry_type_check
+  check (entry_type in ('Golden entry', 'FVG Hunt')) not valid;
 
 alter table public.daytrade_live_trades enable row level security;
 alter table public.daytrade_backtests enable row level security;
