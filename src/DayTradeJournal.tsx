@@ -1,4 +1,4 @@
-import { BarChart3, ClipboardCheck, FlaskConical, Plus, Target, Trash2, TrendingUp } from "lucide-react";
+import { BarChart3, ClipboardCheck, FlaskConical, ImagePlus, Plus, Target, Trash2, TrendingUp } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 
@@ -13,6 +13,7 @@ type DayTradeRecord = {
   entryType: EntryType;
   resultR: number;
   outcome: Outcome;
+  image: string;
   createdAt: string;
 };
 
@@ -20,6 +21,7 @@ type DayTradeForm = {
   date: string;
   entryType: EntryType;
   resultR: number;
+  imageFile: File | null;
 };
 
 function localDateString(date: Date) {
@@ -39,7 +41,17 @@ function blankForm(date = localDateString(new Date())): DayTradeForm {
     date,
     entryType: "Golden entry",
     resultR: 0,
+    imageFile: null,
   };
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function outcomeFromR(resultR: number): Outcome {
@@ -56,6 +68,7 @@ function fromRow(row: any): DayTradeRecord {
     entryType: row.entry_type === "FVG Hunt" ? "FVG Hunt" : "Golden entry",
     resultR,
     outcome: outcomeFromR(resultR),
+    image: row.before_image_url || "",
     createdAt: row.created_at,
   };
 }
@@ -175,9 +188,14 @@ export default function DayTradeJournal({
   async function saveTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
+    if (!form.imageFile) {
+      setMessage("Add a chart image before saving.");
+      return;
+    }
     setIsLoading(true);
     setMessage("");
     try {
+      const image = await fileToDataUrl(form.imageFile);
       const payload = {
         user_id: userId,
         trade_date: form.date,
@@ -185,6 +203,7 @@ export default function DayTradeJournal({
         entry_type: form.entryType,
         result_r: form.resultR,
         outcome: automaticOutcome,
+        before_image_url: image,
       };
       const { data, error } = await supabase.from("daytrade_backtests").insert(payload).select("*").single();
       if (error) throw error;
@@ -219,8 +238,8 @@ export default function DayTradeJournal({
         </div>
         <div className="daytrade-rule-score">
           <span>Required inputs</span>
-          <strong>3 fields</strong>
-          <small>Date · Entry · RR</small>
+          <strong>4 fields</strong>
+          <small>Date · Entry · RR · Image</small>
         </div>
       </header>
 
@@ -268,6 +287,7 @@ export default function DayTradeJournal({
               <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: Number(event.target.value) })} /></Field>
               <Field label="Result"><input readOnly className={`daytrade-result-${automaticOutcome.toLowerCase()}`} value={automaticOutcome} /></Field>
             </div>
+            <label className="daytrade-upload daytrade-quick-upload"><ImagePlus size={24} /><strong>Chart image</strong><span>{form.imageFile?.name || "Upload trade chart"}</span><input required type="file" accept="image/*" onChange={(event) => setForm({ ...form, imageFile: event.target.files?.[0] || null })} /></label>
           </section>
           <button className="daytrade-save" type="submit" disabled={isLoading}><ClipboardCheck size={19} />Save and move to next date</button>
         </form>
@@ -285,6 +305,7 @@ export default function DayTradeJournal({
                 <div className="daytrade-record-title"><div><strong>{trade.date}</strong><span>{trade.entryType}</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
                 <button className="icon-button danger" type="button" onClick={() => deleteTrade(trade)}><Trash2 size={15} />Delete</button>
               </div>
+              {trade.image ? <div className="daytrade-record-images daytrade-quick-image"><figure><img src={trade.image} alt={`${trade.entryType} trade from ${trade.date}`} /><figcaption>Chart</figcaption></figure></div> : null}
             </article>
           ))}
         </div>

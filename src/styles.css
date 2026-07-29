@@ -4310,6 +4310,14 @@ button.yearly-row.is-active {
 }
 
 .daytrade-quick-record {
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.4fr);
+}
+
+.daytrade-quick-upload {
+  min-height: 120px;
+}
+
+.daytrade-quick-image {
   grid-template-columns: 1fr;
 }
 
