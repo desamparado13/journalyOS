@@ -4,8 +4,17 @@ import { supabase } from "./supabaseClient";
 
 export type DayTradeView = "daytrade-dashboard" | "daytrade-add" | "daytrade-backtest";
 
-type EntryType = "Golden entry" | "FVG Hunt";
+type Pair = "GBPUSD" | "EURUSD";
+type EntryType = "Golden entry" | "Order Block Entry" | "Break Entry" | "FVG Hunt";
 type Outcome = "Win" | "Loss" | "Breakeven";
+
+const pairOptions: Pair[] = ["GBPUSD", "EURUSD"];
+const entryTypeOptions: Exclude<EntryType, "FVG Hunt">[] = [
+  "Golden entry",
+  "Order Block Entry",
+  "Break Entry",
+];
+const PAIR_MIGRATION_CUTOFF = "2026-07-29T23:15:00Z";
 
 const monthOptions = [
   ["01", "January"],
@@ -25,6 +34,7 @@ const monthOptions = [
 type DayTradeRecord = {
   id: string;
   date: string;
+  pair: Pair;
   entryType: EntryType;
   resultR: number;
   outcome: Outcome;
@@ -34,6 +44,7 @@ type DayTradeRecord = {
 
 type DayTradeForm = {
   date: string;
+  pair: Pair;
   entryType: EntryType;
   resultR: string;
   imageFile: File | null;
@@ -41,6 +52,7 @@ type DayTradeForm = {
 
 type DayTradeEditForm = {
   date: string;
+  pair: Pair;
   entryType: EntryType;
   resultR: string;
   imageFile: File | null;
@@ -67,6 +79,7 @@ function shiftMonth(monthValue: string, amount: number) {
 function blankForm(date = localDateString(new Date())): DayTradeForm {
   return {
     date,
+    pair: "GBPUSD",
     entryType: "Golden entry",
     resultR: "",
     imageFile: null,
@@ -93,7 +106,12 @@ function fromRow(row: any): DayTradeRecord {
   return {
     id: row.id,
     date: row.trade_date,
-    entryType: row.entry_type === "FVG Hunt" ? "FVG Hunt" : "Golden entry",
+    pair: row.pair === "EURUSD" ? "EURUSD" : "GBPUSD",
+    entryType: entryTypeOptions.includes(row.entry_type)
+      ? row.entry_type
+      : row.entry_type === "FVG Hunt"
+        ? "FVG Hunt"
+        : "Golden entry",
     resultR,
     outcome: outcomeFromR(resultR),
     image: row.before_image_url || "",
@@ -167,6 +185,7 @@ export default function DayTradeJournal({
   const [form, setForm] = useState<DayTradeForm>(blankForm);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [pairFilter, setPairFilter] = useState("All");
   const [entryFilter, setEntryFilter] = useState("All");
   const [monthFilter, setMonthFilter] = useState("All");
   const [yearFilter, setYearFilter] = useState("All");
@@ -184,11 +203,16 @@ export default function DayTradeJournal({
         return;
       }
       setIsLoading(true);
+      const pairMigration = await supabase
+        .from("daytrade_backtests")
+        .update({ pair: "GBPUSD" })
+        .eq("user_id", userId)
+        .lt("created_at", PAIR_MIGRATION_CUTOFF)
+        .neq("pair", "GBPUSD");
       const backtest = await supabase
         .from("daytrade_backtests")
-        .select("id,trade_date,entry_type,result_r,outcome,created_at")
+        .select("id,trade_date,pair,entry_type,result_r,outcome,created_at")
         .eq("user_id", userId)
-        .eq("pair", "GBPUSD")
         .order("trade_date", { ascending: false });
       if (!active) return;
       if (backtest.error) {
@@ -196,6 +220,9 @@ export default function DayTradeJournal({
       } else {
         const loadedRecords = (backtest.data || []).map(fromRow);
         setRecords(loadedRecords);
+        if (pairMigration.error) {
+          setMessage(`Existing pair labels could not be updated: ${pairMigration.error.message}`);
+        }
         if (loadedRecords.length) {
           setForm(blankForm(nextDate(loadedRecords[0].date)));
           setCalendarMonth(loadedRecords[0].date.slice(0, 7));
@@ -216,15 +243,16 @@ export default function DayTradeJournal({
   const filtered = useMemo(
     () => records.filter(
       (trade) =>
+        (pairFilter === "All" || trade.pair === pairFilter) &&
         (entryFilter === "All" || trade.entryType === entryFilter) &&
         (monthFilter === "All" || trade.date.slice(5, 7) === monthFilter) &&
         (yearFilter === "All" || trade.date.slice(0, 4) === yearFilter),
     ),
-    [entryFilter, monthFilter, records, yearFilter],
+    [entryFilter, monthFilter, pairFilter, records, yearFilter],
   );
   const metrics = useMemo(() => calculateMetrics(filtered), [filtered]);
   const entryRows = useMemo(
-    () => (["Golden entry", "FVG Hunt"] as EntryType[]).map((entryType) => ({
+    () => entryTypeOptions.map((entryType) => ({
       entryType,
       ...calculateMetrics(filtered.filter((trade) => trade.entryType === entryType)),
     })),
@@ -276,7 +304,7 @@ export default function DayTradeJournal({
       const payload = {
         user_id: userId,
         trade_date: form.date,
-        pair: "GBPUSD",
+        pair: form.pair,
         entry_type: form.entryType,
         result_r: parsedResultR,
         outcome: automaticOutcome,
@@ -285,7 +313,7 @@ export default function DayTradeJournal({
       const { data, error } = await supabase
         .from("daytrade_backtests")
         .insert(payload)
-        .select("id,trade_date,entry_type,result_r,outcome,created_at")
+        .select("id,trade_date,pair,entry_type,result_r,outcome,created_at")
         .single();
       if (error) throw error;
       const saved = fromRow(data);
@@ -300,7 +328,7 @@ export default function DayTradeJournal({
   }
 
   async function deleteTrade(trade: DayTradeRecord) {
-    if (!supabase || !window.confirm(`Delete the GBPUSD backtest from ${trade.date}?`)) return;
+    if (!supabase || !window.confirm(`Delete the ${trade.pair} backtest from ${trade.date}?`)) return;
     const { error } = await supabase.from("daytrade_backtests").delete().eq("id", trade.id).eq("user_id", userId);
     if (error) {
       setMessage(error.message);
@@ -336,6 +364,7 @@ export default function DayTradeJournal({
     setEditingId(trade.id);
     setEditForm({
       date: trade.date,
+      pair: trade.pair,
       entryType: trade.entryType,
       resultR: String(trade.resultR),
       imageFile: null,
@@ -356,6 +385,7 @@ export default function DayTradeJournal({
       let replacementImage = "";
       const payload: Record<string, unknown> = {
         trade_date: editForm.date,
+        pair: editForm.pair,
         entry_type: editForm.entryType,
         result_r: resultR,
         outcome: outcomeFromR(resultR),
@@ -369,7 +399,7 @@ export default function DayTradeJournal({
         .update(payload)
         .eq("id", trade.id)
         .eq("user_id", userId)
-        .select("id,trade_date,entry_type,result_r,outcome,created_at")
+        .select("id,trade_date,pair,entry_type,result_r,outcome,created_at")
         .single();
       if (error) throw error;
       const updated = { ...fromRow(data), image: replacementImage || trade.image };
@@ -390,14 +420,14 @@ export default function DayTradeJournal({
     <section className="daytrade-app">
       <header className="daytrade-hero">
         <div>
-          <p className="eyebrow">GBPUSD · Fast backtesting</p>
+          <p className="eyebrow">GBPUSD / EURUSD · Fast backtesting</p>
           <h1>Quick Backtest Logger</h1>
           <p>Log only the entry model and final R result. The outcome and next date are handled automatically.</p>
         </div>
         <div className="daytrade-rule-score">
           <span>Required inputs</span>
-          <strong>4 fields</strong>
-          <small>Date · Entry · RR · Image</small>
+          <strong>5 fields</strong>
+          <small>Date · Pair · Entry · RR · Image</small>
         </div>
       </header>
 
@@ -405,8 +435,8 @@ export default function DayTradeJournal({
 
       {activeView !== "daytrade-add" ? (
         <div className="daytrade-filters" aria-label="DayTrade filters">
-          <Field label="Pair"><input readOnly value="GBPUSD" /></Field>
-          <Field label="Entry"><select value={entryFilter} onChange={(event) => setEntryFilter(event.target.value)}><option>All</option><option>Golden entry</option><option>FVG Hunt</option></select></Field>
+          <Field label="Pair"><select value={pairFilter} onChange={(event) => setPairFilter(event.target.value)}><option>All</option>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
+          <Field label="Entry"><select value={entryFilter} onChange={(event) => setEntryFilter(event.target.value)}><option>All</option>{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
           <Field label="Month"><select value={monthFilter} onChange={(event) => {
             const month = event.target.value;
             setMonthFilter(month);
@@ -476,7 +506,8 @@ export default function DayTradeJournal({
           <section className="daytrade-form-section">
             <div className="daytrade-field-grid">
               <Field label="Date"><input required type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></Field>
-              <Field label="Entry"><select value={form.entryType} onChange={(event) => setForm({ ...form, entryType: event.target.value as EntryType })}><option>Golden entry</option><option>FVG Hunt</option></select></Field>
+              <Field label="Pair"><select value={form.pair} onChange={(event) => setForm({ ...form, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
+              <Field label="Entry"><select value={form.entryType} onChange={(event) => setForm({ ...form, entryType: event.target.value as EntryType })}>{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
               <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: event.target.value })} /></Field>
               <Field label="Result"><input readOnly className={automaticOutcome ? `daytrade-result-${automaticOutcome.toLowerCase()}` : ""} value={automaticOutcome || "Enter RR"} /></Field>
             </div>
@@ -488,7 +519,7 @@ export default function DayTradeJournal({
 
       {activeView === "daytrade-backtest" ? (
         <div className="daytrade-records">
-          <div className="daytrade-records-heading"><div><span>GBPUSD research database</span><h2>Backtest records</h2></div><strong>{filtered.length} samples</strong></div>
+          <div className="daytrade-records-heading"><div><span>GBPUSD / EURUSD research database</span><h2>Backtest records</h2></div><strong>{filtered.length} samples</strong></div>
           {isLoading ? <div className="daytrade-empty">Loading backtests…</div> : null}
           {!isLoading && filtered.length === 0 ? <div className="daytrade-empty"><TrendingUp size={28} /><strong>No matching samples yet</strong><span>Use the quick logger to add your first result.</span></div> : null}
           {filtered.map((trade) => (
@@ -497,7 +528,8 @@ export default function DayTradeJournal({
                 {editingId === trade.id && editForm ? (
                   <div className="daytrade-inline-edit">
                     <Field label="Date"><input required type="date" value={editForm.date} onChange={(event) => setEditForm({ ...editForm, date: event.target.value })} /></Field>
-                    <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}><option>Golden entry</option><option>FVG Hunt</option></select></Field>
+                    <Field label="Pair"><select value={editForm.pair} onChange={(event) => setEditForm({ ...editForm, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
+                    <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}>{editForm.entryType === "FVG Hunt" ? <option value="FVG Hunt">FVG Hunt (legacy)</option> : null}{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
                     <Field label="RR"><input required type="number" step="any" value={editForm.resultR} onChange={(event) => setEditForm({ ...editForm, resultR: event.target.value })} /></Field>
                     <Field label="Result"><input readOnly value={editForm.resultR.trim() && Number.isFinite(Number(editForm.resultR)) ? outcomeFromR(Number(editForm.resultR)) : "Enter RR"} /></Field>
                     <label className="daytrade-edit-image"><ImagePlus size={18} /><span>{editForm.imageFile?.name || "Replace chart image (optional)"}</span><input type="file" accept="image/*" onChange={(event) => setEditForm({ ...editForm, imageFile: event.target.files?.[0] || null })} /></label>
@@ -508,7 +540,7 @@ export default function DayTradeJournal({
                   </div>
                 ) : (
                   <>
-                    <header><span>GBPUSD</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
+                    <header><span>{trade.pair}</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
                     <div className="daytrade-record-title"><div><strong>{trade.date}</strong><span>{trade.entryType}</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
                     <div className="daytrade-edit-actions">
                       <button className="icon-button" type="button" onClick={() => startEditing(trade)}><Pencil size={15} />Edit</button>
