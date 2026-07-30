@@ -5,7 +5,7 @@ import { supabase } from "./supabaseClient";
 export type DayTradeView = "daytrade-dashboard" | "daytrade-add" | "daytrade-backtest";
 
 type Pair = "GBPUSD" | "EURUSD" | "EURGBP";
-type EntryType = "Golden entry" | "Order Block Entry" | "Liquidity Sweep" | "Break Entry" | "FVG Hunt";
+type EntryType = "Golden entry" | "Order Block Entry" | "Liquidity Sweep" | "3 Kings" | "Break Entry" | "FVG Hunt";
 type Outcome = "Win" | "Loss" | "Breakeven";
 
 const pairOptions: Pair[] = ["GBPUSD", "EURUSD", "EURGBP"];
@@ -13,6 +13,7 @@ const entryTypeOptions: Exclude<EntryType, "FVG Hunt" | "Break Entry">[] = [
   "Golden entry",
   "Order Block Entry",
   "Liquidity Sweep",
+  "3 Kings",
 ];
 const PAIR_MIGRATION_CUTOFF = "2026-07-29T23:15:00Z";
 
