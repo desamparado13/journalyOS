@@ -7743,6 +7743,173 @@ textarea:focus {
   align-items: start;
 }
 
+.journal-mode-tabs {
+  margin-top: -4px;
+}
+
+.monthly-journal-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.monthly-journal-analytics,
+.monthly-journal-form,
+.monthly-journal-history {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.monthly-journal-analytics {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.monthly-journal-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.monthly-journal-toolbar h3 {
+  margin: 4px 0 0;
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+}
+
+.monthly-journal-toolbar p:not(.eyebrow) {
+  margin: 7px 0 0;
+  color: var(--muted);
+}
+
+.monthly-journal-toolbar label {
+  flex: 0 0 210px;
+}
+
+.monthly-journal-metrics {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.monthly-journal-metrics .metric-card {
+  min-height: 112px;
+  padding: 16px;
+}
+
+.monthly-journal-metrics .metric-card > strong {
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
+}
+
+.monthly-journal-insights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.monthly-journal-insights article {
+  display: grid;
+  gap: 5px;
+  border: 1px solid color-mix(in srgb, var(--brand) 24%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 7%, var(--surface-strong));
+  padding: 14px;
+}
+
+.monthly-journal-insights span,
+.monthly-journal-history-heading > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.monthly-journal-insights small {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.monthly-journal-content-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.monthly-journal-form {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.monthly-journal-form textarea {
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.monthly-journal-history {
+  overflow: hidden;
+}
+
+.monthly-journal-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 16px 18px;
+}
+
+.monthly-journal-history > button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  padding: 15px 18px;
+  text-align: left;
+}
+
+.monthly-journal-history > button:first-of-type {
+  border-top: 0;
+}
+
+.monthly-journal-history > button:hover,
+.monthly-journal-history > button.is-active {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+}
+
+.monthly-journal-history > button > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.monthly-journal-history > button small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthly-journal-history > button svg {
+  flex: 0 0 auto;
+  color: var(--brand-strong);
+}
+
+.journal-form-actions .secondary-action.danger {
+  color: var(--danger);
+}
+
 .journal-entry-form,
 .journal-entry-card {
   border: 1px solid var(--line);
@@ -8019,12 +8186,31 @@ textarea:focus {
     justify-content: flex-start;
   }
 
-  .journal-layout {
+  .journal-layout,
+  .monthly-journal-content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .monthly-journal-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 560px) {
+  .monthly-journal-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .monthly-journal-toolbar label {
+    flex-basis: auto;
+  }
+
+  .monthly-journal-metrics,
+  .monthly-journal-insights {
+    grid-template-columns: 1fr;
+  }
+
   .journal-relation-fields {
     grid-template-columns: 1fr;
   }

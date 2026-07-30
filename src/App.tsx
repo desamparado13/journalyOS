@@ -65,6 +65,7 @@ const PROP_FIRM_PAYOUTS_KEY = "journaly-os-prop-firm-payouts";
 const RESEARCH_IDEAS_KEY = "journaly-os-research-ideas";
 const TRADER_FRIENDS_KEY = "journaly-os-trader-friends";
 const GOALS_KEY = "journaly-os-goals";
+const MONTHLY_JOURNAL_MARKER = "[[JOURNALY_MONTHLY:";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
@@ -415,6 +416,8 @@ type PersonalJournalEntry = {
   id: string;
   userId: string;
   date: string;
+  kind: "daily" | "monthly";
+  monthKey: string;
   content: string;
   advice: string;
   image: string;
@@ -800,6 +803,10 @@ type PersonalJournalFormState = {
   imageFile: File | null;
   removeImage: boolean;
 };
+type MonthlyJournalFormState = {
+  content: string;
+  nextMonthFocus: string;
+};
 type PositionCalculatorState = {
   pair: string;
   accountBalance: string;
@@ -982,6 +989,35 @@ function personalJournalDefaults(): PersonalJournalFormState {
     relatedDisciplineId: "",
     imageFile: null,
     removeImage: false,
+  };
+}
+
+function monthlyJournalDefaults(): MonthlyJournalFormState {
+  return {
+    content: "",
+    nextMonthFocus: "",
+  };
+}
+
+function encodeMonthlyJournalContent(month: string, content: string) {
+  return `${MONTHLY_JOURNAL_MARKER}${month}]]\n${content.trim()}`;
+}
+
+function decodeJournalContent(content: string, entryDate: string) {
+  if (!content.startsWith(MONTHLY_JOURNAL_MARKER)) {
+    return { kind: "daily" as const, monthKey: "", content };
+  }
+
+  const markerEnd = content.indexOf("]]");
+  const monthKey = markerEnd >= 0
+    ? content.slice(MONTHLY_JOURNAL_MARKER.length, markerEnd)
+    : entryDate.slice(0, 7);
+  const journalContent = markerEnd >= 0 ? content.slice(markerEnd + 2).replace(/^\r?\n/, "") : content;
+
+  return {
+    kind: "monthly" as const,
+    monthKey: /^\d{4}-\d{2}$/.test(monthKey) ? monthKey : entryDate.slice(0, 7),
+    content: journalContent,
   };
 }
 function positionDefaults(): PositionCalculatorState {
@@ -1843,11 +1879,15 @@ function toTradeDecision(row: TradeDecisionRow): TradeDecision {
   };
 }
 function toPersonalJournalEntry(row: PersonalJournalEntryRow): PersonalJournalEntry {
+  const decoded = decodeJournalContent(row.content, row.entry_date);
+
   return {
     id: row.id,
     userId: row.user_id,
     date: row.entry_date,
-    content: row.content,
+    kind: decoded.kind,
+    monthKey: decoded.monthKey,
+    content: decoded.content,
     advice: row.advice || "",
     image: row.image_url || "",
     pair: row.pair || "",
@@ -2218,6 +2258,9 @@ export default function App() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [journalEntries, setJournalEntries] = useState<PersonalJournalEntry[]>([]);
   const [journalForm, setJournalForm] = useState<PersonalJournalFormState>(personalJournalDefaults);
+  const [journalMode, setJournalMode] = useState<"daily" | "monthly">("daily");
+  const [monthlyJournalMonth, setMonthlyJournalMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [monthlyJournalForm, setMonthlyJournalForm] = useState<MonthlyJournalFormState>(monthlyJournalDefaults);
   const [pairAdviceEntries, setPairAdviceEntries] = useState<PairAdvice[]>([]);
   const [tradeAdviceIndex, setTradeAdviceIndex] = useState(0);
   const [isTradeAdviceLibraryOpen, setIsTradeAdviceLibraryOpen] = useState(false);
@@ -2285,6 +2328,40 @@ export default function App() {
   const editingJournalEntry = journalForm.id
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
+  const dailyJournalEntries = useMemo(
+    () => journalEntries.filter((entry) => entry.kind === "daily"),
+    [journalEntries],
+  );
+  const monthlyJournalEntries = useMemo(
+    () => journalEntries.filter((entry) => entry.kind === "monthly"),
+    [journalEntries],
+  );
+  const selectedMonthlyJournalEntry =
+    monthlyJournalEntries.find((entry) => entry.monthKey === monthlyJournalMonth) || null;
+  const monthlyJournalAnalytics = useMemo(() => {
+    const items = toJournalItems(trades, []).filter((item) => item.date.startsWith(monthlyJournalMonth));
+    const summary = summarizeJournalItems(monthlyJournalMonth, items);
+    const pairRows = Array.from(new Set(items.map((item) => item.pair)))
+      .map((pair) => {
+        const pairItems = items.filter((item) => item.pair === pair);
+        return {
+          pair,
+          samples: pairItems.length,
+          totalR: pairItems.reduce((sum, item) => sum + item.pnl, 0),
+        };
+      })
+      .sort((a, b) => b.totalR - a.totalR);
+    const disciplineEntries = tradeDecisions.filter((entry) => entry.date.startsWith(monthlyJournalMonth));
+
+    return {
+      ...summary,
+      pairRows,
+      bestPair: pairRows[0] || null,
+      disciplineEntries: disciplineEntries.length,
+      missedWinners: disciplineEntries.filter((entry) => entry.resultR > 0).length,
+      lossesAvoided: disciplineEntries.filter((entry) => entry.resultR < 0).length,
+    };
+  }, [monthlyJournalMonth, tradeDecisions, trades]);
   const journalTradeOptions = useMemo(
     () => trades.filter((trade) => !journalForm.pair || trade.pair === journalForm.pair),
     [journalForm.pair, trades],
@@ -2295,7 +2372,7 @@ export default function App() {
   );
   const journalImageItems = useMemo(
     () =>
-      journalEntries
+      dailyJournalEntries
         .filter((entry) => Boolean(entry.image))
         .map((entry) => ({
           id: entry.id,
@@ -2304,7 +2381,7 @@ export default function App() {
           title: formatMonthDayYear(entry.date),
           meta: entry.pair ? `Journal reflection / ${entry.pair}` : "Journal reflection",
         })),
-    [journalEntries],
+    [dailyJournalEntries],
   );
   const matchingPairAdvice = useMemo(
     () => pairAdviceEntries.filter((entry) => entry.pair === tradeForm.pair),
@@ -2326,6 +2403,15 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(TRADING_MODE_KEY, tradingMode);
   }, [tradingMode]);
+
+  useEffect(() => {
+    const entry = monthlyJournalEntries.find((item) => item.monthKey === monthlyJournalMonth);
+    setMonthlyJournalForm(
+      entry
+        ? { content: entry.content, nextMonthFocus: entry.advice }
+        : monthlyJournalDefaults(),
+    );
+  }, [monthlyJournalEntries, monthlyJournalMonth]);
 
   useEffect(() => {
     if (!supabase) {
@@ -3549,6 +3635,60 @@ export default function App() {
     }
   }
 
+  async function handleMonthlyJournalSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!currentUser || !supabase || !monthlyJournalForm.content.trim()) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+
+    try {
+      const existing = monthlyJournalEntries.find((entry) => entry.monthKey === monthlyJournalMonth);
+      const payload = {
+        user_id: currentUser.id,
+        entry_date: `${monthlyJournalMonth}-01`,
+        content: encodeMonthlyJournalContent(monthlyJournalMonth, monthlyJournalForm.content),
+        advice: monthlyJournalForm.nextMonthFocus.trim(),
+        image_url: "",
+        pair: null,
+        related_trade_id: null,
+        related_discipline_id: null,
+        updated_at: new Date().toISOString(),
+      };
+      const query = existing
+        ? supabase
+            .from("journal_entries")
+            .update(payload)
+            .eq("id", existing.id)
+            .eq("user_id", currentUser.id)
+            .select("*")
+            .single()
+        : supabase.from("journal_entries").insert(payload).select("*").single();
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const saved = toPersonalJournalEntry(data as PersonalJournalEntryRow);
+      setJournalEntries((current) => {
+        const next = existing
+          ? current.map((entry) => (entry.id === saved.id ? saved : entry))
+          : [saved, ...current];
+        return [...next].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+      });
+      showToast({
+        tone: "success",
+        title: existing ? "Monthly journal updated" : "Monthly journal saved",
+        message: `${formatMonthLabel(monthlyJournalMonth)} is ready for future review.`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save the monthly journal.";
+      setSyncMessage(`Could not save monthly journal: ${message}`);
+      showToast({ tone: "error", title: "Monthly journal failed", message });
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
   function editJournalEntry(entry: PersonalJournalEntry) {
     setJournalForm({
       id: entry.id,
@@ -3565,7 +3705,8 @@ export default function App() {
   }
 
   async function deleteJournalEntry(entry: PersonalJournalEntry) {
-    if (!currentUser || !supabase || !window.confirm("Delete this journal entry? This cannot be undone.")) return;
+    const label = entry.kind === "monthly" ? `${formatMonthLabel(entry.monthKey)} monthly journal` : "journal entry";
+    if (!currentUser || !supabase || !window.confirm(`Delete this ${label}? This cannot be undone.`)) return;
 
     setIsSyncing(true);
     const { error } = await supabase
@@ -3583,7 +3724,11 @@ export default function App() {
     setJournalEntries((current) => current.filter((item) => item.id !== entry.id));
     pairAdviceLoadedUserId.current = null;
     if (journalForm.id === entry.id) setJournalForm(personalJournalDefaults());
-    showToast({ tone: "success", title: "Journal entry deleted", message: "The entry was removed." });
+    showToast({
+      tone: "success",
+      title: entry.kind === "monthly" ? "Monthly journal deleted" : "Journal entry deleted",
+      message: "The entry was removed.",
+    });
   }
 
   async function loadBacktests() {
@@ -4698,12 +4843,30 @@ export default function App() {
                 <p>Write freely, add a chart or photo, and optionally connect the thought to a pair, past trade, or Discipline entry.</p>
               </div>
               <div className="journal-summary" aria-label="Journal summary">
-                <span><strong>{journalEntries.length}</strong> entries</span>
-                <span><strong>{journalEntries.filter((entry) => entry.relatedTradeId).length}</strong> trade links</span>
-                <span><strong>{journalEntries.filter((entry) => entry.relatedDisciplineId).length}</strong> discipline links</span>
+                <span><strong>{dailyJournalEntries.length}</strong> daily entries</span>
+                <span><strong>{monthlyJournalEntries.length}</strong> monthly reviews</span>
+                <span><strong>{dailyJournalEntries.filter((entry) => entry.relatedTradeId).length}</strong> trade links</span>
               </div>
             </div>
 
+            <div className="module-tabs journal-mode-tabs" aria-label="Journal sections">
+              <button
+                className={journalMode === "daily" ? "is-active" : ""}
+                type="button"
+                onClick={() => setJournalMode("daily")}
+              >
+                Daily journal
+              </button>
+              <button
+                className={journalMode === "monthly" ? "is-active" : ""}
+                type="button"
+                onClick={() => setJournalMode("monthly")}
+              >
+                Monthly journal
+              </button>
+            </div>
+
+            {journalMode === "daily" ? (
             <div className="journal-layout">
               <form className="journal-entry-form" onSubmit={handleJournalSubmit}>
                 <div className="journal-form-header">
@@ -4825,7 +4988,7 @@ export default function App() {
                 <label className="journal-image-field">
                   <span>Image <small>Optional</small></span>
                   <input
-                    key={journalForm.id || `new-${journalEntries.length}`}
+                    key={journalForm.id || `new-${dailyJournalEntries.length}`}
                     type="file"
                     accept="image/*"
                     onChange={(event) =>
@@ -4862,15 +5025,15 @@ export default function App() {
               </form>
 
               <div className="journal-entry-list" aria-live="polite">
-                {isSyncing && journalEntries.length === 0 ? <DataLoadingOverlay label="Loading journal entries" /> : null}
-                {journalEntries.length === 0 && !isSyncing ? (
+                {isSyncing && dailyJournalEntries.length === 0 ? <DataLoadingOverlay label="Loading journal entries" /> : null}
+                {dailyJournalEntries.length === 0 && !isSyncing ? (
                   <div className="empty-state journal-empty-state">
                     <NotebookPen size={28} />
                     <h3>Your journal starts here</h3>
                     <p>Capture a lesson, emotion, market observation, or post-trade reflection.</p>
                   </div>
                 ) : (
-                  journalEntries.map((entry) => {
+                  dailyJournalEntries.map((entry) => {
                     const linkedTrade = journalTradeById.get(entry.relatedTradeId);
                     const linkedDiscipline = journalDisciplineById.get(entry.relatedDisciplineId);
                     const imageIndex = journalImageItems.findIndex((item) => item.id === entry.id);
@@ -4941,6 +5104,149 @@ export default function App() {
                 )}
               </div>
             </div>
+            ) : (
+              <div className="monthly-journal-layout">
+                <section className="monthly-journal-analytics" aria-label={`${formatMonthLabel(monthlyJournalMonth)} analytics`}>
+                  <div className="monthly-journal-toolbar">
+                    <div>
+                      <p className="eyebrow">Month in review</p>
+                      <h3>{formatMonthLabel(monthlyJournalMonth)}</h3>
+                      <p>Your actual Swing results for the month, ready beside your reflection.</p>
+                    </div>
+                    <label>
+                      <span>Journal month</span>
+                      <input
+                        type="month"
+                        value={monthlyJournalMonth}
+                        onChange={(event) => setMonthlyJournalMonth(event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="monthly-journal-metrics">
+                    <Stat label="Total R" value={`${formatNumber(monthlyJournalAnalytics.totalR)}R`} />
+                    <Stat label="Trades" value={String(monthlyJournalAnalytics.liveTrades)} />
+                    <WinRateStat rate={monthlyJournalAnalytics.winRate} />
+                    <Stat label="Expectancy" value={`${formatNumber(monthlyJournalAnalytics.expectancy)}R`} />
+                    <Stat label="Profit factor" value={formatNumber(monthlyJournalAnalytics.profitFactor)} />
+                    <Stat label="Max drawdown" value={`${formatNumber(monthlyJournalAnalytics.maxDrawdown)}R`} />
+                  </div>
+
+                  <div className="monthly-journal-insights">
+                    <article>
+                      <span>Best pair</span>
+                      <strong>
+                        {monthlyJournalAnalytics.bestPair
+                          ? `${monthlyJournalAnalytics.bestPair.pair} · ${formatNumber(monthlyJournalAnalytics.bestPair.totalR)}R`
+                          : "No trades yet"}
+                      </strong>
+                      <small>
+                        {monthlyJournalAnalytics.bestPair
+                          ? `${monthlyJournalAnalytics.bestPair.samples} trades`
+                          : "Add trades to populate this insight"}
+                      </small>
+                    </article>
+                    <article>
+                      <span>Discipline review</span>
+                      <strong>{monthlyJournalAnalytics.disciplineEntries} entries</strong>
+                      <small>
+                        {monthlyJournalAnalytics.lossesAvoided} losses avoided · {monthlyJournalAnalytics.missedWinners} missed winners
+                      </small>
+                    </article>
+                    <article>
+                      <span>Average result</span>
+                      <strong>{formatNumber(monthlyJournalAnalytics.expectancy)}R</strong>
+                      <small>Per actual trade this month</small>
+                    </article>
+                  </div>
+                </section>
+
+                <div className="monthly-journal-content-grid">
+                  <form className="monthly-journal-form" onSubmit={handleMonthlyJournalSubmit}>
+                    <div className="journal-form-header">
+                      <div>
+                        <span>{selectedMonthlyJournalEntry ? "Editing monthly review" : "New monthly review"}</span>
+                        <strong>{formatMonthLabel(monthlyJournalMonth)}</strong>
+                      </div>
+                      <CalendarDays size={22} />
+                    </div>
+                    <label>
+                      <span>Monthly reflection</span>
+                      <textarea
+                        required
+                        rows={9}
+                        value={monthlyJournalForm.content}
+                        placeholder="What worked this month? What patterns, emotions, or execution mistakes kept repeating?"
+                        onChange={(event) =>
+                          setMonthlyJournalForm((current) => ({ ...current, content: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Focus for next month <small>Optional</small></span>
+                      <textarea
+                        rows={4}
+                        value={monthlyJournalForm.nextMonthFocus}
+                        placeholder="The one behavior, setup, or risk rule you will prioritize next month."
+                        onChange={(event) =>
+                          setMonthlyJournalForm((current) => ({ ...current, nextMonthFocus: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <div className="journal-form-actions">
+                      <button
+                        className="primary-action"
+                        type="submit"
+                        disabled={isSyncing || !monthlyJournalForm.content.trim()}
+                      >
+                        <NotebookPen size={17} />
+                        {selectedMonthlyJournalEntry ? "Update monthly journal" : "Save monthly journal"}
+                      </button>
+                      {selectedMonthlyJournalEntry ? (
+                        <button
+                          className="secondary-action danger"
+                          type="button"
+                          disabled={isSyncing}
+                          onClick={() => void deleteJournalEntry(selectedMonthlyJournalEntry)}
+                        >
+                          <Trash2 size={16} />
+                          Delete
+                        </button>
+                      ) : null}
+                    </div>
+                  </form>
+
+                  <aside className="monthly-journal-history">
+                    <div className="monthly-journal-history-heading">
+                      <span>Monthly history</span>
+                      <strong>{monthlyJournalEntries.length} reviews</strong>
+                    </div>
+                    {monthlyJournalEntries.length === 0 ? (
+                      <div className="empty-state">
+                        <CalendarDays size={26} />
+                        <strong>No monthly reviews yet</strong>
+                        <p>Your first month-end reflection will appear here.</p>
+                      </div>
+                    ) : (
+                      monthlyJournalEntries.map((entry) => (
+                        <button
+                          className={entry.monthKey === monthlyJournalMonth ? "is-active" : ""}
+                          type="button"
+                          key={entry.id}
+                          onClick={() => setMonthlyJournalMonth(entry.monthKey)}
+                        >
+                          <span>
+                            <strong>{formatMonthLabel(entry.monthKey)}</strong>
+                            <small>{entry.content.slice(0, 92)}{entry.content.length > 92 ? "…" : ""}</small>
+                          </span>
+                          <ChevronRight size={17} />
+                        </button>
+                      ))
+                    )}
+                  </aside>
+                </div>
+              </div>
+            )}
           </section>
         ) : null}
 
