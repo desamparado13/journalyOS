@@ -6807,7 +6807,7 @@ export default function App() {
                 />
               </label>
               <label className="file-field">
-                <span>Screenshot</span>
+                <span>Screenshot (optional)</span>
                 <input
                   type="file"
                   accept="image/*"

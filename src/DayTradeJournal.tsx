@@ -290,10 +290,6 @@ export default function DayTradeJournal({
   async function saveTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase) return;
-    if (!form.imageFile) {
-      setMessage("Add a chart image before saving.");
-      return;
-    }
     if (!hasValidResultR || !automaticOutcome) {
       setMessage("Enter a valid RR, such as 3, 0, or -1.");
       return;
@@ -301,7 +297,7 @@ export default function DayTradeJournal({
     setIsLoading(true);
     setMessage("");
     try {
-      const image = await fileToDataUrl(form.imageFile);
+      const image = form.imageFile ? await fileToDataUrl(form.imageFile) : "";
       const payload = {
         user_id: userId,
         trade_date: form.date,
@@ -544,7 +540,7 @@ export default function DayTradeJournal({
               <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: event.target.value })} /></Field>
               <Field label="Result"><input readOnly className={automaticOutcome ? `daytrade-result-${automaticOutcome.toLowerCase()}` : ""} value={automaticOutcome || "Enter RR"} /></Field>
             </div>
-            <label className="daytrade-upload daytrade-quick-upload"><ImagePlus size={24} /><strong>Chart image</strong><span>{form.imageFile?.name || "Upload trade chart"}</span><input required type="file" accept="image/*" onChange={(event) => setForm({ ...form, imageFile: event.target.files?.[0] || null })} /></label>
+            <label className="daytrade-upload daytrade-quick-upload"><ImagePlus size={24} /><strong>Chart image (optional)</strong><span>{form.imageFile?.name || "Upload trade chart if available"}</span><input type="file" accept="image/*" onChange={(event) => setForm({ ...form, imageFile: event.target.files?.[0] || null })} /></label>
           </section>
           <button className="daytrade-save" type="submit" disabled={isLoading}><ClipboardCheck size={19} />Save and move to next date</button>
         </form>
