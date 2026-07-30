@@ -337,6 +337,38 @@ export default function DayTradeJournal({
     setRecords((current) => current.filter((item) => item.id !== trade.id));
   }
 
+  async function deleteAllTrades() {
+    if (!supabase || records.length === 0 || isLoading) return;
+
+    const confirmation = window.prompt(
+      `This permanently deletes all ${records.length} DayTrade backtest record${records.length === 1 ? "" : "s"} in your account. Type DELETE ALL to confirm.`,
+    );
+    if (confirmation !== "DELETE ALL") {
+      if (confirmation !== null) setMessage("Delete all cancelled. The confirmation text did not match.");
+      return;
+    }
+
+    setIsLoading(true);
+    setMessage("");
+    try {
+      const { error } = await supabase
+        .from("daytrade_backtests")
+        .delete()
+        .eq("user_id", userId);
+      if (error) throw error;
+
+      setRecords([]);
+      setEditingId(null);
+      setEditForm(null);
+      setForm(blankForm());
+      setMessage(`Deleted all ${records.length} DayTrade backtest records.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not delete all backtest records.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function loadTradeImage(trade: DayTradeRecord) {
     if (!supabase || trade.image || loadingImageId) return;
     setLoadingImageId(trade.id);
@@ -519,7 +551,21 @@ export default function DayTradeJournal({
 
       {activeView === "daytrade-backtest" ? (
         <div className="daytrade-records">
-          <div className="daytrade-records-heading"><div><span>GBPUSD / EURUSD / EURGBP research database</span><h2>Backtest records</h2></div><strong>{filtered.length} samples</strong></div>
+          <div className="daytrade-records-heading">
+            <div><span>GBPUSD / EURUSD / EURGBP research database</span><h2>Backtest records</h2></div>
+            <div className="daytrade-records-heading-actions">
+              <strong>{filtered.length} shown · {records.length} total</strong>
+              <button
+                className="daytrade-delete-all"
+                type="button"
+                disabled={isLoading || records.length === 0}
+                onClick={() => void deleteAllTrades()}
+              >
+                <Trash2 size={16} />
+                Delete all
+              </button>
+            </div>
+          </div>
           {isLoading ? <div className="daytrade-empty">Loading backtests…</div> : null}
           {!isLoading && filtered.length === 0 ? <div className="daytrade-empty"><TrendingUp size={28} /><strong>No matching samples yet</strong><span>Use the quick logger to add your first result.</span></div> : null}
           {filtered.map((trade) => (

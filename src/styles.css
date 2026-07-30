@@ -4974,10 +4974,41 @@ button.yearly-row.is-active {
   margin-bottom: 4px;
 }
 
-.daytrade-records-heading > strong {
+.daytrade-records-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.daytrade-records-heading-actions > strong {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 8px 12px;
+}
+
+.daytrade-delete-all {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
+  cursor: pointer;
+  padding: 0 12px;
+  font-weight: 850;
+}
+
+.daytrade-delete-all:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+}
+
+.daytrade-delete-all:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .daytrade-empty {
@@ -8411,6 +8442,11 @@ textarea:focus {
   .daytrade-records-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .daytrade-records-heading-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .daytrade-compare {
