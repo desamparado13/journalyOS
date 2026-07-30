@@ -16,6 +16,8 @@ const entryTypeOptions: Exclude<EntryType, "FVG Hunt" | "Break Entry">[] = [
   "3 Kings",
 ];
 const PAIR_MIGRATION_CUTOFF = "2026-07-29T23:15:00Z";
+const LEGACY_META_PREFIX = "[journaly-daytrade]";
+const BACKTEST_LIST_COLUMNS = "id,trade_date,pair,entry_type,result_r,outcome,notes,created_at";
 
 const monthOptions = [
   ["01", "January"],
@@ -40,6 +42,7 @@ type DayTradeRecord = {
   resultR: number;
   outcome: Outcome;
   image: string;
+  storageNotes: string;
   createdAt: string;
 };
 
@@ -87,13 +90,28 @@ function blankForm(date = localDateString(new Date())): DayTradeForm {
   };
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+async function fileToDataUrl(file: File) {
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Could not read the selected chart image."));
+      element.src = sourceUrl;
+    });
+    const maxDimension = 1600;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Could not prepare the selected chart image.");
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/webp", 0.8);
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
 }
 
 function outcomeFromR(resultR: number): Outcome {
@@ -102,20 +120,62 @@ function outcomeFromR(resultR: number): Outcome {
   return "Breakeven";
 }
 
+function parseStoredMetadata(notes: unknown) {
+  const value = typeof notes === "string" ? notes : "";
+  const [firstLine, ...remainingLines] = value.split("\n");
+  if (!firstLine.startsWith(LEGACY_META_PREFIX)) {
+    return { pair: null, entryType: null, notes: value };
+  }
+
+  try {
+    const parsed = JSON.parse(firstLine.slice(LEGACY_META_PREFIX.length)) as {
+      pair?: Pair;
+      entryType?: EntryType;
+    };
+    return {
+      pair: parsed.pair && pairOptions.includes(parsed.pair) ? parsed.pair : null,
+      entryType: parsed.entryType && (
+        entryTypeOptions.includes(parsed.entryType as Exclude<EntryType, "FVG Hunt" | "Break Entry">) ||
+        parsed.entryType === "FVG Hunt" ||
+        parsed.entryType === "Break Entry"
+      ) ? parsed.entryType : null,
+      notes: remainingLines.join("\n"),
+    };
+  } catch {
+    return { pair: null, entryType: null, notes: value };
+  }
+}
+
+function encodeStoredMetadata(pair: Pair, entryType: EntryType, notes = "") {
+  const marker = `${LEGACY_META_PREFIX}${JSON.stringify({ pair, entryType })}`;
+  return notes ? `${marker}\n${notes}` : marker;
+}
+
+function isCheckConstraintError(error: { code?: string; message?: string } | null) {
+  return Boolean(
+    error &&
+    (error.code === "23514" || error.message?.toLowerCase().includes("check constraint")),
+  );
+}
+
 function fromRow(row: any): DayTradeRecord {
   const resultR = Number(row.result_r || 0);
+  const stored = parseStoredMetadata(row.notes);
+  const storedPair = stored.pair || row.pair;
+  const storedEntryType = stored.entryType || row.entry_type;
   return {
     id: row.id,
     date: row.trade_date,
-    pair: pairOptions.includes(row.pair) ? row.pair : "GBPUSD",
-    entryType: entryTypeOptions.includes(row.entry_type)
-      ? row.entry_type
-      : row.entry_type === "FVG Hunt" || row.entry_type === "Break Entry"
-        ? row.entry_type
+    pair: pairOptions.includes(storedPair) ? storedPair : "GBPUSD",
+    entryType: entryTypeOptions.includes(storedEntryType)
+      ? storedEntryType
+      : storedEntryType === "FVG Hunt" || storedEntryType === "Break Entry"
+        ? storedEntryType
         : "Golden entry",
     resultR,
     outcome: outcomeFromR(resultR),
     image: row.before_image_url || "",
+    storageNotes: stored.notes,
     createdAt: row.created_at,
   };
 }
@@ -212,7 +272,7 @@ export default function DayTradeJournal({
         .neq("pair", "GBPUSD");
       const backtest = await supabase
         .from("daytrade_backtests")
-        .select("id,trade_date,pair,entry_type,result_r,outcome,created_at")
+        .select(BACKTEST_LIST_COLUMNS)
         .eq("user_id", userId)
         .order("trade_date", { ascending: false });
       if (!active) return;
@@ -306,14 +366,27 @@ export default function DayTradeJournal({
         result_r: parsedResultR,
         outcome: automaticOutcome,
         before_image_url: image,
+        notes: "",
       };
-      const { data, error } = await supabase
+      let response = await supabase
         .from("daytrade_backtests")
         .insert(payload)
-        .select("id,trade_date,pair,entry_type,result_r,outcome,created_at")
+        .select(BACKTEST_LIST_COLUMNS)
         .single();
-      if (error) throw error;
-      const saved = fromRow(data);
+      if (isCheckConstraintError(response.error)) {
+        response = await supabase
+          .from("daytrade_backtests")
+          .insert({
+            ...payload,
+            pair: "GBPUSD",
+            entry_type: "Golden entry",
+            notes: encodeStoredMetadata(form.pair, form.entryType),
+          })
+          .select(BACKTEST_LIST_COLUMNS)
+          .single();
+      }
+      if (response.error) throw response.error;
+      const saved = fromRow(response.data);
       setRecords((current) => [saved, ...current]);
       setForm(blankForm(nextDate(form.date)));
       setMessage(`Saved. Next date selected: ${nextDate(form.date)}.`);
@@ -418,20 +491,35 @@ export default function DayTradeJournal({
         entry_type: editForm.entryType,
         result_r: resultR,
         outcome: outcomeFromR(resultR),
+        notes: trade.storageNotes,
       };
       if (editForm.imageFile) {
         replacementImage = await fileToDataUrl(editForm.imageFile);
         payload.before_image_url = replacementImage;
       }
-      const { data, error } = await supabase
+      let response = await supabase
         .from("daytrade_backtests")
         .update(payload)
         .eq("id", trade.id)
         .eq("user_id", userId)
-        .select("id,trade_date,pair,entry_type,result_r,outcome,created_at")
+        .select(BACKTEST_LIST_COLUMNS)
         .single();
-      if (error) throw error;
-      const updated = { ...fromRow(data), image: replacementImage || trade.image };
+      if (isCheckConstraintError(response.error)) {
+        response = await supabase
+          .from("daytrade_backtests")
+          .update({
+            ...payload,
+            pair: "GBPUSD",
+            entry_type: "Golden entry",
+            notes: encodeStoredMetadata(editForm.pair, editForm.entryType, trade.storageNotes),
+          })
+          .eq("id", trade.id)
+          .eq("user_id", userId)
+          .select(BACKTEST_LIST_COLUMNS)
+          .single();
+      }
+      if (response.error) throw response.error;
+      const updated = { ...fromRow(response.data), image: replacementImage || trade.image };
       setRecords((current) =>
         current.map((item) => item.id === updated.id ? updated : item).sort((a, b) => b.date.localeCompare(a.date)),
       );
