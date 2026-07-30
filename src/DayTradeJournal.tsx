@@ -4,15 +4,15 @@ import { supabase } from "./supabaseClient";
 
 export type DayTradeView = "daytrade-dashboard" | "daytrade-add" | "daytrade-backtest";
 
-type Pair = "GBPUSD" | "EURUSD";
-type EntryType = "Golden entry" | "Order Block Entry" | "Break Entry" | "FVG Hunt";
+type Pair = "GBPUSD" | "EURUSD" | "EURGBP";
+type EntryType = "Golden entry" | "Order Block Entry" | "Liquidity Sweep" | "Break Entry" | "FVG Hunt";
 type Outcome = "Win" | "Loss" | "Breakeven";
 
-const pairOptions: Pair[] = ["GBPUSD", "EURUSD"];
-const entryTypeOptions: Exclude<EntryType, "FVG Hunt">[] = [
+const pairOptions: Pair[] = ["GBPUSD", "EURUSD", "EURGBP"];
+const entryTypeOptions: Exclude<EntryType, "FVG Hunt" | "Break Entry">[] = [
   "Golden entry",
   "Order Block Entry",
-  "Break Entry",
+  "Liquidity Sweep",
 ];
 const PAIR_MIGRATION_CUTOFF = "2026-07-29T23:15:00Z";
 
@@ -106,11 +106,11 @@ function fromRow(row: any): DayTradeRecord {
   return {
     id: row.id,
     date: row.trade_date,
-    pair: row.pair === "EURUSD" ? "EURUSD" : "GBPUSD",
+    pair: pairOptions.includes(row.pair) ? row.pair : "GBPUSD",
     entryType: entryTypeOptions.includes(row.entry_type)
       ? row.entry_type
-      : row.entry_type === "FVG Hunt"
-        ? "FVG Hunt"
+      : row.entry_type === "FVG Hunt" || row.entry_type === "Break Entry"
+        ? row.entry_type
         : "Golden entry",
     resultR,
     outcome: outcomeFromR(resultR),
@@ -420,7 +420,7 @@ export default function DayTradeJournal({
     <section className="daytrade-app">
       <header className="daytrade-hero">
         <div>
-          <p className="eyebrow">GBPUSD / EURUSD · Fast backtesting</p>
+          <p className="eyebrow">GBPUSD / EURUSD / EURGBP · Fast backtesting</p>
           <h1>Quick Backtest Logger</h1>
           <p>Log only the entry model and final R result. The outcome and next date are handled automatically.</p>
         </div>
@@ -519,7 +519,7 @@ export default function DayTradeJournal({
 
       {activeView === "daytrade-backtest" ? (
         <div className="daytrade-records">
-          <div className="daytrade-records-heading"><div><span>GBPUSD / EURUSD research database</span><h2>Backtest records</h2></div><strong>{filtered.length} samples</strong></div>
+          <div className="daytrade-records-heading"><div><span>GBPUSD / EURUSD / EURGBP research database</span><h2>Backtest records</h2></div><strong>{filtered.length} samples</strong></div>
           {isLoading ? <div className="daytrade-empty">Loading backtests…</div> : null}
           {!isLoading && filtered.length === 0 ? <div className="daytrade-empty"><TrendingUp size={28} /><strong>No matching samples yet</strong><span>Use the quick logger to add your first result.</span></div> : null}
           {filtered.map((trade) => (
@@ -529,7 +529,7 @@ export default function DayTradeJournal({
                   <div className="daytrade-inline-edit">
                     <Field label="Date"><input required type="date" value={editForm.date} onChange={(event) => setEditForm({ ...editForm, date: event.target.value })} /></Field>
                     <Field label="Pair"><select value={editForm.pair} onChange={(event) => setEditForm({ ...editForm, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
-                    <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}>{editForm.entryType === "FVG Hunt" ? <option value="FVG Hunt">FVG Hunt (legacy)</option> : null}{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
+                    <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}>{editForm.entryType === "FVG Hunt" || editForm.entryType === "Break Entry" ? <option value={editForm.entryType}>{editForm.entryType} (legacy)</option> : null}{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
                     <Field label="RR"><input required type="number" step="any" value={editForm.resultR} onChange={(event) => setEditForm({ ...editForm, resultR: event.target.value })} /></Field>
                     <Field label="Result"><input readOnly value={editForm.resultR.trim() && Number.isFinite(Number(editForm.resultR)) ? outcomeFromR(Number(editForm.resultR)) : "Enter RR"} /></Field>
                     <label className="daytrade-edit-image"><ImagePlus size={18} /><span>{editForm.imageFile?.name || "Replace chart image (optional)"}</span><input type="file" accept="image/*" onChange={(event) => setEditForm({ ...editForm, imageFile: event.target.files?.[0] || null })} /></label>
