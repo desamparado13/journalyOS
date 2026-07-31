@@ -4516,7 +4516,7 @@ button.yearly-row.is-active {
 .daytrade-quick-record {
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .daytrade-quick-upload {
@@ -5042,42 +5042,62 @@ button.yearly-row.is-active {
 }
 
 .daytrade-quick-record .daytrade-record-main {
-  gap: 8px;
+  gap: 0;
 }
 
-.daytrade-quick-record .daytrade-record-main header span {
+.daytrade-record-summary {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(250px, 1.5fr) 82px auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 38px;
+}
+
+.daytrade-record-date {
+  display: grid;
+  gap: 1px;
+}
+
+.daytrade-record-date strong {
+  font-size: 0.84rem;
+}
+
+.daytrade-record-date span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daytrade-record-summary header {
+  margin: 0;
+}
+
+.daytrade-record-summary header span {
   padding: 3px 7px;
   font-size: 0.66rem;
 }
 
-.daytrade-quick-record .daytrade-record-title > div {
-  gap: 1px;
+.daytrade-record-result {
+  font-size: 0.96rem;
+  text-align: right;
 }
 
-.daytrade-quick-record .daytrade-record-title > div strong {
-  font-size: 0.88rem;
-}
-
-.daytrade-quick-record .daytrade-record-title span {
-  font-size: 0.74rem;
-}
-
-.daytrade-quick-record .daytrade-record-title b {
-  font-size: 1.1rem;
-}
-
-.daytrade-quick-record .daytrade-edit-actions {
+.daytrade-record-summary .daytrade-edit-actions {
+  display: flex;
+  grid-column: auto;
+  flex-wrap: nowrap;
   gap: 6px;
 }
 
-.daytrade-quick-record .daytrade-edit-actions .icon-button {
-  min-height: 30px;
-  padding-inline: 9px;
-  font-size: 0.74rem;
+.daytrade-record-summary .daytrade-edit-actions .icon-button {
+  min-height: 28px;
+  padding-inline: 8px;
+  font-size: 0.7rem;
 }
 
 .daytrade-chart-button {
-  margin-right: auto;
   border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
   color: var(--brand-strong);
 }
@@ -8667,6 +8687,34 @@ textarea:focus {
 
   .daytrade-record-images {
     grid-template-columns: 1fr;
+  }
+
+  .daytrade-record-summary {
+    grid-template:
+      "date result" auto
+      "tags tags" auto
+      "actions actions" auto / minmax(0, 1fr) auto;
+    gap: 7px 10px;
+  }
+
+  .daytrade-record-date {
+    grid-area: date;
+  }
+
+  .daytrade-record-summary header {
+    grid-area: tags;
+  }
+
+  .daytrade-record-result {
+    grid-area: result;
+  }
+
+  .daytrade-record-summary .daytrade-edit-actions {
+    grid-area: actions;
+  }
+
+  .daytrade-record-summary .daytrade-chart-button {
+    margin-right: auto;
   }
 }
 

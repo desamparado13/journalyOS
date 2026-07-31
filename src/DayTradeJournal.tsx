@@ -712,9 +712,13 @@ export default function DayTradeJournal({
                     </div>
                   </div>
                 ) : (
-                  <>
+                  <div className="daytrade-record-summary">
+                    <div className="daytrade-record-date">
+                      <strong>{trade.date}</strong>
+                      <span>{trade.entryType}</span>
+                    </div>
                     <header><span>{trade.pair}</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
-                    <div className="daytrade-record-title"><div><strong>{trade.date}</strong><span>{trade.entryType}</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
+                    <b className={`daytrade-record-result ${trade.resultR >= 0 ? "positive-r" : "negative-r"}`}>{trade.resultR.toFixed(2)}R</b>
                     <div className="daytrade-edit-actions">
                       <button
                         className="icon-button daytrade-chart-button"
@@ -728,7 +732,7 @@ export default function DayTradeJournal({
                       <button className="icon-button" type="button" onClick={() => startEditing(trade)}><Pencil size={15} />Edit</button>
                       <button className="icon-button danger" type="button" onClick={() => deleteTrade(trade)}><Trash2 size={15} />Delete</button>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </article>
