@@ -4514,7 +4514,9 @@ button.yearly-row.is-active {
 }
 
 .daytrade-quick-record {
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.4fr);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 10px 12px;
 }
 
 .daytrade-quick-upload {
@@ -5039,6 +5041,47 @@ button.yearly-row.is-active {
   gap: 14px;
 }
 
+.daytrade-quick-record .daytrade-record-main {
+  gap: 8px;
+}
+
+.daytrade-quick-record .daytrade-record-main header span {
+  padding: 3px 7px;
+  font-size: 0.66rem;
+}
+
+.daytrade-quick-record .daytrade-record-title > div {
+  gap: 1px;
+}
+
+.daytrade-quick-record .daytrade-record-title > div strong {
+  font-size: 0.88rem;
+}
+
+.daytrade-quick-record .daytrade-record-title span {
+  font-size: 0.74rem;
+}
+
+.daytrade-quick-record .daytrade-record-title b {
+  font-size: 1.1rem;
+}
+
+.daytrade-quick-record .daytrade-edit-actions {
+  gap: 6px;
+}
+
+.daytrade-quick-record .daytrade-edit-actions .icon-button {
+  min-height: 30px;
+  padding-inline: 9px;
+  font-size: 0.74rem;
+}
+
+.daytrade-chart-button {
+  margin-right: auto;
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  color: var(--brand-strong);
+}
+
 .daytrade-record-main header {
   display: flex;
   flex-wrap: wrap;
@@ -5123,6 +5166,92 @@ button.yearly-row.is-active {
   font-size: 0.68rem;
   font-weight: 850;
   text-transform: uppercase;
+}
+
+.daytrade-chart-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.daytrade-chart-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(2, 7, 12, 0.94);
+}
+
+.daytrade-chart-stage {
+  position: relative;
+  z-index: 1;
+  width: 100vw;
+  height: 100vh;
+}
+
+.daytrade-chart-stage > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #02070c;
+  object-fit: contain;
+}
+
+.daytrade-chart-info {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  max-width: calc(100% - 90px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9px;
+  background: rgba(3, 16, 26, 0.78);
+  padding: 9px 12px;
+  color: #ecfeff;
+  backdrop-filter: blur(12px);
+}
+
+.daytrade-chart-info span {
+  color: rgba(236, 254, 255, 0.72);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.daytrade-chart-nav,
+.daytrade-chart-close {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9px;
+  background: rgba(3, 16, 26, 0.78);
+  color: #ecfeff;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+}
+
+.daytrade-chart-nav {
+  top: 50%;
+  width: 48px;
+  height: 56px;
+  transform: translateY(-50%);
+}
+
+.daytrade-chart-nav.is-previous {
+  left: 14px;
+}
+
+.daytrade-chart-nav.is-next {
+  right: 14px;
+}
+
+.daytrade-chart-close {
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
 }
 
 .trade-analysis-panel {

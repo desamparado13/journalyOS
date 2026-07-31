@@ -254,6 +254,7 @@ export default function DayTradeJournal({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<DayTradeEditForm | null>(null);
   const [loadingImageId, setLoadingImageId] = useState<string | null>(null);
+  const [chartViewerId, setChartViewerId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -346,6 +347,21 @@ export default function DayTradeJournal({
   const parsedResultR = Number(form.resultR);
   const hasValidResultR = form.resultR.trim() !== "" && Number.isFinite(parsedResultR);
   const automaticOutcome = hasValidResultR ? outcomeFromR(parsedResultR) : null;
+  const chartViewerIndex = chartViewerId ? filtered.findIndex((trade) => trade.id === chartViewerId) : -1;
+  const chartViewerTrade = chartViewerIndex >= 0 ? filtered[chartViewerIndex] : null;
+
+  useEffect(() => {
+    if (!chartViewerId) return;
+
+    function handleChartViewerKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setChartViewerId(null);
+      if (event.key === "ArrowLeft") void moveChartViewer(-1);
+      if (event.key === "ArrowRight") void moveChartViewer(1);
+    }
+
+    window.addEventListener("keydown", handleChartViewerKey);
+    return () => window.removeEventListener("keydown", handleChartViewerKey);
+  }, [chartViewerId, filtered]);
 
   async function saveTrade(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -405,6 +421,7 @@ export default function DayTradeJournal({
       return;
     }
     setRecords((current) => current.filter((item) => item.id !== trade.id));
+    if (chartViewerId === trade.id) setChartViewerId(null);
   }
 
   async function deleteAllTrades() {
@@ -439,10 +456,10 @@ export default function DayTradeJournal({
     }
   }
 
-  async function loadTradeImage(trade: DayTradeRecord) {
-    if (!supabase || trade.image || loadingImageId) return;
+  async function ensureTradeImage(trade: DayTradeRecord) {
+    if (trade.image) return trade.image;
+    if (!supabase || loadingImageId) return "";
     setLoadingImageId(trade.id);
-    setMessage("");
     try {
       const { data, error } = await supabase
         .from("daytrade_backtests")
@@ -454,11 +471,36 @@ export default function DayTradeJournal({
       setRecords((current) =>
         current.map((item) => item.id === trade.id ? { ...item, image: data.before_image_url || "" } : item),
       );
-      if (!data.before_image_url) setMessage("This backtest has no chart image.");
+      return data.before_image_url || "";
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load this chart image.");
+      return "";
     } finally {
       setLoadingImageId(null);
+    }
+  }
+
+  async function openChartViewer(trade: DayTradeRecord) {
+    setMessage("");
+    const image = await ensureTradeImage(trade);
+    if (!image) {
+      setMessage("This backtest has no chart image.");
+      return;
+    }
+    setChartViewerId(trade.id);
+  }
+
+  async function moveChartViewer(direction: -1 | 1) {
+    if (filtered.length < 2 || chartViewerIndex < 0 || loadingImageId) return;
+
+    for (let offset = 1; offset < filtered.length; offset += 1) {
+      const index = (chartViewerIndex + direction * offset + filtered.length) % filtered.length;
+      const trade = filtered[index];
+      const image = await ensureTradeImage(trade);
+      if (image) {
+        setChartViewerId(trade.id);
+        return;
+      }
     }
   }
 
@@ -674,21 +716,49 @@ export default function DayTradeJournal({
                     <header><span>{trade.pair}</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
                     <div className="daytrade-record-title"><div><strong>{trade.date}</strong><span>{trade.entryType}</span></div><b className={trade.resultR >= 0 ? "positive-r" : "negative-r"}>{trade.resultR.toFixed(2)}R</b></div>
                     <div className="daytrade-edit-actions">
+                      <button
+                        className="icon-button daytrade-chart-button"
+                        type="button"
+                        disabled={loadingImageId !== null}
+                        onClick={() => void openChartViewer(trade)}
+                      >
+                        <BarChart3 size={15} />
+                        {loadingImageId === trade.id ? "Loading…" : "Chart"}
+                      </button>
                       <button className="icon-button" type="button" onClick={() => startEditing(trade)}><Pencil size={15} />Edit</button>
                       <button className="icon-button danger" type="button" onClick={() => deleteTrade(trade)}><Trash2 size={15} />Delete</button>
                     </div>
                   </>
                 )}
               </div>
-              {trade.image ? (
-                <div className="daytrade-record-images daytrade-quick-image"><figure><img loading="lazy" decoding="async" src={trade.image} alt={`${trade.entryType} trade from ${trade.date}`} /><figcaption>Chart</figcaption></figure></div>
-              ) : (
-                <button className="daytrade-load-image" type="button" disabled={loadingImageId !== null} onClick={() => void loadTradeImage(trade)}>
-                  <ImagePlus size={20} />{loadingImageId === trade.id ? "Loading chart…" : "View chart"}
-                </button>
-              )}
             </article>
           ))}
+        </div>
+      ) : null}
+
+      {chartViewerTrade?.image ? (
+        <div className="daytrade-chart-viewer" role="dialog" aria-modal="true" aria-label="Backtest chart viewer">
+          <button className="daytrade-chart-backdrop" type="button" aria-label="Close chart viewer" onClick={() => setChartViewerId(null)} />
+          <div className="daytrade-chart-stage">
+            <div className="daytrade-chart-info">
+              <strong>{chartViewerTrade.pair} · {chartViewerTrade.entryType}</strong>
+              <span>{chartViewerTrade.date} · {chartViewerTrade.resultR.toFixed(2)}R · {chartViewerIndex + 1} of {filtered.length}</span>
+            </div>
+            {filtered.length > 1 ? (
+              <>
+                <button className="daytrade-chart-nav is-previous" type="button" aria-label="Previous chart" onClick={() => void moveChartViewer(-1)}>
+                  <ChevronLeft size={26} />
+                </button>
+                <button className="daytrade-chart-nav is-next" type="button" aria-label="Next chart" onClick={() => void moveChartViewer(1)}>
+                  <ChevronRight size={26} />
+                </button>
+              </>
+            ) : null}
+            <button className="daytrade-chart-close" type="button" aria-label="Close chart viewer" onClick={() => setChartViewerId(null)}>
+              <X size={20} />
+            </button>
+            <img src={chartViewerTrade.image} alt={`${chartViewerTrade.entryType} chart from ${chartViewerTrade.date}`} />
+          </div>
         </div>
       ) : null}
     </section>
