@@ -3092,6 +3092,20 @@ export default function App() {
     backtestYearFilter,
   ]);
 
+  const filteredBacktestImages = useMemo<ImageViewerItem[]>(
+    () =>
+      filteredBacktests
+        .filter((backtest) => Boolean(backtest.screenshot))
+        .map((backtest) => ({
+          id: backtest.id,
+          src: backtest.screenshot,
+          alt: `${backtest.pair} ${backtest.setup} backtest chart`,
+          title: `${backtest.pair} ${backtest.direction} - ${formatMonthDayYear(backtest.date)}`,
+          meta: `${backtest.setup} / ${backtest.result} / ${formatNumber(backtest.pnl)}R`,
+        })),
+    [filteredBacktests],
+  );
+
   const backtestStats = useMemo(() => {
     const scopedBacktests =
       backtestAnalyticsYearFilter === "All"
@@ -6905,21 +6919,10 @@ export default function App() {
                     backtest={backtest}
                     onEdit={() => editBacktest(backtest)}
                     onDelete={() => deleteBacktest(backtest.id)}
-                    onViewImage={() =>
-                      backtest.screenshot &&
-                      openImageViewer(
-                        [
-                          {
-                            id: backtest.id,
-                            src: backtest.screenshot,
-                            alt: `${backtest.pair} ${backtest.setup} backtest screenshot`,
-                            title: `${backtest.pair} ${backtest.direction} - ${formatMonthDayYear(backtest.date)}`,
-                            meta: `${backtest.setup} / ${backtest.result} / ${formatNumber(backtest.pnl)}R`,
-                          },
-                        ],
-                        0,
-                      )
-                    }
+                    onViewImage={() => {
+                      const imageIndex = filteredBacktestImages.findIndex((item) => item.id === backtest.id);
+                      if (imageIndex >= 0) openImageViewer(filteredBacktestImages, imageIndex);
+                    }}
                   />
                 ))
               )}
@@ -11762,8 +11765,8 @@ function BacktestCard({
   onViewImage: () => void;
 }) {
   return (
-    <article className="trade-card">
-      <div>
+    <article className="trade-card backtest-record-card">
+      <div className="backtest-record-main">
         <header>
           <span className="chip">{backtest.pair}</span>
           <span className="chip">{backtest.direction}</span>
@@ -11787,6 +11790,18 @@ function BacktestCard({
         {backtest.notes ? <p className="trade-notes">{backtest.notes}</p> : null}
 
         <div className="trade-actions">
+          {backtest.screenshot ? (
+            <button
+              className="icon-button backtest-chart-button"
+              type="button"
+              title="Open chart"
+              aria-label={`Open ${backtest.pair} backtest chart`}
+              onClick={onViewImage}
+            >
+              <BarChart3 size={15} />
+              Chart
+            </button>
+          ) : null}
           <button className="icon-button" type="button" onClick={onEdit}>
             <Pencil size={16} />
             Edit
@@ -11797,14 +11812,6 @@ function BacktestCard({
           </button>
         </div>
       </div>
-
-      {backtest.screenshot ? (
-        <button className="shot-button" type="button" onClick={onViewImage}>
-          <img className="trade-shot" src={backtest.screenshot} alt={`${backtest.pair} backtest screenshot`} />
-        </button>
-      ) : (
-        <div className="trade-shot" aria-label="No screenshot" />
-      )}
     </article>
   );
 }

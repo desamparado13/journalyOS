@@ -7239,6 +7239,76 @@ textarea:focus {
   grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
+.backtest-record-card {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 12px 14px;
+}
+
+.backtest-record-card::before {
+  inset-block: 9px;
+}
+
+.backtest-record-card::after {
+  bottom: 9px;
+}
+
+.backtest-record-main {
+  position: relative;
+  z-index: 1;
+}
+
+.backtest-record-card header {
+  gap: 6px;
+  margin-bottom: 9px;
+}
+
+.backtest-record-card .chip {
+  min-height: 23px;
+  padding-inline: 8px;
+  font-size: 0.7rem;
+}
+
+.backtest-record-card .trade-meta {
+  gap: 6px;
+}
+
+.backtest-record-card .trade-meta span {
+  font-size: 0.62rem;
+}
+
+.backtest-record-card .trade-meta strong {
+  margin-top: 2px;
+  font-size: 0.82rem;
+}
+
+.backtest-record-card .trade-notes {
+  overflow: hidden;
+  display: -webkit-box;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.backtest-record-card .trade-actions {
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.backtest-record-card .icon-button {
+  min-height: 30px;
+  padding-inline: 9px;
+  font-size: 0.76rem;
+}
+
+.backtest-chart-button {
+  margin-right: auto;
+  border-color: color-mix(in srgb, var(--brand) 38%, var(--line));
+  color: var(--brand-strong);
+}
+
 .trade-meta span {
   color: var(--muted);
   font-size: 0.7rem;
@@ -7393,7 +7463,7 @@ textarea:focus {
   z-index: 50;
   display: grid;
   place-items: center;
-  padding: 24px;
+  padding: 0;
 }
 
 .image-viewer-backdrop {
@@ -7407,8 +7477,8 @@ textarea:focus {
 .image-viewer-panel {
   position: relative;
   z-index: 1;
-  width: min(1100px, 96vw);
-  max-height: 90vh;
+  width: 100vw;
+  height: 100vh;
 }
 
 .image-viewer-info {
@@ -7436,12 +7506,11 @@ textarea:focus {
 .image-viewer-panel img {
   display: block;
   width: 100%;
-  max-height: 90vh;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
   object-fit: contain;
-  background: var(--surface-strong);
-  box-shadow: var(--shadow);
+  background: #02070c;
 }
 
 .image-viewer-close {
@@ -7455,6 +7524,12 @@ textarea:focus {
   position: absolute;
   top: 50%;
   z-index: 2;
+  width: 48px;
+  min-height: 54px;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(3, 16, 26, 0.78);
+  color: #ecfeff;
+  backdrop-filter: blur(12px);
   transform: translateY(-50%);
 }
 
