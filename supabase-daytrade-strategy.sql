@@ -167,7 +167,10 @@ alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_entry_type_check;
 alter table public.daytrade_backtests
   add constraint daytrade_backtests_entry_type_check
-  check (entry_type in ('Break and Retest', 'Internal Reversal')) not valid;
+  check (entry_type in (
+    'Break and Retest', 'Internal Reversal',
+    'Golden entry', 'Order Block Entry', 'Liquidity Sweep', '3 Kings', 'Break Entry', 'FVG Hunt'
+  )) not valid;
 
 alter table public.daytrade_live_trades enable row level security;
 alter table public.daytrade_backtests enable row level security;
