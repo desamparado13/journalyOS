@@ -17,7 +17,7 @@ const legacyEntryTypeOptions: LegacyEntryType[] = [
 ];
 const PAIR_MIGRATION_CUTOFF = "2026-07-29T23:15:00Z";
 const LEGACY_META_PREFIX = "[journaly-daytrade]";
-const BACKTEST_LIST_COLUMNS = "id,trade_date,pair,entry_type,result_r,outcome,notes,created_at";
+const BACKTEST_LIST_COLUMNS = "id,trade_date,pair,entry_type,result_r,mae_r,outcome,notes,created_at";
 
 const monthOptions = [
   ["01", "January"],
@@ -40,6 +40,7 @@ type DayTradeRecord = {
   pair: Pair;
   entryType: EntryType;
   resultR: number;
+  maeR: number;
   outcome: Outcome;
   image: string;
   storageNotes: string;
@@ -51,6 +52,7 @@ type DayTradeForm = {
   pair: Pair;
   entryType: EntryType;
   resultR: string;
+  maeR: string;
   imageFile: File | null;
 };
 
@@ -59,6 +61,7 @@ type DayTradeEditForm = {
   pair: Pair;
   entryType: EntryType;
   resultR: string;
+  maeR: string;
   imageFile: File | null;
 };
 
@@ -86,6 +89,7 @@ function blankForm(date = localDateString(new Date())): DayTradeForm {
     pair: "GBPUSD",
     entryType: "Break and Retest",
     resultR: "",
+    maeR: "",
     imageFile: null,
   };
 }
@@ -172,6 +176,7 @@ function fromRow(row: any): DayTradeRecord {
         ? storedEntryType
         : "Break and Retest",
     resultR,
+    maeR: Number(row.mae_r || 0),
     outcome: outcomeFromR(resultR),
     image: row.before_image_url || "",
     storageNotes: stored.notes,
@@ -345,6 +350,8 @@ export default function DayTradeJournal({
   }, [calendarMonth]);
   const parsedResultR = Number(form.resultR);
   const hasValidResultR = form.resultR.trim() !== "" && Number.isFinite(parsedResultR);
+  const parsedMaeR = Number(form.maeR);
+  const hasValidMaeR = form.maeR.trim() !== "" && Number.isFinite(parsedMaeR) && parsedMaeR >= 0;
   const automaticOutcome = hasValidResultR ? outcomeFromR(parsedResultR) : null;
   const chartViewerIndex = chartViewerId ? filtered.findIndex((trade) => trade.id === chartViewerId) : -1;
   const chartViewerTrade = chartViewerIndex >= 0 ? filtered[chartViewerIndex] : null;
@@ -369,6 +376,10 @@ export default function DayTradeJournal({
       setMessage("Enter a valid RR, such as 3, 0, or -1.");
       return;
     }
+    if (!hasValidMaeR) {
+      setMessage("Enter a valid MAE in R. MAE cannot be negative.");
+      return;
+    }
     setIsLoading(true);
     setMessage("");
     try {
@@ -379,6 +390,7 @@ export default function DayTradeJournal({
         pair: form.pair,
         entry_type: form.entryType,
         result_r: parsedResultR,
+        mae_r: parsedMaeR,
         outcome: automaticOutcome,
         before_image_url: image,
         notes: "",
@@ -510,6 +522,7 @@ export default function DayTradeJournal({
       pair: trade.pair,
       entryType: trade.entryType,
       resultR: String(trade.resultR),
+      maeR: String(trade.maeR),
       imageFile: null,
     });
     setMessage("");
@@ -518,8 +531,13 @@ export default function DayTradeJournal({
   async function saveEdit(trade: DayTradeRecord) {
     if (!supabase || !editForm) return;
     const resultR = Number(editForm.resultR);
+    const maeR = Number(editForm.maeR);
     if (!editForm.resultR.trim() || !Number.isFinite(resultR)) {
       setMessage("Enter a valid RR, such as 3, 0, or -1.");
+      return;
+    }
+    if (!editForm.maeR.trim() || !Number.isFinite(maeR) || maeR < 0) {
+      setMessage("Enter a valid MAE in R. MAE cannot be negative.");
       return;
     }
     setIsLoading(true);
@@ -531,6 +549,7 @@ export default function DayTradeJournal({
         pair: editForm.pair,
         entry_type: editForm.entryType,
         result_r: resultR,
+        mae_r: maeR,
         outcome: outcomeFromR(resultR),
         notes: trade.storageNotes,
       };
@@ -584,8 +603,8 @@ export default function DayTradeJournal({
         </div>
         <div className="daytrade-rule-score">
           <span>Required inputs</span>
-          <strong>5 fields</strong>
-          <small>Date · Pair · Entry · RR · Image</small>
+          <strong>6 fields</strong>
+          <small>Date · Pair · Entry · RR · MAE · Image</small>
         </div>
       </header>
 
@@ -667,6 +686,7 @@ export default function DayTradeJournal({
               <Field label="Pair"><select value={form.pair} onChange={(event) => setForm({ ...form, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
               <Field label="Entry"><select value={form.entryType} onChange={(event) => setForm({ ...form, entryType: event.target.value as EntryType })}>{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
               <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: event.target.value })} /></Field>
+              <Field label="MAE (R)"><input required type="number" min="0" step="any" value={form.maeR} placeholder="e.g. 0.5" onChange={(event) => setForm({ ...form, maeR: event.target.value })} /></Field>
               <Field label="Result"><input readOnly className={automaticOutcome ? `daytrade-result-${automaticOutcome.toLowerCase()}` : ""} value={automaticOutcome || "Enter RR"} /></Field>
             </div>
             <label className="daytrade-upload daytrade-quick-upload"><ImagePlus size={24} /><strong>Chart image (optional)</strong><span>{form.imageFile?.name || "Upload trade chart if available"}</span><input type="file" accept="image/*" onChange={(event) => setForm({ ...form, imageFile: event.target.files?.[0] || null })} /></label>
@@ -703,6 +723,7 @@ export default function DayTradeJournal({
                     <Field label="Pair"><select value={editForm.pair} onChange={(event) => setEditForm({ ...editForm, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
                     <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}>{legacyEntryTypeOptions.includes(editForm.entryType as LegacyEntryType) ? <option value={editForm.entryType}>{editForm.entryType} (legacy)</option> : null}{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
                     <Field label="RR"><input required type="number" step="any" value={editForm.resultR} onChange={(event) => setEditForm({ ...editForm, resultR: event.target.value })} /></Field>
+                    <Field label="MAE (R)"><input required type="number" min="0" step="any" value={editForm.maeR} onChange={(event) => setEditForm({ ...editForm, maeR: event.target.value })} /></Field>
                     <Field label="Result"><input readOnly value={editForm.resultR.trim() && Number.isFinite(Number(editForm.resultR)) ? outcomeFromR(Number(editForm.resultR)) : "Enter RR"} /></Field>
                     <label className="daytrade-edit-image"><ImagePlus size={18} /><span>{editForm.imageFile?.name || "Replace chart image (optional)"}</span><input type="file" accept="image/*" onChange={(event) => setEditForm({ ...editForm, imageFile: event.target.files?.[0] || null })} /></label>
                     <div className="daytrade-edit-actions">
@@ -716,7 +737,7 @@ export default function DayTradeJournal({
                       <strong>{trade.date}</strong>
                       <span>{trade.entryType}</span>
                     </div>
-                    <header><span>{trade.pair}</span><span>{trade.entryType}</span><span>{trade.outcome}</span></header>
+                    <header><span>{trade.pair}</span><span>{trade.entryType}</span><span>{trade.outcome}</span><span>MAE {trade.maeR.toFixed(2)}R</span></header>
                     <b className={`daytrade-record-result ${trade.resultR >= 0 ? "positive-r" : "negative-r"}`}>{trade.resultR.toFixed(2)}R</b>
                     <div className="daytrade-edit-actions">
                       <button
@@ -745,7 +766,7 @@ export default function DayTradeJournal({
           <div className="daytrade-chart-stage">
             <div className="daytrade-chart-info">
               <strong>{chartViewerTrade.pair} · {chartViewerTrade.entryType}</strong>
-              <span>{chartViewerTrade.date} · {chartViewerTrade.resultR.toFixed(2)}R · {chartViewerIndex + 1} of {filtered.length}</span>
+              <span>{chartViewerTrade.date} · {chartViewerTrade.resultR.toFixed(2)}R · MAE {chartViewerTrade.maeR.toFixed(2)}R · {chartViewerIndex + 1} of {filtered.length}</span>
             </div>
             {filtered.length > 1 ? (
               <>
