@@ -1,4 +1,4 @@
--- GBPUSD DayTrade Backtesting (15M London)
+-- GBPUSD DayTrade Backtesting (5M London)
 -- Safe to run for both a new install and an existing DayTrade database.
 
 create table if not exists public.daytrade_live_trades (
@@ -7,7 +7,7 @@ create table if not exists public.daytrade_live_trades (
   trade_date date not null,
   pair text not null default 'GBPUSD' check (pair in ('GBPUSD', 'EURUSD', 'EURGBP')),
   session text not null default 'London' check (session = 'London'),
-  timeframe text not null default '15M' check (timeframe = '15M'),
+  timeframe text not null default '5M' check (timeframe = '5M'),
   direction text not null check (direction in ('Buy', 'Sell')),
   accumulation_quality text not null,
   imbalance_quality text not null,
@@ -53,12 +53,12 @@ create table if not exists public.daytrade_backtests (
   trade_date date not null,
   pair text not null default 'GBPUSD',
   session text not null default 'London' check (session = 'London'),
-  timeframe text not null default '15M' check (timeframe = '15M'),
+  timeframe text not null default '5M' check (timeframe = '5M'),
   direction text check (direction in ('Buy', 'Sell')),
   accumulation_quality text,
   imbalance_quality text,
-  entry_type text not null default 'Golden entry' check (
-    entry_type in ('Golden entry', 'Order Block Entry', 'Liquidity Sweep', '3 Kings', 'Break Entry', 'FVG Hunt')
+  entry_type text not null default 'Break and Retest' check (
+    entry_type in ('Break and Retest', 'Internal Reversal')
   ),
   trading_day text check (trading_day in ('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday')),
   trade_duration_hours numeric check (trade_duration_hours > 0),
@@ -91,7 +91,7 @@ create table if not exists public.daytrade_backtests (
 
 -- Upgrade existing backtest tables without deleting historical records.
 alter table public.daytrade_backtests
-  add column if not exists entry_type text not null default 'Golden entry',
+  add column if not exists entry_type text not null default 'Break and Retest',
   add column if not exists trading_day text,
   add column if not exists trade_duration_hours numeric,
   add column if not exists has_news boolean not null default false,
@@ -104,6 +104,7 @@ alter table public.daytrade_backtests
 
 alter table public.daytrade_backtests
   alter column pair set default 'GBPUSD',
+  alter column entry_type set default 'Break and Retest',
   alter column direction drop not null,
   alter column accumulation_quality drop not null,
   alter column imbalance_quality drop not null,
@@ -118,6 +119,22 @@ alter table public.daytrade_backtests
   alter column before_image_url drop not null,
   alter column after_image_url drop not null,
   alter column rule_checklist drop not null;
+
+alter table public.daytrade_live_trades
+  drop constraint if exists daytrade_live_trades_timeframe_check;
+alter table public.daytrade_live_trades
+  alter column timeframe set default '5M';
+update public.daytrade_live_trades set timeframe = '5M' where timeframe <> '5M';
+alter table public.daytrade_live_trades
+  add constraint daytrade_live_trades_timeframe_check check (timeframe = '5M') not valid;
+
+alter table public.daytrade_backtests
+  drop constraint if exists daytrade_backtests_timeframe_check;
+alter table public.daytrade_backtests
+  alter column timeframe set default '5M';
+update public.daytrade_backtests set timeframe = '5M' where timeframe <> '5M';
+alter table public.daytrade_backtests
+  add constraint daytrade_backtests_timeframe_check check (timeframe = '5M') not valid;
 
 alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_pair_gbpusd_check;
@@ -150,7 +167,7 @@ alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_entry_type_check;
 alter table public.daytrade_backtests
   add constraint daytrade_backtests_entry_type_check
-  check (entry_type in ('Golden entry', 'Order Block Entry', 'Liquidity Sweep', '3 Kings', 'Break Entry', 'FVG Hunt')) not valid;
+  check (entry_type in ('Break and Retest', 'Internal Reversal')) not valid;
 
 alter table public.daytrade_live_trades enable row level security;
 alter table public.daytrade_backtests enable row level security;
