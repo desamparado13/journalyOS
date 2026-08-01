@@ -2258,7 +2258,7 @@ export default function App() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [journalEntries, setJournalEntries] = useState<PersonalJournalEntry[]>([]);
   const [journalForm, setJournalForm] = useState<PersonalJournalFormState>(personalJournalDefaults);
-  const [journalMode, setJournalMode] = useState<"daily" | "monthly">("daily");
+  const [journalMode, setJournalMode] = useState<"daily" | "monthly">("monthly");
   const [monthlyJournalMonth, setMonthlyJournalMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [monthlyJournalForm, setMonthlyJournalForm] = useState<MonthlyJournalFormState>(monthlyJournalDefaults);
   const [pairAdviceEntries, setPairAdviceEntries] = useState<PairAdvice[]>([]);
@@ -2336,6 +2336,26 @@ export default function App() {
     () => journalEntries.filter((entry) => entry.kind === "monthly"),
     [journalEntries],
   );
+  const selectedMonthDailyEntries = useMemo(
+    () => dailyJournalEntries.filter((entry) => entry.date.startsWith(monthlyJournalMonth)),
+    [dailyJournalEntries, monthlyJournalMonth],
+  );
+  const journalMonthCards = useMemo(() => {
+    const year = monthlyJournalMonth.slice(0, 4);
+    return Array.from({ length: 12 }, (_, index) => {
+      const monthKey = `${year}-${String(index + 1).padStart(2, "0")}`;
+      const monthTrades = trades.filter((trade) => trade.date.startsWith(monthKey));
+      const notes = dailyJournalEntries.filter((entry) => entry.date.startsWith(monthKey)).length;
+      return {
+        monthKey,
+        shortLabel: new Date(Number(year), index, 1).toLocaleString("en-US", { month: "short" }),
+        notes,
+        trades: monthTrades.length,
+        totalR: monthTrades.reduce((sum, trade) => sum + trade.pnl, 0),
+        hasReview: monthlyJournalEntries.some((entry) => entry.monthKey === monthKey),
+      };
+    });
+  }, [dailyJournalEntries, monthlyJournalEntries, monthlyJournalMonth, trades]);
   const selectedMonthlyJournalEntry =
     monthlyJournalEntries.find((entry) => entry.monthKey === monthlyJournalMonth) || null;
   const monthlyJournalAnalytics = useMemo(() => {
@@ -3634,7 +3654,12 @@ export default function App() {
         return [...next].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
       });
       pairAdviceLoadedUserId.current = null;
-      setJournalForm(personalJournalDefaults());
+      setJournalForm({
+        ...personalJournalDefaults(),
+        date: monthlyJournalMonth === new Date().toISOString().slice(0, 7)
+          ? new Date().toISOString().slice(0, 10)
+          : `${monthlyJournalMonth}-01`,
+      });
       showToast({
         tone: "success",
         title: existing ? "Journal entry updated" : "Journal entry saved",
@@ -3704,6 +3729,8 @@ export default function App() {
   }
 
   function editJournalEntry(entry: PersonalJournalEntry) {
+    setMonthlyJournalMonth(entry.date.slice(0, 7));
+    setJournalMode("daily");
     setJournalForm({
       id: entry.id,
       date: entry.date,
@@ -3716,6 +3743,16 @@ export default function App() {
       removeImage: false,
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function selectJournalMonth(monthKey: string, mode: "daily" | "monthly" = "monthly") {
+    const today = new Date().toISOString().slice(0, 10);
+    setMonthlyJournalMonth(monthKey);
+    setJournalMode(mode);
+    setJournalForm({
+      ...personalJournalDefaults(),
+      date: today.startsWith(monthKey) ? today : `${monthKey}-01`,
+    });
   }
 
   async function deleteJournalEntry(entry: PersonalJournalEntry) {
@@ -4852,31 +4889,71 @@ export default function App() {
           <section className="workspace-band journal-view">
             <div className="section-heading journal-heading">
               <div>
-                <p className="eyebrow">Private reflections</p>
-                <h2>Journal</h2>
-                <p>Write freely, add a chart or photo, and optionally connect the thought to a pair, past trade, or Discipline entry.</p>
+                <p className="eyebrow">Your trading story</p>
+                <h2>Trading journey</h2>
+                <p>Choose a month and capture the lessons, progress, and moments that shaped your trading journey.</p>
               </div>
               <div className="journal-summary" aria-label="Journal summary">
-                <span><strong>{dailyJournalEntries.length}</strong> daily entries</span>
-                <span><strong>{monthlyJournalEntries.length}</strong> monthly reviews</span>
-                <span><strong>{dailyJournalEntries.filter((entry) => entry.relatedTradeId).length}</strong> trade links</span>
+                <span><strong>{monthlyJournalEntries.length}</strong> months written</span>
+                <span><strong>{dailyJournalEntries.length}</strong> journey notes</span>
               </div>
             </div>
 
+            <section className="journal-month-browser" aria-label="Choose a journal month">
+              <div className="journal-year-switcher">
+                <div>
+                  <span>Your year</span>
+                  <strong>{monthlyJournalMonth.slice(0, 4)}</strong>
+                </div>
+                <div>
+                  <button
+                    type="button"
+                    aria-label="Previous journal year"
+                    onClick={() => selectJournalMonth(`${Number(monthlyJournalMonth.slice(0, 4)) - 1}-${monthlyJournalMonth.slice(5, 7)}`)}
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Next journal year"
+                    onClick={() => selectJournalMonth(`${Number(monthlyJournalMonth.slice(0, 4)) + 1}-${monthlyJournalMonth.slice(5, 7)}`)}
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              </div>
+              <div className="journal-month-grid">
+                {journalMonthCards.map((month) => (
+                  <button
+                    className={`${month.monthKey === monthlyJournalMonth ? "is-active" : ""} ${month.hasReview ? "has-review" : ""}`}
+                    type="button"
+                    key={month.monthKey}
+                    onClick={() => selectJournalMonth(month.monthKey)}
+                    aria-pressed={month.monthKey === monthlyJournalMonth}
+                  >
+                    <span>{month.shortLabel}</span>
+                    <strong>{month.hasReview ? "Journal ready" : "Open journal"}</strong>
+                    <small>{month.trades} trades · {month.totalR > 0 ? "+" : ""}{formatNumber(month.totalR)}R</small>
+                    {month.notes ? <em>{month.notes} note{month.notes === 1 ? "" : "s"}</em> : null}
+                  </button>
+                ))}
+              </div>
+            </section>
+
             <div className="module-tabs journal-mode-tabs" aria-label="Journal sections">
-              <button
-                className={journalMode === "daily" ? "is-active" : ""}
-                type="button"
-                onClick={() => setJournalMode("daily")}
-              >
-                Daily journal
-              </button>
               <button
                 className={journalMode === "monthly" ? "is-active" : ""}
                 type="button"
                 onClick={() => setJournalMode("monthly")}
               >
-                Monthly journal
+                {formatMonthLabel(monthlyJournalMonth)} story
+              </button>
+              <button
+                className={journalMode === "daily" ? "is-active" : ""}
+                type="button"
+                onClick={() => selectJournalMonth(monthlyJournalMonth, "daily")}
+              >
+                Quick notes ({selectedMonthDailyEntries.length})
               </button>
             </div>
 
@@ -4885,8 +4962,8 @@ export default function App() {
               <form className="journal-entry-form" onSubmit={handleJournalSubmit}>
                 <div className="journal-form-header">
                   <div>
-                    <span>{journalForm.id ? "Editing entry" : "New entry"}</span>
-                    <strong>{journalForm.id ? formatMonthDayYear(journalForm.date) : "Capture what matters now"}</strong>
+                    <span>{journalForm.id ? "Editing journey note" : formatMonthLabel(monthlyJournalMonth)}</span>
+                    <strong>{journalForm.id ? formatMonthDayYear(journalForm.date) : "Add a quick journey note"}</strong>
                   </div>
                   <NotebookPen size={22} />
                 </div>
@@ -5002,7 +5079,7 @@ export default function App() {
                 <label className="journal-image-field">
                   <span>Image <small>Optional</small></span>
                   <input
-                    key={journalForm.id || `new-${dailyJournalEntries.length}`}
+                    key={journalForm.id || `new-${monthlyJournalMonth}-${selectedMonthDailyEntries.length}`}
                     type="file"
                     accept="image/*"
                     onChange={(event) =>
@@ -5031,7 +5108,7 @@ export default function App() {
                     {journalForm.id ? "Update entry" : "Save entry"}
                   </button>
                   {journalForm.id ? (
-                    <button className="secondary-action" type="button" onClick={() => setJournalForm(personalJournalDefaults())}>
+                    <button className="secondary-action" type="button" onClick={() => selectJournalMonth(monthlyJournalMonth, "daily")}>
                       Cancel
                     </button>
                   ) : null}
@@ -5039,15 +5116,15 @@ export default function App() {
               </form>
 
               <div className="journal-entry-list" aria-live="polite">
-                {isSyncing && dailyJournalEntries.length === 0 ? <DataLoadingOverlay label="Loading journal entries" /> : null}
-                {dailyJournalEntries.length === 0 && !isSyncing ? (
+                {isSyncing && selectedMonthDailyEntries.length === 0 ? <DataLoadingOverlay label="Loading journal entries" /> : null}
+                {selectedMonthDailyEntries.length === 0 && !isSyncing ? (
                   <div className="empty-state journal-empty-state">
                     <NotebookPen size={28} />
-                    <h3>Your journal starts here</h3>
-                    <p>Capture a lesson, emotion, market observation, or post-trade reflection.</p>
+                    <h3>No notes for {formatMonthLabel(monthlyJournalMonth)} yet</h3>
+                    <p>Capture a lesson, emotion, market observation, or moment from this month.</p>
                   </div>
                 ) : (
-                  dailyJournalEntries.map((entry) => {
+                  selectedMonthDailyEntries.map((entry) => {
                     const linkedTrade = journalTradeById.get(entry.relatedTradeId);
                     const linkedDiscipline = journalDisciplineById.get(entry.relatedDisciplineId);
                     const imageIndex = journalImageItems.findIndex((item) => item.id === entry.id);
@@ -5123,18 +5200,14 @@ export default function App() {
                 <section className="monthly-journal-analytics" aria-label={`${formatMonthLabel(monthlyJournalMonth)} analytics`}>
                   <div className="monthly-journal-toolbar">
                     <div>
-                      <p className="eyebrow">Month in review</p>
+                      <p className="eyebrow">Your month in review</p>
                       <h3>{formatMonthLabel(monthlyJournalMonth)}</h3>
-                      <p>Your actual Swing results for the month, ready beside your reflection.</p>
+                      <p>Your Swing results and personal reflection, together as one chapter.</p>
                     </div>
-                    <label>
-                      <span>Journal month</span>
-                      <input
-                        type="month"
-                        value={monthlyJournalMonth}
-                        onChange={(event) => setMonthlyJournalMonth(event.target.value)}
-                      />
-                    </label>
+                    <button className="secondary-action" type="button" onClick={() => selectJournalMonth(monthlyJournalMonth, "daily")}>
+                      <Plus size={16} />
+                      Add quick note
+                    </button>
                   </div>
 
                   <div className="monthly-journal-metrics">
@@ -5232,25 +5305,24 @@ export default function App() {
 
                   <aside className="monthly-journal-history">
                     <div className="monthly-journal-history-heading">
-                      <span>Monthly history</span>
-                      <strong>{monthlyJournalEntries.length} reviews</strong>
+                      <span>This month’s journey</span>
+                      <strong>{selectedMonthDailyEntries.length} notes</strong>
                     </div>
-                    {monthlyJournalEntries.length === 0 ? (
+                    {selectedMonthDailyEntries.length === 0 ? (
                       <div className="empty-state">
-                        <CalendarDays size={26} />
-                        <strong>No monthly reviews yet</strong>
-                        <p>Your first month-end reflection will appear here.</p>
+                        <NotebookPen size={26} />
+                        <strong>No quick notes yet</strong>
+                        <p>Add small moments through the month, then shape them into your story.</p>
                       </div>
                     ) : (
-                      monthlyJournalEntries.map((entry) => (
+                      selectedMonthDailyEntries.map((entry) => (
                         <button
-                          className={entry.monthKey === monthlyJournalMonth ? "is-active" : ""}
                           type="button"
                           key={entry.id}
-                          onClick={() => setMonthlyJournalMonth(entry.monthKey)}
+                          onClick={() => editJournalEntry(entry)}
                         >
                           <span>
-                            <strong>{formatMonthLabel(entry.monthKey)}</strong>
+                            <strong>{formatMonthDayYear(entry.date)}</strong>
                             <small>{entry.content.slice(0, 92)}{entry.content.length > 92 ? "…" : ""}</small>
                           </span>
                           <ChevronRight size={17} />
