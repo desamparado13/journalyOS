@@ -77,7 +77,8 @@ const JOURNAL_ENTRY_LIST_COLUMNS =
   "id,user_id,entry_date,content,advice,pair,related_trade_id,related_discipline_id,created_at,updated_at";
 const PAIR_ADVICE_COLUMNS = "id,entry_date,pair,advice";
 const BACKTEST_LIST_COLUMNS =
-  "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,screenshot_url,source_app,legacy_id,created_at,updated_at";
+  "id,user_id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,source_app,legacy_id,created_at,updated_at";
+const BACKTEST_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const propFirmChoices = ["5ers", "DNA Funded", "Funding Pips", "Topone Trader", "HolaPrime", "FundedNext"] as const;
 
 const learnVideos = [
@@ -3788,20 +3789,87 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage("");
 
-    const { data, error } = await supabase
-      .from("backtests")
-      .select("*")
-      .order("trade_date", { ascending: false })
-      .order("trade_time", { ascending: false });
+    try {
+      const { data, error } = await withLoadTimeout(
+        supabase
+          .from("backtests")
+          .select(BACKTEST_LIST_COLUMNS)
+          .eq("user_id", currentUser.id)
+          .order("trade_date", { ascending: false })
+          .order("trade_time", { ascending: false }),
+        "Backtests",
+        15000,
+      );
 
-    setIsSyncing(false);
+      if (error) throw error;
 
-    if (error) {
-      setSyncMessage(`Could not load backtests: ${error.message}`);
-      return;
+      const loadedBacktests = ((data || []) as unknown as BacktestRow[]).map(toBacktest);
+      setBacktests((current) => {
+        const screenshots = new Map(current.map((backtest) => [backtest.id, backtest.screenshot]));
+        return loadedBacktests.map((backtest) => ({
+          ...backtest,
+          screenshot: screenshots.get(backtest.id) || "",
+        }));
+      });
+      void hydrateBacktestScreenshots(loadedBacktests.map((backtest) => backtest.id));
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? `Could not load backtests: ${error.message}` : "Could not load backtests.");
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  async function hydrateBacktestScreenshots(backtestIds: string[]) {
+    if (!currentUser || !supabase || backtestIds.length === 0) return;
+
+    const userId = currentUser.id;
+    // Backtest charts are stored as large data URLs. Load them separately so the
+    // records and analytics become usable without waiting for every image.
+    const batches = chunkRows(backtestIds, 1);
+    let nextBatch = 0;
+    let failed = false;
+
+    async function hydrateNextBatch() {
+      while (nextBatch < batches.length) {
+        const batch = batches[nextBatch++];
+
+        try {
+          const { data, error } = await withLoadTimeout(
+            supabase!
+              .from("backtests")
+              .select(BACKTEST_SCREENSHOT_COLUMNS)
+              .eq("user_id", userId)
+              .in("id", batch),
+            "Backtest charts",
+          );
+
+          if (error) throw error;
+
+          const screenshots = new Map(
+            ((data || []) as Pick<BacktestRow, "id" | "screenshot_url">[])
+              .filter((row) => Boolean(row.screenshot_url))
+              .map((row) => [row.id, row.screenshot_url || ""]),
+          );
+
+          if (screenshots.size > 0) {
+            setBacktests((current) =>
+              current.map((backtest) => {
+                const screenshot = screenshots.get(backtest.id);
+                return screenshot ? { ...backtest, screenshot } : backtest;
+              }),
+            );
+          }
+        } catch {
+          failed = true;
+        }
+      }
     }
 
-    setBacktests(((data || []) as BacktestRow[]).map(toBacktest));
+    await Promise.all(Array.from({ length: Math.min(3, batches.length) }, () => hydrateNextBatch()));
+
+    if (failed) {
+      setSyncMessage("Backtests loaded. Some charts are still loading; refresh to retry them.");
+    }
   }
 
   async function loadTradeDecisions() {
@@ -6979,7 +7047,7 @@ export default function App() {
 
             <div className="trade-list" aria-live="polite">
               {isSyncing ? <DataLoadingRow label="Loading backtests" /> : null}
-              {filteredBacktests.length === 0 ? (
+              {filteredBacktests.length === 0 && !isSyncing ? (
                 <div className="empty-state">
                   <strong>No backtests yet</strong>
                   <p>Log a fresh backtest sample to start building your review data.</p>
