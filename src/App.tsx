@@ -6,6 +6,7 @@ import {
   Brain,
   CalendarClock,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -4757,23 +4758,16 @@ export default function App() {
           }}
         />
 
-        <div className="trading-mode-switch" role="group" aria-label="Trading journal">
-          <button
-            className={tradingMode === "swing" ? "is-active" : ""}
-            type="button"
-            onClick={() => setTradingMode("swing")}
+        <div className="trading-mode-switch">
+          <select
+            aria-label="Trading journal"
+            value={tradingMode}
+            onChange={(event) => setTradingMode(event.target.value as TradingMode)}
           >
-            Swing
-            <small>Main</small>
-          </button>
-          <button
-            className={tradingMode === "daytrade" ? "is-active" : ""}
-            type="button"
-            onClick={() => setTradingMode("daytrade")}
-          >
-            DayTrade
-            <small>15M</small>
-          </button>
+            <option value="swing">Swing · Main</option>
+            <option value="daytrade">DayTrade · 15M</option>
+          </select>
+          <ChevronDown size={18} aria-hidden="true" />
         </div>
 
         <nav className="sidebar-nav" aria-label="Primary">

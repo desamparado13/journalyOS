@@ -4224,40 +4224,43 @@ button.yearly-row.is-active {
 }
 
 .trading-mode-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  position: relative;
+  display: flex;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-strong) 76%, transparent);
   padding: 4px;
 }
 
-.trading-mode-switch button {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
+.trading-mode-switch select {
+  width: 100%;
+  min-height: 48px;
   border: 0;
   border-radius: 7px;
-  background: transparent;
-  padding: 8px 6px;
-  color: var(--muted);
-  cursor: pointer;
-  font-weight: 850;
-}
-
-.trading-mode-switch button small {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  opacity: 0.7;
-  text-transform: uppercase;
-}
-
-.trading-mode-switch button.is-active {
+  appearance: none;
   background: var(--brand);
+  padding: 10px 42px 10px 14px;
   color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.94rem;
+  font-weight: 850;
+  outline: none;
   box-shadow: 0 8px 22px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.trading-mode-switch select:focus-visible {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--brand) 26%, transparent),
+    0 8px 22px color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.trading-mode-switch svg {
+  position: absolute;
+  right: 16px;
+  pointer-events: none;
+  color: var(--ink);
 }
 
 .daytrade-app {
