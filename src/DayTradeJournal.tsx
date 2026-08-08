@@ -734,11 +734,26 @@ export default function DayTradeJournal({
                 ) : (
                   <div className="daytrade-record-summary">
                     <div className="daytrade-record-date">
+                      <small>Test date</small>
                       <strong>{trade.date}</strong>
-                      <span>{trade.entryType}</span>
                     </div>
-                    <header><span>{trade.pair}</span><span>{trade.entryType}</span><span>{trade.outcome}</span><span>MAE {trade.maeR.toFixed(2)}R</span></header>
-                    <b className={`daytrade-record-result ${trade.resultR >= 0 ? "positive-r" : "negative-r"}`}>{trade.resultR.toFixed(2)}R</b>
+                    <div className="daytrade-record-setup">
+                      <header>
+                        <span>{trade.pair}</span>
+                        <span className={`daytrade-outcome daytrade-outcome-${trade.outcome.toLowerCase()}`}>{trade.outcome}</span>
+                      </header>
+                      <strong>{trade.entryType}</strong>
+                    </div>
+                    <div className="daytrade-record-metrics">
+                      <div>
+                        <small>Result</small>
+                        <b className={`daytrade-record-result ${trade.resultR >= 0 ? "positive-r" : "negative-r"}`}>{trade.resultR.toFixed(2)}R</b>
+                      </div>
+                      <div>
+                        <small>MAE</small>
+                        <strong>{trade.maeR.toFixed(2)}R</strong>
+                      </div>
+                    </div>
                     <div className="daytrade-edit-actions">
                       <button
                         className="icon-button daytrade-chart-button"

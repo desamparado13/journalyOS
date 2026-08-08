@@ -4971,12 +4971,17 @@ button.yearly-row.is-active {
 
 .daytrade-records {
   display: grid;
-  gap: 12px;
-  padding: 22px;
+  gap: 10px;
+  overflow: hidden;
+  padding: 24px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--brand) 3%, var(--surface)), var(--surface) 180px);
 }
 
 .daytrade-records-heading {
-  margin-bottom: 4px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 0 2px;
 }
 
 .daytrade-records-heading-actions {
@@ -4990,7 +4995,10 @@ button.yearly-row.is-active {
 .daytrade-records-heading-actions > strong {
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 8px 12px;
+  background: color-mix(in srgb, var(--surface-strong) 78%, transparent);
+  padding: 9px 13px;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 5%, transparent);
+  font-size: 0.82rem;
 }
 
 .daytrade-delete-all {
@@ -5029,13 +5037,34 @@ button.yearly-row.is-active {
 }
 
 .daytrade-record {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(250px, 0.58fr);
   gap: 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-strong);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--brand) 12%, var(--line));
+  border-radius: 14px;
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--brand) 4%, var(--surface-strong)), var(--surface-strong) 42%);
   padding: 16px;
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--ink) 5%, transparent);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.daytrade-record::before {
+  position: absolute;
+  inset: 16px auto 16px 0;
+  width: 2px;
+  border-radius: 0 999px 999px 0;
+  background: linear-gradient(180deg, var(--brand), color-mix(in srgb, var(--brand) 18%, transparent));
+  content: "";
+  opacity: 0.52;
+}
+
+.daytrade-record:hover {
+  border-color: color-mix(in srgb, var(--brand) 30%, var(--line));
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--ink) 8%, transparent);
+  transform: translateY(-1px);
 }
 
 .daytrade-record-main {
@@ -5050,41 +5079,117 @@ button.yearly-row.is-active {
 
 .daytrade-record-summary {
   display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(250px, 1.5fr) 82px auto;
-  gap: 12px;
+  grid-template-columns: 118px minmax(210px, 1fr) 174px 222px;
+  gap: 18px;
   align-items: center;
-  min-height: 38px;
+  min-height: 64px;
+  padding: 3px 4px;
 }
 
 .daytrade-record-date {
   display: grid;
-  gap: 1px;
+  gap: 4px;
+  align-content: center;
 }
 
 .daytrade-record-date strong {
-  font-size: 0.84rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
-.daytrade-record-date span {
-  overflow: hidden;
+.daytrade-record-date small,
+.daytrade-record-metrics small {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.61rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.daytrade-record-setup {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.daytrade-record-setup > strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.84rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.daytrade-record-summary header {
+.daytrade-record-setup header {
   margin: 0;
 }
 
-.daytrade-record-summary header span {
+.daytrade-record-summary .daytrade-record-setup header span {
   padding: 3px 7px;
-  font-size: 0.66rem;
+  font-size: 0.63rem;
+}
+
+.daytrade-record-summary .daytrade-record-setup header .daytrade-outcome {
+  position: relative;
+  padding-left: 17px;
+}
+
+.daytrade-outcome::before {
+  position: absolute;
+  top: 50%;
+  left: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  transform: translateY(-50%);
+}
+
+.daytrade-outcome-win {
+  color: var(--positive) !important;
+}
+
+.daytrade-outcome-loss {
+  color: var(--danger) !important;
+}
+
+.daytrade-outcome-breakeven {
+  color: var(--brand-strong) !important;
+}
+
+.daytrade-record-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  min-height: 46px;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.daytrade-record-metrics > div {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding-inline: 12px;
+}
+
+.daytrade-record-metrics > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.daytrade-record-metrics strong {
+  color: var(--text);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .daytrade-record-result {
-  font-size: 0.96rem;
-  text-align: right;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .daytrade-record-summary .daytrade-edit-actions {
@@ -5092,12 +5197,14 @@ button.yearly-row.is-active {
   grid-column: auto;
   flex-wrap: nowrap;
   gap: 6px;
+  justify-content: flex-end;
 }
 
 .daytrade-record-summary .daytrade-edit-actions .icon-button {
-  min-height: 28px;
-  padding-inline: 8px;
-  font-size: 0.7rem;
+  min-height: 32px;
+  border-radius: 8px;
+  padding-inline: 9px;
+  font-size: 0.69rem;
 }
 
 .daytrade-chart-button {
@@ -8676,6 +8783,17 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 
+  .daytrade-record-summary {
+    grid-template-columns: 110px minmax(180px, 1fr) 164px;
+  }
+
+  .daytrade-record-summary .daytrade-edit-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    border-top: 1px solid var(--line);
+    padding-top: 10px;
+  }
+
   .top-actions {
     grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: center;
@@ -8849,30 +8967,43 @@ textarea:focus {
 
   .daytrade-record-summary {
     grid-template:
-      "date result" auto
-      "tags tags" auto
-      "actions actions" auto / minmax(0, 1fr) auto;
-    gap: 7px 10px;
+      "date setup" auto
+      "metrics metrics" auto
+      "actions actions" auto / minmax(0, 0.7fr) minmax(0, 1.3fr);
+    gap: 13px 16px;
   }
 
   .daytrade-record-date {
     grid-area: date;
   }
 
-  .daytrade-record-summary header {
-    grid-area: tags;
+  .daytrade-record-setup {
+    grid-area: setup;
   }
 
-  .daytrade-record-result {
-    grid-area: result;
+  .daytrade-record-metrics {
+    grid-area: metrics;
+    min-height: 54px;
+    border-top: 1px solid var(--line);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
   }
 
   .daytrade-record-summary .daytrade-edit-actions {
     grid-area: actions;
+    justify-content: stretch;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .daytrade-record-summary .daytrade-edit-actions .icon-button {
+    flex: 1;
+    justify-content: center;
   }
 
   .daytrade-record-summary .daytrade-chart-button {
-    margin-right: auto;
+    margin-right: 0;
   }
 }
 
