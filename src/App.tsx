@@ -14,7 +14,6 @@ import {
   CircleDollarSign,
   ClipboardCheck,
   Clock3,
-  Download,
   Gauge,
   ImagePlus,
   Info,
@@ -1100,35 +1099,6 @@ function blobToDataUrl(blob: Blob) {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
-}
-
-function safeDownloadName(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "images";
-}
-
-function imageExtension(blob: Blob) {
-  const extensions: Record<string, string> = {
-    "image/gif": "gif",
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/svg+xml": "svg",
-    "image/webp": "webp",
-  };
-
-  return extensions[blob.type.toLowerCase()] || "img";
-}
-
-function saveDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatNumber(value: number) {
@@ -2319,7 +2289,6 @@ export default function App() {
   const [backtestAnalyticsYearFilter, setBacktestAnalyticsYearFilter] = useState("All");
   const [backtestYearFilter, setBacktestYearFilter] = useState("All");
   const [backtestMonthFilter, setBacktestMonthFilter] = useState("All");
-  const [downloadingSetupImages, setDownloadingSetupImages] = useState<"live" | "backtest" | null>(null);
   const [backtestComparisonMonth, setBacktestComparisonMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [activeView, setActiveView] = useState<AppView>(readActiveView);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
@@ -3243,92 +3212,6 @@ export default function App() {
 
   function showToast(nextToast: ToastState) {
     setToast(nextToast);
-  }
-
-  async function downloadSetupImages(
-    source: "live" | "backtest",
-    records: Array<Pick<Trade, "id" | "date" | "time" | "pair" | "setup" | "screenshot">>,
-    setup: string,
-  ) {
-    if (!currentUser || !supabase || records.length === 0 || setup === "All") return;
-
-    setDownloadingSetupImages(source);
-
-    try {
-      const screenshots = new Map(
-        records.filter((record) => Boolean(record.screenshot)).map((record) => [record.id, record.screenshot]),
-      );
-      const batches = chunkRows(
-        records.filter((record) => !record.screenshot).map((record) => record.id),
-        1,
-      );
-      let nextBatch = 0;
-
-      async function loadNextScreenshot() {
-        while (nextBatch < batches.length) {
-          const ids = batches[nextBatch++];
-          const query = source === "live"
-            ? supabase!.from("trades").select(TRADE_SCREENSHOT_COLUMNS)
-            : supabase!.from("backtests").select(BACKTEST_SCREENSHOT_COLUMNS);
-          const { data, error } = await withLoadTimeout(
-            query.eq("user_id", currentUser!.id).in("id", ids),
-            `${setup} screenshots`,
-          );
-
-          if (error) throw error;
-
-          ((data || []) as Array<{ id: string; screenshot_url: string | null }>).forEach((row) => {
-            if (row.screenshot_url) screenshots.set(row.id, row.screenshot_url);
-          });
-        }
-      }
-
-      await Promise.all(Array.from({ length: Math.min(3, batches.length) }, () => loadNextScreenshot()));
-
-      const matchingImages = records.filter((record) => Boolean(screenshots.get(record.id)));
-      if (matchingImages.length === 0) {
-        showToast({
-          tone: "info",
-          title: "No images to download",
-          message: `The filtered ${setup} records do not have screenshots.`,
-        });
-        return;
-      }
-
-      const zip = new JSZip();
-      for (let index = 0; index < matchingImages.length; index += 1) {
-        const record = matchingImages[index];
-        const response = await fetch(screenshots.get(record.id)!);
-        if (!response.ok) throw new Error(`Could not load the image for ${record.pair} on ${record.date}.`);
-        const blob = await response.blob();
-        const filename = [
-          String(index + 1).padStart(3, "0"),
-          record.date,
-          record.time.replace(":", "-"),
-          safeDownloadName(record.pair),
-          safeDownloadName(record.setup),
-          record.id.slice(0, 8),
-        ].join("-");
-        zip.file(`${filename}.${imageExtension(blob)}`, blob);
-      }
-
-      const archive = await zip.generateAsync({ type: "blob" });
-      const sourceName = source === "live" ? "live-trades" : "backtests";
-      saveDownload(
-        archive,
-        `journaly-${sourceName}-${safeDownloadName(setup)}-images-${new Date().toISOString().slice(0, 10)}.zip`,
-      );
-      showToast({
-        tone: "success",
-        title: "Image download ready",
-        message: `${matchingImages.length} ${setup} image${matchingImages.length === 1 ? "" : "s"} added to the ZIP.`,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not prepare the image download.";
-      showToast({ tone: "error", title: "Image download failed", message });
-    } finally {
-      setDownloadingSetupImages(null);
-    }
   }
 
   function openImageViewer(items: ImageViewerItem[], index: number) {
@@ -6634,17 +6517,6 @@ export default function App() {
                 options={["All", ...setups]}
                 onChange={setSetupFilter}
               />
-              {setupFilter !== "All" ? (
-                <button
-                  className="secondary-action toolbar-action"
-                  type="button"
-                  disabled={downloadingSetupImages !== null || filteredTrades.length === 0}
-                  onClick={() => downloadSetupImages("live", filteredTrades, setupFilter)}
-                >
-                  <Download size={18} />
-                  {downloadingSetupImages === "live" ? "Preparing ZIP..." : "Download setup images"}
-                </button>
-              ) : null}
               <button className="secondary-action toolbar-action" type="button" onClick={() => setActiveView("trade-images")}>
                 <ImagePlus size={18} />
                 Open images
@@ -7165,17 +7037,6 @@ export default function App() {
                 options={["All", ...results]}
                 onChange={(value) => setBacktestResultFilter(value as "All" | Result)}
               />
-              {backtestSetupFilter !== "All" ? (
-                <button
-                  className="secondary-action toolbar-action"
-                  type="button"
-                  disabled={downloadingSetupImages !== null || filteredBacktests.length === 0}
-                  onClick={() => downloadSetupImages("backtest", filteredBacktests, backtestSetupFilter)}
-                >
-                  <Download size={18} />
-                  {downloadingSetupImages === "backtest" ? "Preparing ZIP..." : "Download setup images"}
-                </button>
-              ) : null}
             </div>
 
             <div className="trade-list" aria-live="polite">
