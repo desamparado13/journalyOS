@@ -22,7 +22,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
@@ -523,6 +523,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const fileInputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const wasChatOpen = useRef(false);
   const tradeSaveLock = useRef(false);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
@@ -619,12 +620,22 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(storedMessages));
   }, [messages, userId]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-    });
-    return () => window.cancelAnimationFrame(frame);
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      wasChatOpen.current = false;
+      return;
+    }
+
+    const feed = feedRef.current;
+    if (!feed) return;
+
+    if (!wasChatOpen.current) {
+      feed.scrollTop = feed.scrollHeight;
+      wasChatOpen.current = true;
+      return;
+    }
+
+    feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
   }, [isOpen, messages, isThinking]);
 
   useEffect(() => {
