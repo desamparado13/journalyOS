@@ -122,6 +122,27 @@ results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).incl
 const monthly = await ask("Rank my best live trading months in 2026.");
 results.push({ test: "authoritative monthly performance", pass: (monthly.toolsUsed || []).includes("get_monthly_performance") && /April|2026-04/i.test(monthly.answer) && /10\.85R?/i.test(monthly.answer) && /10 trades?/i.test(monthly.answer), tools: monthly.toolsUsed, answer: monthly.answer });
 
+const inventory = await ask("How many records do you have access to across all of Journaly?");
+results.push({ test: "authoritative Journaly inventory", pass: (inventory.toolsUsed || []).includes("get_journaly_inventory") && /liveTrades: 14 records/i.test(inventory.answer) && /backtests: 4 records/i.test(inventory.answer) && /tradeDecisions: 2 records/i.test(inventory.answer) && /authenticated database/i.test(inventory.answer), tools: inventory.toolsUsed, answer: inventory.answer });
+
+const databaseRows = {
+  trades: [
+    { id: "db-t1", trade_date: "2026-04-01", trade_time: "09:00", pair: "AUDJPY", setup: "Flag", direction: "Long", mae: 0, pnl_r: 2, result: "Win", notes: "", trade_quality: "Good" },
+    { id: "db-t2", trade_date: "2026-04-02", trade_time: "09:00", pair: "EURUSD", setup: "Break and retest", direction: "Short", mae: 0, pnl_r: -1, result: "Loss", notes: "", trade_quality: "Good" },
+  ],
+  backtests: [{ id: "db-b1", trade_date: "2026-03-01", trade_time: "09:00", pair: "AUDJPY", setup: "Flag", direction: "Long", pnl_r: 2, result: "Win", notes: "" }],
+  trade_decisions: [{ id: "db-d1", decision_date: "2026-04-03", decision_time: "09:00", pair: "AUDJPY", setup: "Flag", direction: "Long", status: "Waiting", outcome: "Unknown", result_r: 0 }],
+};
+const fullAccessEnv = { ...ownerEnv, JARVIS_AUTH_BYPASS_USER_ID: undefined, JARVIS_AUTH_BYPASS_EMAIL: undefined, NEXT_PUBLIC_SUPABASE_URL: "https://journaly-test.supabase.co", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key", SUPABASE_FETCH: async (url) => {
+  if (String(url).includes("/auth/v1/user")) return Response.json({ id: "database-user", email: "christian.angelo.desamparado@gmail.com" });
+  const table = String(url).match(/\/rest\/v1\/([^?]+)/)?.[1];
+  return Response.json(databaseRows[table] || []);
+} };
+const fullAccessRequest = new Request("http://local/api/jarvis/chat", { method: "POST", headers: { "content-type": "application/json", authorization: "Bearer test-user-token" }, body: JSON.stringify({ userId: "database-user", question: "How many records do you have access to across all of Journaly?", context }) });
+const fullAccessResponse = await worker.fetch(fullAccessRequest, fullAccessEnv);
+const fullAccess = await fullAccessResponse.json();
+results.push({ test: "database overrides client snapshot", pass: fullAccessResponse.ok && /liveTrades: 2 records/i.test(fullAccess.answer) && /backtests: 1 record/i.test(fullAccess.answer) && /tradeDecisions: 1 record/i.test(fullAccess.answer) && !/liveTrades: 14 records/i.test(fullAccess.answer), tools: fullAccess.toolsUsed, answer: fullAccess.answer });
+
 const learning = await ask("what have you learned from my saved charts and skipped trades?");
 results.push({ test: "persistent learning retrieval", pass: /skip|chart|sweep|PPA|lesson|pattern/i.test(learning.answer) && (learning.toolsUsed || []).some((tool) => tool === "get_learning_records" || tool === "get_skipped_trades"), tools: learning.toolsUsed });
 

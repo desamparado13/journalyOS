@@ -26,6 +26,7 @@ const JARVIS_ANALYTICS_INSTRUCTIONS = `
 JOURNALY NUMERIC ACCURACY
 - Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
+- For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - Treat tool statistics as authoritative. If a screenshot conflicts with tool data, state the conflict without inventing a reconciliation.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
@@ -60,6 +61,12 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
   { type: "function", name: "get_monthly_performance", description: "Authoritative live-trade monthly ledger and ranking. Use for every question about monthly totals, best/worst months, month comparisons, or performance by month. Never manually sum recent trades for these questions.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["year"] } },
+  { type: "function", name: "get_journaly_inventory", description: "Get authoritative record counts and date coverage for every authenticated Journaly data surface.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_live_trade_statistics", description: "Authoritative live-trade statistics with optional pair, setup, direction, execution quality, year, or month filters. Use instead of manually calculating from trade lists.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "direction", "quality", "year", "month"] } },
+  { type: "function", name: "get_decision_statistics", description: "Authoritative forecast, waiting, cancelled, missed, skipped-trade, and opportunity-cost statistics.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["pair", "setup", "year"] } },
+  { type: "function", name: "get_daytrade_statistics", description: "Authoritative statistics for Journaly's day-trade strategy records. Keeps live and backtest data separate.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, entryType: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["source", "pair", "entryType", "year"] } },
+  { type: "function", name: "get_journal_entries", description: "Read the authenticated user's personal journal and retained Jarvis learning entries, with optional pair/year filters.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "year", "limit"] } },
+  { type: "function", name: "get_tradingview_state", description: "Read authenticated TradingView events, WATCH pair state, and Jarvis threshold notifications for a ticker/timeframe.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { ticker: { type: ["string", "null"] }, timeframe: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["ticker", "timeframe", "limit"] } },
   { type: "function", name: "get_account_risk", description: "Get documented planned risk from active Journaly forecasts. This is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
 ];
@@ -157,7 +164,7 @@ async function authenticateUser(request, env, requestedUserId) {
   const supabaseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = env.SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!supabaseUrl || !supabaseKey) throw new Error("Jarvis authentication is not configured.");
-  const response = await fetch(`${String(supabaseUrl).replace(/\/$/, "")}/auth/v1/user`, {
+  const response = await (env.SUPABASE_FETCH || fetch)(`${String(supabaseUrl).replace(/\/$/, "")}/auth/v1/user`, {
     headers: {
       authorization: `Bearer ${token}`,
       apikey: supabaseKey,
@@ -168,34 +175,54 @@ async function authenticateUser(request, env, requestedUserId) {
   return user?.id ? user : null;
 }
 
-async function loadAuthenticatedMonthlyTrades(request, env, userId) {
+async function loadAuthenticatedRows(request, env, userId, table, select, order) {
   if (env.JARVIS_AUTH_BYPASS_USER_ID) return null;
   const token = bearerToken(request);
   const connection = supabaseConnection(env);
   if (!token || !connection) return null;
-  const query = new URL(`${connection.url}/rest/v1/trades`);
-  query.searchParams.set("select", "id,trade_date,pair,setup,pnl_r");
+  const query = new URL(`${connection.url}/rest/v1/${table}`);
+  query.searchParams.set("select", select);
   query.searchParams.set("user_id", `eq.${userId}`);
-  query.searchParams.set("order", "trade_date.asc,id.asc");
+  if (order) query.searchParams.set("order", order);
+  const rows = [];
   try {
-    const allRows = [];
     for (let page = 0; page < 10; page += 1) {
       const start = page * 1000;
       const response = await connection.fetch(query.toString(), { headers: { apikey: connection.key, authorization: `Bearer ${token}`, range: `${start}-${start + 999}` } });
       if (!response.ok) {
-        console.warn("[Jarvis ledger load failure]", JSON.stringify({ status: response.status, userId }));
+        console.warn("[Jarvis data load failure]", JSON.stringify({ table, status: response.status, userId }));
         return null;
       }
-      const rows = await response.json();
-      if (!Array.isArray(rows)) return null;
-      allRows.push(...rows);
-      if (rows.length < 1000) break;
+      const pageRows = await response.json();
+      if (!Array.isArray(pageRows)) return null;
+      rows.push(...pageRows);
+      if (pageRows.length < 1000) break;
     }
-    return allRows.map((row) => ({ id: row.id, date: row.trade_date, pair: row.pair, setup: row.setup, pnlR: Number(row.pnl_r || 0) }));
+    return rows;
   } catch {
-    console.warn("[Jarvis ledger load failure]", JSON.stringify({ category: "network", userId }));
+    console.warn("[Jarvis data load failure]", JSON.stringify({ table, category: "network", userId }));
     return null;
   }
+}
+
+async function loadAuthenticatedJournalyData(request, env, userId) {
+  if (env.JARVIS_AUTH_BYPASS_USER_ID) return null;
+  const [trades, backtests, decisions, journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications] = await Promise.all([
+    loadAuthenticatedRows(request, env, userId, "trades", "id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,trade_quality,source_app,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at", "trade_date.desc,trade_time.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "backtests", "id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,source_app,created_at,updated_at", "trade_date.desc,trade_time.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,result_r,created_at,updated_at", "decision_date.desc,decision_time.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "journal_entries", "id,entry_date,content,advice,pair,related_trade_id,related_discipline_id,created_at,updated_at", "entry_date.desc,created_at.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "daytrade_live_trades", "id,trade_date,pair,session,timeframe,direction,accumulation_quality,imbalance_quality,trading_day,trade_duration_hours,has_news,previous_imbalance_sessions,liquidity_context,retracement_depth,planned_rr,mae_r,mfe_r,result_r,outcome,trade_grade,execution_quality,emotions,confidence,patience,fomo,discipline,rule_violations,notes,created_at,updated_at", "trade_date.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "daytrade_backtests", "id,trade_date,pair,session,timeframe,direction,accumulation_quality,imbalance_quality,entry_type,trading_day,trade_duration_hours,has_news,previous_imbalance_sessions,liquidity_context,retracement_depth,planned_rr,mae_r,mfe_r,result_r,outcome,trade_grade,notes,created_at,updated_at", "trade_date.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "jarvis_tradingview_events", "id,ticker,timeframe,event,event_timestamp,price,mrh,mrl,bullish_break_count,bearish_break_count,candle,processing_status,received_at", "received_at.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "jarvis_pair_state", "id,ticker,timeframe,status,event,price,mrh,mrl,bullish_break_count,bearish_break_count,last_candle_timestamp,updated_at", "updated_at.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "jarvis_notifications", "id,event_id,ticker,timeframe,break_count,candle_timestamp,message,read_at,created_at", "created_at.desc,id.desc"),
+  ]);
+  const mapTrade = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, executionQuality: row.trade_quality, notes: row.notes, mae: Number(row.mae || 0), stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, finalizedAt: row.finalized_at, sourceApp: row.source_app });
+  const mapBacktest = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, notes: row.notes, stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, scaleIn: row.scale_in, sourceApp: row.source_app });
+  const mapDecision = (row) => ({ id: row.id, date: row.decision_date, time: String(row.decision_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, status: row.status, entryPlan: row.entry_plan, stopLoss: row.stop_loss, takeProfit: row.take_profit, plannedRiskPercent: row.risk_percent == null ? null : Number(row.risk_percent), reasonToTake: row.reason_to_take, reasonCancelled: row.reason_cancelled, outcome: row.outcome, notes: row.notes, resultR: Number(row.result_r || 0) });
+  const unavailableSurfaces = Object.entries({ trades, backtests, tradeDecisions: decisions, journalEntries: journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications }).filter(([, value]) => !Array.isArray(value)).map(([name]) => name);
+  return { trades: trades?.map(mapTrade) || null, backtests: backtests?.map(mapBacktest) || null, forecasts: decisions?.map(mapDecision) || null, journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications, unavailableSurfaces };
 }
 
 function validChartImage(value) {
@@ -535,11 +562,52 @@ function verifiedMonthlyAnswer(ledger) {
   return `${sections.join("\n\n")}\n\nThese figures are calculated from ${ledger.recordsIncluded} complete live-trade records using integer hundredths of R; every monthly total passed the ledger reconciliation check.`;
 }
 
+function dateCoverage(records, key = "date") {
+  const dates = records.map((record) => String(record?.[key] || "")).filter(Boolean).sort();
+  return { count: records.length, oldestDate: dates[0] || null, newestDate: dates.at(-1) || null };
+}
+
+function deterministicStats(records, valueKey = "pnlR") {
+  const normalized = records.map((record) => ({ ...record, pnlR: Number(record?.[valueKey] || 0) }));
+  return setupStats(normalized);
+}
+
+function verifiedStatisticsAnswer(result) {
+  if (result?.unavailable) return `I could not verify ${result.unavailable} from the authenticated database, so I will not report a numeric result. Refresh Journaly or retry after the data connection recovers.`;
+  if (result?.inventory) {
+    const lines = Object.entries(result.inventory).map(([name, value]) => `${name}: ${value.count} record${value.count === 1 ? "" : "s"}${value.oldestDate ? ` (${value.oldestDate} to ${value.newestDate})` : ""}`);
+    const unavailable = result.unavailableSurfaces?.length ? `\nUnavailable and not treated as zero: ${result.unavailableSurfaces.join(", ")}.` : "";
+    return `Verified Journaly inventory:\n${lines.join("\n")}${unavailable}\n\nAll available counts came from the authenticated database and remain separated by record type.`;
+  }
+  if (result?.byStatus && result?.byOutcome) {
+    return `Verified trade decision statistics: ${result.total} record${result.total === 1 ? "" : "s"}, ${result.totalResultR > 0 ? "+" : ""}${result.totalResultR.toFixed(2)}R documented result. Statuses: ${Object.entries(result.byStatus).map(([key, value]) => `${key} ${value}`).join(", ")}. Outcomes: ${Object.entries(result.byOutcome).map(([key, value]) => `${key} ${value}`).join(", ")}. Calculated deterministically from the authenticated database.`;
+  }
+  if (result?.live && result?.backtest && result?.gap) {
+    const format = (label, stats) => `${label}: ${stats.sampleSize} record${stats.sampleSize === 1 ? "" : "s"}, ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}, ${stats.expectancyR == null ? "no expectancy" : `${stats.expectancyR.toFixed(2)}R expectancy`}`;
+    const expectancyGap = result.gap.expectancyR == null ? "not available" : `${result.gap.expectancyR > 0 ? "+" : ""}${result.gap.expectancyR.toFixed(2)}R`;
+    const winRateGap = result.gap.winRatePoints == null ? "not available" : `${result.gap.winRatePoints > 0 ? "+" : ""}${result.gap.winRatePoints.toFixed(1)} percentage points`;
+    return `Verified live-versus-backtest comparison:\n${format("Live", result.live)}\n${format("Backtest", result.backtest)}\nGap: ${expectancyGap} expectancy and ${winRateGap} win rate. Each dataset was calculated separately from the authenticated database.`;
+  }
+  if (Object.hasOwn(result || {}, "documentedPlannedRiskPercent")) {
+    return `Verified documented planned risk: ${Number(result.documentedPlannedRiskPercent || 0).toFixed(2)}% across ${result.activeForecastCount} active forecast${result.activeForecastCount === 1 ? "" : "s"}. This is Journaly planning data only; live broker risk is not connected.`;
+  }
+  const stats = result?.statistics;
+  if (!stats) return null;
+  const label = result.label || result.source || "Journaly records";
+  return `Verified ${label}: ${stats.sampleSize} record${stats.sampleSize === 1 ? "" : "s"}, ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}, and ${stats.expectancyR == null ? "no expectancy" : `${stats.expectancyR.toFixed(2)}R expectancy`}. Breakdown: ${stats.wins} wins, ${stats.losses} losses, ${stats.breakEven} breakeven. Calculated deterministically from the authenticated database.`;
+}
+
 function executeJournalyTool(name, args, data) {
   const trades = Array.isArray(data.trades) ? data.trades : [];
   const monthlyTrades = Array.isArray(data.monthlyTrades) ? data.monthlyTrades : trades;
   const backtests = Array.isArray(data.backtests) ? data.backtests : [];
   const forecasts = Array.isArray(data.forecasts) ? data.forecasts : [];
+  const journals = Array.isArray(data.journals) ? data.journals : [];
+  const daytradeLive = Array.isArray(data.daytradeLive) ? data.daytradeLive : [];
+  const daytradeBacktests = Array.isArray(data.daytradeBacktests) ? data.daytradeBacktests : [];
+  const tradingViewEvents = Array.isArray(data.tradingViewEvents) ? data.tradingViewEvents : [];
+  const pairStates = Array.isArray(data.pairStates) ? data.pairStates : [];
+  const notifications = Array.isArray(data.notifications) ? data.notifications : [];
   const filterRecords = (records) => records.filter((record) => (!args.pair || normalizePair(record.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(record.setup, args.setup)) && (!args.month || String(record.date || "").startsWith(args.month)));
   switch (name) {
     case "get_user_profile":
@@ -617,6 +685,33 @@ function executeJournalyTool(name, args, data) {
     case "get_monthly_performance": {
       const months = monthlyPerformance(monthlyTrades, args.year);
       return { source: "live_trades", ledgerSource: data.monthlyLedgerSource || "authenticated_client_snapshot", year: args.year, calculation: "integer_hundredths_of_R", months, bestMonth: months[0] || null, recordsIncluded: months.reduce((sum, month) => sum + month.tradeCount, 0), allMonthsVerified: months.every((month) => month.arithmeticVerified) };
+    }
+    case "get_journaly_inventory":
+      return { inventory: { liveTrades: dateCoverage(trades), backtests: dateCoverage(backtests), tradeDecisions: dateCoverage(forecasts), journalEntries: dateCoverage(journals, "entry_date"), daytradeLive: dateCoverage(daytradeLive, "trade_date"), daytradeBacktests: dateCoverage(daytradeBacktests, "trade_date"), tradingViewEvents: dateCoverage(tradingViewEvents, "event_timestamp"), watchedPairs: dateCoverage(pairStates, "last_candle_timestamp"), jarvisNotifications: dateCoverage(notifications, "created_at") }, unavailableSurfaces: data.unavailableSurfaces || [] };
+    case "get_live_trade_statistics": {
+      const filtered = trades.filter((trade) => (!args.pair || normalizePair(trade.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(trade.setup, args.setup)) && (!args.direction || trade.direction === args.direction) && (!args.quality || trade.executionQuality === args.quality) && (!args.year || String(trade.date || "").startsWith(`${args.year}-`)) && (!args.month || String(trade.date || "").startsWith(args.month)));
+      return { label: "live trade statistics", filter: args, statistics: deterministicStats(filtered), dataCoverage: dateCoverage(trades) };
+    }
+    case "get_decision_statistics": {
+      const filtered = forecasts.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(item.setup, args.setup)) && (!args.year || String(item.date || "").startsWith(`${args.year}-`)));
+      const byStatus = Object.fromEntries(["Waiting", "Taken", "Cancelled", "Missed"].map((status) => [status, filtered.filter((item) => item.status === status).length]));
+      const byOutcome = Object.fromEntries(["Won", "Lost", "Breakeven", "Avoided loss", "Cost opportunity", "Unknown"].map((outcome) => [outcome, filtered.filter((item) => item.outcome === outcome).length]));
+      return { label: "trade decision statistics", filter: args, total: filtered.length, totalResultR: Math.round(filtered.reduce((sum, item) => sum + Math.round(Number(item.resultR || 0) * 100), 0)) / 100, byStatus, byOutcome, dataCoverage: dateCoverage(forecasts) };
+    }
+    case "get_daytrade_statistics": {
+      const surface = args.source === "live" ? "daytradeLive" : "daytradeBacktests";
+      if ((data.unavailableSurfaces || []).includes(surface)) return { unavailable: surface };
+      const source = args.source === "live" ? daytradeLive : daytradeBacktests;
+      const filtered = source.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.entryType || matchesText(item.entry_type, args.entryType)) && (!args.year || String(item.trade_date || "").startsWith(`${args.year}-`)));
+      return { label: `day-trade ${args.source} statistics`, source: args.source, filter: args, statistics: deterministicStats(filtered, "result_r"), dataCoverage: dateCoverage(source, "trade_date") };
+    }
+    case "get_journal_entries":
+      if ((data.unavailableSurfaces || []).includes("journalEntries")) return { unavailable: "journal entries" };
+      return { entries: journals.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.year || String(item.entry_date || "").startsWith(`${args.year}-`))).slice(0, args.limit), totalAvailable: journals.length };
+    case "get_tradingview_state": {
+      if ((data.unavailableSurfaces || []).some((surface) => ["tradingViewEvents", "pairStates", "notifications"].includes(surface))) return { unavailable: "TradingView/Jarvis state" };
+      const matches = (item) => (!args.ticker || normalizePair(item.ticker) === normalizePair(args.ticker)) && (!args.timeframe || String(item.timeframe) === String(args.timeframe));
+      return { events: tradingViewEvents.filter(matches).slice(0, args.limit), pairStates: pairStates.filter(matches), notifications: notifications.filter(matches).slice(0, args.limit) };
     }
     case "get_account_risk": {
       const active = forecasts.filter((forecast) => forecast.status === "Waiting");
@@ -704,8 +799,7 @@ async function handleJarvis(request, env) {
   }
   if (authorization.error) return authorization.error;
   const authenticatedUser = authorization.user;
-  const wantsMonthlyLedger = /\b(month|monthly|best\s+months?|worst\s+months?|performance\s+by\s+month)\b/i.test(question);
-  const authenticatedMonthlyTrades = wantsMonthlyLedger ? await loadAuthenticatedMonthlyTrades(request, env, authenticatedUser.id) : null;
+  const authenticatedJournaly = await loadAuthenticatedJournalyData(request, env, authenticatedUser.id);
 
   const history = normalizeHistory(body?.history);
   const journalContext = body?.context && typeof body.context === "object" ? body.context : {};
@@ -721,11 +815,19 @@ async function handleJarvis(request, env) {
   const toolData = {
     profile,
     memories: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
-    trades: Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : [],
-    monthlyTrades: authenticatedMonthlyTrades || (Array.isArray(journalData?.monthlyTrades) ? journalData.monthlyTrades : Array.isArray(journalData?.trades) ? journalData.trades : []),
-    monthlyLedgerSource: authenticatedMonthlyTrades ? "authenticated_database" : "authenticated_client_snapshot",
-    backtests: Array.isArray(journalData?.backtests) ? journalData.backtests : [],
-    forecasts: Array.isArray(journalData?.forecasts) ? journalData.forecasts : [],
+    trades: authenticatedJournaly?.trades || (Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : []),
+    monthlyTrades: authenticatedJournaly?.trades || (Array.isArray(journalData?.monthlyTrades) ? journalData.monthlyTrades : Array.isArray(journalData?.trades) ? journalData.trades : []),
+    monthlyLedgerSource: authenticatedJournaly?.trades ? "authenticated_database" : "authenticated_client_snapshot",
+    backtests: authenticatedJournaly?.backtests || (Array.isArray(journalData?.backtests) ? journalData.backtests : []),
+    forecasts: authenticatedJournaly?.forecasts || (Array.isArray(journalData?.forecasts) ? journalData.forecasts : []),
+    journals: authenticatedJournaly?.journals || [],
+    daytradeLive: authenticatedJournaly?.daytradeLive || [],
+    daytradeBacktests: authenticatedJournaly?.daytradeBacktests || [],
+    tradingViewEvents: authenticatedJournaly?.tradingViewEvents || [],
+    pairStates: authenticatedJournaly?.pairStates || [],
+    notifications: authenticatedJournaly?.notifications || [],
+    unavailableSurfaces: authenticatedJournaly?.unavailableSurfaces || [],
+    authoritativeSource: authenticatedJournaly ? "authenticated_database" : "authenticated_client_snapshot",
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
     sessionState: journalData?.sessionState || {},
   };
@@ -739,7 +841,7 @@ async function handleJarvis(request, env) {
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
     auditedBacktestChartLibrary: JARVIS_BACKTEST_AUDIT_SUMMARY,
     learnedCaseCount: toolData.learningRecords.length,
-    dataCoverage: { liveTrades: toolData.trades.length, monthlyLedgerTrades: toolData.monthlyTrades.length, monthlyLedgerSource: toolData.monthlyLedgerSource, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length },
+    dataCoverage: { source: toolData.authoritativeSource, liveTrades: toolData.trades.length, monthlyLedgerTrades: toolData.monthlyTrades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length, journals: toolData.journals.length, daytradeLive: toolData.daytradeLive.length, daytradeBacktests: toolData.daytradeBacktests.length, tradingViewEvents: toolData.tradingViewEvents.length, watchedPairs: toolData.pairStates.length, notifications: toolData.notifications.length },
   };
   const chartImage = validChartImage(body?.chartImage);
   const currentContent = [
@@ -761,6 +863,7 @@ async function handleJarvis(request, env) {
     let roundInput = input;
     let toolCallsUsed = [];
     let verifiedMonthlyLedger = null;
+    let verifiedStatResult = null;
     const usage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
@@ -811,6 +914,7 @@ async function handleJarvis(request, env) {
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
+          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
@@ -826,6 +930,7 @@ async function handleJarvis(request, env) {
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
       if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
+      else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
     }
   }
