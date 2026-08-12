@@ -1754,10 +1754,14 @@ label span,
 }
 
 .calendar-title-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 42px 280px 42px;
   gap: 8px;
   align-items: center;
+}
+
+.calendar-title-row h3 {
+  min-width: 0;
 }
 
 .current-month-badge,
@@ -9318,6 +9322,11 @@ textarea:focus {
 
   .calendar-header {
     display: flex;
+  }
+
+  .calendar-title-row {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    width: 100%;
   }
 
   .monthly-quality-ring {
