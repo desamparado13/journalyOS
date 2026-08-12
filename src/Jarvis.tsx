@@ -22,7 +22,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
@@ -73,6 +73,7 @@ type JarvisBacktest = {
 type JarvisForecast = {
   id: string;
   date: string;
+  time: string;
   pair: string;
   setup: string;
   direction: string;
@@ -119,6 +120,23 @@ type JarvisTradeAction = {
   missingFields: Array<"pair" | "setup" | "direction">;
 };
 
+type JarvisForecastAction = {
+  intent: "create" | "update_status";
+  ready: boolean;
+  forecastId: string | null;
+  date: string | null;
+  time: string | null;
+  pair: string | null;
+  setup: string | null;
+  direction: "Long" | "Short" | null;
+  status: "Waiting" | "Taken" | "Invalidated" | "Skipped" | null;
+  entryPlan: string | null;
+  plannedRiskPercent: number | null;
+  reasonToTake: string | null;
+  notes: string | null;
+  missingFields: Array<"forecastId" | "pair" | "setup" | "direction">;
+};
+
 type JarvisHealth = {
   provider: string;
   configuredModel: string | null;
@@ -150,12 +168,13 @@ type JarvisProps = {
   session: JarvisSession;
   journalEntries: Array<{ id: string; date: string; content: string; advice: string }>;
   onTradeCreated: () => void | Promise<void>;
+  onForecastChanged: () => void | Promise<void>;
 };
 
 type JarvisLearningRecord = {
   id: string;
   date: string;
-  source: "chart" | "skipped_trade" | "insight";
+  source: "chart" | "forecast" | "skipped_trade" | "insight";
   prompt: string;
   summary: string;
 };
@@ -326,7 +345,7 @@ const quickCommands = [
   { label: "Analyze latest trade", prompt: "Analyze my latest trade", icon: Crosshair },
   { label: "Recent mistakes", prompt: "Show me my recent mistakes", icon: Eye },
   { label: "Internal performance", prompt: "How are my Internals doing?", icon: BarChart3 },
-  { label: "Active forecasts", prompt: "What am I currently watching?", icon: Radio },
+  { label: "Forecast patterns", prompt: "What are you learning from my forecast history?", icon: Radio },
   { label: "Risk check", prompt: "What is my risk right now?", icon: ShieldCheck },
 ] as const;
 
@@ -389,6 +408,43 @@ function normalizeTradeAction(value: unknown, previous: JarvisTradeAction | null
     notes: typeof candidate.notes === "string" ? candidate.notes.slice(0, 3000) : previous?.notes || null,
     missingFields,
   };
+}
+
+function normalizeForecastAction(value: unknown, previous: JarvisForecastAction | null): JarvisForecastAction | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<JarvisForecastAction>;
+  const intent = candidate.intent === "update_status" ? "update_status" : "create";
+  const pair = typeof candidate.pair === "string" && JARVIS_TRADE_PAIRS.has(candidate.pair) ? candidate.pair : previous?.pair || null;
+  const setup = typeof candidate.setup === "string" && JARVIS_TRADE_SETUPS.has(candidate.setup) ? candidate.setup : previous?.setup || null;
+  const direction = candidate.direction === "Long" || candidate.direction === "Short" ? candidate.direction : previous?.direction || null;
+  const status = ["Waiting", "Taken", "Invalidated", "Skipped"].includes(String(candidate.status)) ? candidate.status as JarvisForecastAction["status"] : previous?.status || (intent === "create" ? "Waiting" : null);
+  const forecastId = typeof candidate.forecastId === "string" && candidate.forecastId.trim() ? candidate.forecastId.trim() : previous?.forecastId || null;
+  const missingFields = (intent === "update_status"
+    ? [!forecastId ? "forecastId" : null]
+    : [!pair ? "pair" : null, !setup ? "setup" : null, !direction ? "direction" : null]
+  ).filter(Boolean) as JarvisForecastAction["missingFields"];
+  return {
+    intent,
+    ready: missingFields.length === 0 && Boolean(status),
+    forecastId,
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(candidate.date || "")) ? String(candidate.date) : previous?.date || null,
+    time: /^\d{2}:\d{2}$/.test(String(candidate.time || "")) ? String(candidate.time) : previous?.time || null,
+    pair,
+    setup,
+    direction,
+    status,
+    entryPlan: typeof candidate.entryPlan === "string" ? candidate.entryPlan.slice(0, 2000) : previous?.entryPlan || null,
+    plannedRiskPercent: Number.isFinite(candidate.plannedRiskPercent) ? Number(candidate.plannedRiskPercent) : previous?.plannedRiskPercent ?? null,
+    reasonToTake: typeof candidate.reasonToTake === "string" ? candidate.reasonToTake.slice(0, 2000) : previous?.reasonToTake || null,
+    notes: typeof candidate.notes === "string" ? candidate.notes.slice(0, 3000) : previous?.notes || null,
+    missingFields,
+  };
+}
+
+function persistedForecastStatus(status: NonNullable<JarvisForecastAction["status"]>) {
+  if (status === "Invalidated") return "Cancelled";
+  if (status === "Skipped") return "Missed";
+  return status;
 }
 
 function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: JarvisForecast[]): Omit<JarvisMessage, "id" | "role"> | null {
@@ -503,7 +559,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   return null;
 }
 
-export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, onTradeCreated }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, onTradeCreated, onForecastChanged }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
@@ -517,13 +573,17 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [sessionLearningRecords, setSessionLearningRecords] = useState<JarvisLearningRecord[]>([]);
   const [learningSyncState, setLearningSyncState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [tradeDraft, setTradeDraft] = useState<JarvisTradeAction | null>(null);
+  const [forecastDraft, setForecastDraft] = useState<JarvisForecastAction | null>(null);
   const [isSavingTrade, setIsSavingTrade] = useState(false);
+  const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const wasChatOpen = useRef(false);
   const tradeSaveLock = useRef(false);
+  const forecastSaveLock = useRef(false);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
@@ -619,12 +679,19 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(storedMessages));
   }, [messages, userId]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
-    });
-    return () => window.cancelAnimationFrame(frame);
+  useLayoutEffect(() => {
+    if (!isOpen) {
+      wasChatOpen.current = false;
+      return;
+    }
+    const feed = feedRef.current;
+    if (!feed) return;
+    if (!wasChatOpen.current) {
+      feed.scrollTop = feed.scrollHeight;
+      wasChatOpen.current = true;
+      return;
+    }
+    feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
   }, [isOpen, messages, isThinking]);
 
   useEffect(() => {
@@ -784,10 +851,61 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }
   }
 
+  async function saveForecastDraft(draft: JarvisForecastAction) {
+    if (!supabase || forecastSaveLock.current || !draft.ready || draft.missingFields.length || !draft.status) return;
+    forecastSaveLock.current = true;
+    setIsSavingForecast(true);
+    const now = new Date();
+    try {
+      const query = draft.intent === "update_status" && draft.forecastId
+        ? supabase.from("trade_decisions").update({ status: persistedForecastStatus(draft.status), updated_at: now.toISOString() }).eq("id", draft.forecastId)
+        : supabase.from("trade_decisions").insert({
+            user_id: userId,
+            decision_date: draft.date || now.toISOString().slice(0, 10),
+            decision_time: draft.time || now.toTimeString().slice(0, 5),
+            pair: draft.pair,
+            setup: draft.setup,
+            direction: draft.direction,
+            status: persistedForecastStatus(draft.status),
+            entry_plan: draft.entryPlan?.trim() || "",
+            risk_percent: draft.plannedRiskPercent,
+            reason_to_take: draft.reasonToTake?.trim() || "",
+            notes: draft.notes?.trim() || "",
+            updated_at: now.toISOString(),
+          });
+      const { error } = await query;
+      if (error) {
+        setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Forecast not updated", text: `Journaly could not save that forecast action: ${error.message}` }]);
+        return;
+      }
+      const actionLabel = draft.intent === "create" ? "Forecast added" : "Forecast updated";
+      setForecastDraft(null);
+      await onForecastChanged();
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: actionLabel, text: draft.intent === "create" ? `${draft.pair} ${draft.direction?.toLowerCase()} is now waiting in Forecasts.` : `The ${draft.pair || "selected"} forecast is now marked ${draft.status}.` }]);
+    } catch (error) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Forecast not updated", text: error instanceof Error ? error.message : "Journaly could not save that forecast action." }]);
+    } finally {
+      forecastSaveLock.current = false;
+      setIsSavingForecast(false);
+    }
+  }
+
   async function askJarvis(nextPrompt: string) {
     const imageForRequest = attachedImage;
     const cleanPrompt = nextPrompt.trim() || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
+    if (forecastDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }, { id: crypto.randomUUID(), role: "jarvis", text: "Forecast action discarded. Nothing changed in Journaly." }]);
+      setPrompt("");
+      setForecastDraft(null);
+      return;
+    }
+    if (forecastDraft?.ready && /^(confirm|confirmed|save|save it|add it|do it)$/i.test(cleanPrompt)) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }]);
+      setPrompt("");
+      await saveForecastDraft(forecastDraft);
+      return;
+    }
     if (tradeDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }, { id: crypto.randomUUID(), role: "jarvis", text: "Trade draft discarded. Nothing was added to Journaly." }]);
       setPrompt("");
@@ -800,8 +918,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       await saveTradeDraft(tradeDraft);
       return;
     }
-    const learningSource: JarvisLearningRecord["source"] = imageForRequest ? "chart" : /\bskip(?:ped|ping)?\b/i.test(cleanPrompt) ? "skipped_trade" : "insight";
-    const shouldArchiveLearning = Boolean(imageForRequest) || /\b(remember|learn from|lesson|insight|note that|my rule|from now on|key takeaway|teach|i (?:notice|noticed|find|found)|skip(?:ped|ping)? trade)\b/i.test(cleanPrompt);
+    const learningSource: JarvisLearningRecord["source"] = imageForRequest ? "chart" : /\bforecast(?:s|ed|ing)?\b/i.test(cleanPrompt) ? "forecast" : /\bskip(?:ped|ping)?\b/i.test(cleanPrompt) ? "skipped_trade" : "insight";
+    const shouldArchiveLearning = Boolean(imageForRequest) || /\b(remember|learn from|lesson|insight|note that|my rule|from now on|key takeaway|teach|i (?:notice|noticed|find|found)|forecast pattern|skip(?:ped|ping)? trade)\b/i.test(cleanPrompt);
     const recentHistory = messages.slice(-14).map((message) => ({
       role: message.role === "jarvis" ? "assistant" : "user",
       content: [message.title, message.text].filter(Boolean).join("\n"),
@@ -870,6 +988,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               lastJarvisDecision: lastDecision,
               rollingConversation: recentHistory.slice(-8),
               pendingTradeDraft: tradeDraft,
+              pendingForecastDraft: forecastDraft,
             },
             trades: orderedTrades.slice(0, 300).map((trade) => ({
               id: trade.id,
@@ -899,8 +1018,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               notes: trade.notes,
               hasScreenshot: Boolean(trade.screenshot),
             })),
-            forecasts: orderedForecasts.slice(0, 200).map((forecast) => ({
+            forecasts: orderedForecasts.map((forecast) => ({
+              id: forecast.id,
               date: forecast.date,
+              time: forecast.time,
               pair: forecast.pair,
               setup: forecast.setup,
               direction: forecast.direction,
@@ -944,6 +1065,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
       }
       if (payload.tradeAction) setTradeDraft((current) => normalizeTradeAction(payload.tradeAction, current));
+      if (payload.forecastAction) setForecastDraft((current) => normalizeForecastAction(payload.forecastAction, current));
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
@@ -1119,6 +1241,22 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                         </div>
                       </article>
                     ))}
+                    {forecastDraft ? (
+                      <article className={`jarvis-trade-draft is-${forecastDraft.ready ? "ready" : "draft"}`} aria-label="Pending Forecast action">
+                        <header><span>{forecastDraft.intent === "create" ? "Forecast draft" : "Forecast status update"}</span><strong>{forecastDraft.pair || "Forecast"}</strong></header>
+                        <div className="jarvis-trade-draft-grid">
+                          <p><span>Action</span><strong>{forecastDraft.intent === "create" ? "Create forecast" : "Update status"}</strong></p>
+                          <p><span>Status</span><strong>{forecastDraft.status || "Needed"}</strong></p>
+                          <p><span>Setup</span><strong>{forecastDraft.setup || (forecastDraft.intent === "update_status" ? "Existing forecast" : "Needed")}</strong></p>
+                          <p><span>Direction</span><strong>{forecastDraft.direction || (forecastDraft.intent === "update_status" ? "Existing forecast" : "Needed")}</strong></p>
+                          <p><span>Date / time</span><strong>{forecastDraft.date || "Now"} / {forecastDraft.time || "Now"}</strong></p>
+                          <p><span>Risk</span><strong>{forecastDraft.plannedRiskPercent === null ? "Optional" : `${forecastDraft.plannedRiskPercent}%`}</strong></p>
+                        </div>
+                        {forecastDraft.entryPlan || forecastDraft.notes ? <p className="jarvis-trade-draft-notes">{forecastDraft.entryPlan || forecastDraft.notes}</p> : null}
+                        {forecastDraft.missingFields.length ? <small>Jarvis still needs: {forecastDraft.missingFields.join(", ")}.</small> : <small>Say “Confirm” or use the button below. Nothing changes before approval.</small>}
+                        <footer><button type="button" className="is-cancel" onClick={() => setForecastDraft(null)}>Discard</button><button type="button" className="is-confirm" disabled={!forecastDraft.ready || isSavingForecast} onClick={() => void saveForecastDraft(forecastDraft)}><Check size={15} /> {isSavingForecast ? "Saving..." : "Confirm"}</button></footer>
+                      </article>
+                    ) : null}
                     {tradeDraft ? (
                       <article className={`jarvis-trade-draft is-${tradeDraft.intent}`} aria-label="Pending Journaly trade">
                         <header><span>{tradeDraft.intent === "ready" ? "Ready to add" : "Trade draft"}</span><strong>{tradeDraft.pair || "Pair needed"}</strong></header>
