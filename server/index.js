@@ -27,7 +27,7 @@ JOURNALY FORECAST ACTIONS AND LEARNING
 - Forecasts are the user's pre-trade ideas. Treat the complete authenticated forecast history as first-class evidence alongside live trades and backtests.
 - Use get_forecasts whenever the user asks about past forecasts, forecast quality, recurring forecast patterns, or a specific idea that is not fully present in the current session summary.
 - Status labels are Waiting, Taken, Invalidated, and Skipped. Waiting means unresolved; Taken means the idea became a trade; Invalidated means the market thesis failed; Skipped means the user chose not to execute it.
-- You may prepare a forecast draft when the user asks to add or log one. Pair, setup, and direction are required; date and time default to now; entry plan, risk, thesis, notes, and all other text are optional.
+- You may prepare a forecast draft when the user asks to add or log one. Pair, setup, and direction are required; date and time default to now. The only free-form field is notes, where the user may manually combine the entry plan, reasoning, invalidation context, or anything else. Notes are optional.
 - You may prepare a status update when the user clearly asks to mark a forecast Taken, Invalidated, Skipped, or Waiting. Identify the exact forecast id from get_forecasts; if multiple records could match, ask which one instead of guessing.
 - Return forecastAction.intent=create or update_status only when the user is asking for a forecast write. Use ready=false while required details or an unambiguous forecast id are missing.
 - Never claim a forecast was saved or updated. Journaly shows a confirmation card, and only the authenticated client writes after explicit confirmation.
@@ -89,7 +89,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_journal_entries", description: "Read the authenticated user's personal journal and retained Jarvis learning entries, with optional pair/year filters.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "year", "limit"] } },
   { type: "function", name: "get_tradingview_state", description: "Read authenticated TradingView events, WATCH pair state, and Jarvis threshold notifications for a ticker/timeframe.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { ticker: { type: ["string", "null"] }, timeframe: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["ticker", "timeframe", "limit"] } },
   { type: "function", name: "find_historical_patterns", description: "Deterministically retrieve exact authenticated Journaly records for any claim about similar, resembling, recurring, winning, losing, or historical trade patterns. Always cite returned IDs, dates, source, and sample size.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, outcome: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, required: ["source", "pair", "setup", "direction", "outcome", "quality", "limit"] } },
-  { type: "function", name: "get_account_risk", description: "Get documented planned risk from active Journaly forecasts. This is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_account_risk", description: "Check currency concentration across active forecasts. Forecasts do not track planned risk, and this is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
 ];
 
@@ -171,7 +171,7 @@ const RESPONSE_SCHEMA = {
     forecastAction: {
       type: ["object", "null"],
       additionalProperties: false,
-      required: ["intent", "ready", "forecastId", "date", "time", "pair", "setup", "direction", "status", "entryPlan", "plannedRiskPercent", "reasonToTake", "notes", "missingFields"],
+      required: ["intent", "ready", "forecastId", "date", "time", "pair", "setup", "direction", "status", "notes", "missingFields"],
       properties: {
         intent: { type: "string", enum: ["create", "update_status"] },
         ready: { type: "boolean" },
@@ -182,9 +182,6 @@ const RESPONSE_SCHEMA = {
         setup: { type: ["string", "null"], enum: ["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry", null] },
         direction: { type: ["string", "null"], enum: ["Long", "Short", null] },
         status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] },
-        entryPlan: { type: ["string", "null"], maxLength: 2000 },
-        plannedRiskPercent: { type: ["number", "null"], minimum: 0 },
-        reasonToTake: { type: ["string", "null"], maxLength: 2000 },
         notes: { type: ["string", "null"], maxLength: 3000 },
         missingFields: { type: "array", maxItems: 4, items: { type: "string", enum: ["forecastId", "pair", "setup", "direction"] } },
       },
@@ -933,7 +930,9 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_account_risk": {
       const active = forecasts.filter((forecast) => forecast.status === "Waiting");
-      return { documentedPlannedRiskPercent: active.reduce((sum, item) => sum + Number(item.plannedRiskPercent || 0), 0), activeForecastCount: active.length, liveBrokerRiskConnected: false };
+      const currencies = active.flatMap((item) => [String(item.pair || "").slice(0, 3), String(item.pair || "").slice(3)]).filter(Boolean);
+      const byCurrency = Object.fromEntries([...new Set(currencies)].map((currency) => [currency, currencies.filter((item) => item === currency).length]));
+      return { activeForecastCount: active.length, byCurrency, plannedRiskTracked: false, liveBrokerRiskConnected: false };
     }
     case "get_session_state":
       return data.sessionState || {};

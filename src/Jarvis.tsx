@@ -130,9 +130,6 @@ type JarvisForecastAction = {
   setup: string | null;
   direction: "Long" | "Short" | null;
   status: "Waiting" | "Taken" | "Invalidated" | "Skipped" | null;
-  entryPlan: string | null;
-  plannedRiskPercent: number | null;
-  reasonToTake: string | null;
   notes: string | null;
   missingFields: Array<"forecastId" | "pair" | "setup" | "direction">;
 };
@@ -433,9 +430,6 @@ function normalizeForecastAction(value: unknown, previous: JarvisForecastAction 
     setup,
     direction,
     status,
-    entryPlan: typeof candidate.entryPlan === "string" ? candidate.entryPlan.slice(0, 2000) : previous?.entryPlan || null,
-    plannedRiskPercent: Number.isFinite(candidate.plannedRiskPercent) ? Number(candidate.plannedRiskPercent) : previous?.plannedRiskPercent ?? null,
-    reasonToTake: typeof candidate.reasonToTake === "string" ? candidate.reasonToTake.slice(0, 2000) : previous?.reasonToTake || null,
     notes: typeof candidate.notes === "string" ? candidate.notes.slice(0, 3000) : previous?.notes || null,
     missingFields,
   };
@@ -462,7 +456,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
     return {
       title: `${requestedPair} context scan`,
       text: latestForecast
-        ? `${latestForecast.direction} ${latestForecast.setup} is on watch. ${latestForecast.entryPlan || latestForecast.reasonToTake || latestForecast.notes || "The trigger conditions are not documented yet."} This is a journal-state read, not a live-market signal.`
+        ? `${latestForecast.direction} ${latestForecast.setup} is on watch. ${latestForecast.notes || latestForecast.entryPlan || latestForecast.reasonToTake || "The forecast entry is not documented yet."} This is a journal-state read, not a live-market signal.`
         : `There is no active ${requestedPair} forecast in Journaly. Historical context covers ${pairTrades.length} trade${pairTrades.length === 1 ? "" : "s"}; add a forecast before the setup develops so the read is protected from hindsight.`,
       metrics: [
         { label: "Sample", value: String(pairTrades.length) },
@@ -533,24 +527,23 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
     return {
       title: activeForecasts.length ? `${activeForecasts.length} active forecast${activeForecasts.length === 1 ? "" : "s"}` : "Watchlist clear",
       text: activeForecasts.length
-        ? activeForecasts.slice(0, 4).map((item) => `${item.pair}: ${item.setup} ${item.direction.toLowerCase()} — ${item.entryPlan || item.reasonToTake || "waiting for confirmation"}`).join("\n")
+        ? activeForecasts.slice(0, 4).map((item) => `${item.pair}: ${item.setup} ${item.direction.toLowerCase()} — ${item.notes || item.entryPlan || item.reasonToTake || "waiting for confirmation"}`).join("\n")
         : "There are no forecasts marked Waiting. Log the market read before the move so Journaly can measure forecast quality without hindsight.",
       metrics: activeForecasts.slice(0, 3).map((item) => ({ label: item.pair, value: item.setup })),
     };
   }
 
   if (lower.includes("risk") || lower.includes("exposure")) {
-    const plannedRisk = activeForecasts.reduce((sum, item) => sum + Number(item.riskPercent || 0), 0);
     const currencies = activeForecasts.flatMap((item) => [item.pair.slice(0, 3), item.pair.slice(3)]);
     const concentration = Object.entries(currencies.reduce<Record<string, number>>((counts, currency) => ({ ...counts, [currency]: (counts[currency] || 0) + 1 }), {})).sort((a, b) => b[1] - a[1])[0];
     return {
-      title: "Read-only risk check",
+      title: "Forecast concentration check",
       text: activeForecasts.length
-        ? `Your waiting forecasts carry ${plannedRisk.toFixed(2)}% documented planned risk. ${concentration?.[1] > 1 ? `${concentration[0]} appears across ${concentration[1]} ideas, so check correlation before arming them together.` : "No obvious currency concentration is present in the current watchlist."} Open-position risk is not connected yet.`
-        : "No waiting forecasts are carrying planned risk. Open-position and broker exposure are not connected in Jarvis v0.1, so this is not a live account-risk reading.",
+        ? `${concentration?.[1] > 1 ? `${concentration[0]} appears across ${concentration[1]} ideas, so check correlation before arming them together.` : "No obvious currency concentration is present in the current watchlist."} Forecasts no longer track planned risk; open-position risk is not connected.`
+        : "There are no waiting forecasts to compare. Forecasts no longer track planned risk, and broker exposure is not connected.",
       metrics: [
         { label: "Forecasts", value: String(activeForecasts.length) },
-        { label: "Planned risk", value: `${plannedRisk.toFixed(2)}%`, tone: plannedRisk > 2 ? "warn" : "good" },
+        { label: "Concentration", value: concentration?.[1] > 1 ? `${concentration[0]} × ${concentration[1]}` : "Clear", tone: concentration?.[1] > 1 ? "warn" : "good" },
         { label: "Live execution", value: "Locked", tone: "good" },
       ],
     };
@@ -867,9 +860,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
             setup: draft.setup,
             direction: draft.direction,
             status: persistedForecastStatus(draft.status),
-            entry_plan: draft.entryPlan?.trim() || "",
-            risk_percent: draft.plannedRiskPercent,
-            reason_to_take: draft.reasonToTake?.trim() || "",
             notes: draft.notes?.trim() || "",
             updated_at: now.toISOString(),
           });
@@ -1250,9 +1240,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           <p><span>Setup</span><strong>{forecastDraft.setup || (forecastDraft.intent === "update_status" ? "Existing forecast" : "Needed")}</strong></p>
                           <p><span>Direction</span><strong>{forecastDraft.direction || (forecastDraft.intent === "update_status" ? "Existing forecast" : "Needed")}</strong></p>
                           <p><span>Date / time</span><strong>{forecastDraft.date || "Now"} / {forecastDraft.time || "Now"}</strong></p>
-                          <p><span>Risk</span><strong>{forecastDraft.plannedRiskPercent === null ? "Optional" : `${forecastDraft.plannedRiskPercent}%`}</strong></p>
                         </div>
-                        {forecastDraft.entryPlan || forecastDraft.notes ? <p className="jarvis-trade-draft-notes">{forecastDraft.entryPlan || forecastDraft.notes}</p> : null}
+                        {forecastDraft.notes ? <p className="jarvis-trade-draft-notes">{forecastDraft.notes}</p> : null}
                         {forecastDraft.missingFields.length ? <small>Jarvis still needs: {forecastDraft.missingFields.join(", ")}.</small> : <small>Say “Confirm” or use the button below. Nothing changes before approval.</small>}
                         <footer><button type="button" className="is-cancel" onClick={() => setForecastDraft(null)}>Discard</button><button type="button" className="is-confirm" disabled={!forecastDraft.ready || isSavingForecast} onClick={() => void saveForecastDraft(forecastDraft)}><Check size={15} /> {isSavingForecast ? "Saving..." : "Confirm"}</button></footer>
                       </article>

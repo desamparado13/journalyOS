@@ -8087,7 +8087,6 @@ textarea:focus {
 .forecast-card-title > div { display: grid; gap: 2px; }
 .forecast-card-title strong { color: var(--text); font-size: 1.05rem; }
 .forecast-card-title span { color: var(--muted); font-size: 0.75rem; }
-.forecast-risk { border-radius: 7px; padding: 6px 8px; background: var(--surface-strong); color: var(--text) !important; font-weight: 850; }
 .forecast-summary { overflow: hidden; margin: 9px 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .forecast-summary.is-empty { opacity: 0.62; font-style: italic; }
 .forecast-status-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }

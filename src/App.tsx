@@ -147,18 +147,6 @@ const results = ["Win", "Loss", "Breakeven"] as const;
 const decisionStatuses = ["Waiting", "Taken", "Invalidated", "Skipped"] as const;
 type PersistedForecastStatus = "Taken" | "Cancelled" | "Missed" | "Waiting";
 const decisionOutcomes = ["Unknown", "Won", "Lost", "Breakeven", "Avoided loss", "Cost opportunity"] as const;
-const cancellationReasons = [
-  "None",
-  "Setup invalidated",
-  "Late entry",
-  "News risk",
-  "Spread too high",
-  "Risk too large",
-  "Already in trade",
-  "Hesitation",
-  "Rule not met",
-] as const;
-
 function defaultStopLossForSetup(setup: string) {
   return ["REVERSAL", "Flag", "Break and retest", "Flag+", "EU timed entry"].includes(setup) ? "14" : "";
 }
@@ -792,12 +780,6 @@ type TradeDecisionFormState = {
   setup: string;
   direction: Direction;
   status: TradeDecisionStatus;
-  entryPlan: string;
-  stopLoss: string;
-  takeProfit: string;
-  riskPercent: string;
-  reasonToTake: string;
-  reasonCancelled: string;
   outcome: TradeDecisionOutcome;
   notes: string;
   screenshotFile: File | null;
@@ -977,12 +959,6 @@ function tradeDecisionDefaults(): TradeDecisionFormState {
     setup: setups[0],
     direction: "Long",
     status: "Waiting",
-    entryPlan: "",
-    stopLoss: "",
-    takeProfit: "",
-    riskPercent: "1",
-    reasonToTake: "",
-    reasonCancelled: "",
     outcome: "Unknown",
     notes: "",
     screenshotFile: null,
@@ -3972,12 +3948,6 @@ export default function App() {
       setup: decisionForm.setup,
       direction: decisionForm.direction,
       status: persistedForecastStatus(decisionForm.status),
-      entry_plan: decisionForm.entryPlan.trim(),
-      stop_loss: decisionForm.stopLoss.trim(),
-      take_profit: decisionForm.takeProfit.trim(),
-      risk_percent: decisionForm.riskPercent.trim() ? Number(decisionForm.riskPercent) : null,
-      reason_to_take: decisionForm.reasonToTake.trim(),
-      reason_cancelled: decisionForm.reasonCancelled.trim(),
       outcome: decisionForm.outcome,
       notes: decisionForm.notes.trim(),
       screenshot_url: preImage || existing?.screenshot || "",
@@ -4077,12 +4047,6 @@ export default function App() {
       setup: entry.setup,
       direction: entry.direction,
       status: entry.status,
-      entryPlan: entry.entryPlan,
-      stopLoss: entry.stopLoss,
-      takeProfit: entry.takeProfit,
-      riskPercent: entry.riskPercent === null ? "" : String(entry.riskPercent),
-      reasonToTake: entry.reasonToTake,
-      reasonCancelled: entry.reasonCancelled,
       outcome: entry.outcome,
       notes: entry.notes,
       resultR: String(entry.resultR),
@@ -11858,25 +11822,6 @@ function ForecastLog({
             <SelectField label="Setup" value={form.setup} options={setups} onChange={(setup) => onFormChange({ ...form, setup })} />
             <SelectField label="Direction" value={form.direction} options={["Long", "Short"]} onChange={(direction) => onFormChange({ ...form, direction: direction as Direction })} />
             <SelectField label="Status" value={form.status} options={decisionStatuses} onChange={(status) => onFormChange({ ...form, status: status as TradeDecisionStatus })} />
-            <label>
-              <span>Planned risk % <small>Optional</small></span>
-              <input
-                type="text"
-                inputMode="decimal"
-                pattern="[0-9]*[.]?[0-9]*"
-                value={form.riskPercent}
-                placeholder="1"
-                onChange={(event) => onFormChange({ ...form, riskPercent: event.target.value })}
-              />
-            </label>
-            <label className="wide-field">
-              <span>Entry plan <small>Optional</small></span>
-              <input value={form.entryPlan} placeholder="What has to happen before entry?" onChange={(event) => onFormChange({ ...form, entryPlan: event.target.value })} />
-            </label>
-            <label><span>Stop loss <small>Optional</small></span><input value={form.stopLoss} placeholder="Price or structure" onChange={(event) => onFormChange({ ...form, stopLoss: event.target.value })} /></label>
-            <label><span>Take profit <small>Optional</small></span><input value={form.takeProfit} placeholder="Price or target" onChange={(event) => onFormChange({ ...form, takeProfit: event.target.value })} /></label>
-            <label className="wide-field"><span>Why this forecast? <small>Optional</small></span><input value={form.reasonToTake} placeholder="Visible evidence or thesis" onChange={(event) => onFormChange({ ...form, reasonToTake: event.target.value })} /></label>
-            <label className="wide-field"><span>Why invalidated or skipped? <small>Optional</small></span><input list="forecast-reasons" value={form.reasonCancelled} placeholder="Rule not met, structure failed, news risk..." onChange={(event) => onFormChange({ ...form, reasonCancelled: event.target.value })} /><datalist id="forecast-reasons">{cancellationReasons.filter((reason) => reason !== "None").map((reason) => <option key={reason} value={reason} />)}</datalist></label>
             <SelectField label="Outcome" value={form.outcome} options={decisionOutcomes} onChange={(outcome) => onFormChange({ ...form, outcome: outcome as TradeDecisionOutcome })} />
             <label><span>Result in R <small>Optional</small></span><input type="text" inputMode="decimal" pattern="-?[0-9]*[.]?[0-9]*" value={form.resultR} placeholder="0" onChange={(event) => onFormChange({ ...form, resultR: event.target.value })} /></label>
           </div>
@@ -11896,8 +11841,8 @@ function ForecastLog({
             </label>
           </div>
           <label>
-            <span>Notes</span>
-            <textarea rows={4} value={form.notes} placeholder="What rule protected you—or what made you hesitate?" onChange={(event) => onFormChange({ ...form, notes: event.target.value })} />
+            <span>Forecast entry <small>Optional</small></span>
+            <textarea rows={5} value={form.notes} placeholder="Manually log the full idea, entry plan, reasoning, and later invalidation notes in one place." onChange={(event) => onFormChange({ ...form, notes: event.target.value })} />
           </label>
           <div className="form-actions">
             <button className="primary-action" type="submit" disabled={isSyncing}>
@@ -11928,8 +11873,8 @@ function ForecastLog({
                   <span>{formatOrdinalDate(entry.date)} · {formatTime12(entry.time)}</span>
                   <div className="forecast-card-menu"><button type="button" onClick={() => openForecastForm(entry)}><Pencil size={14} />Edit</button><button className="danger" type="button" onClick={() => onDelete(entry)}><Trash2 size={14} /></button></div>
                 </header>
-                <div className="forecast-card-title"><div><strong>{entry.pair}</strong><span>{entry.direction} · {entry.setup}</span></div>{entry.riskPercent !== null ? <span className="forecast-risk">{formatNumber(entry.riskPercent)}% risk</span> : null}</div>
-                {entry.entryPlan || entry.reasonToTake || entry.reasonCancelled || entry.notes ? <p className="forecast-summary">{entry.entryPlan || entry.reasonToTake || entry.reasonCancelled || entry.notes}</p> : <p className="forecast-summary is-empty">No written thesis — Jarvis will use the recorded market facts and outcome.</p>}
+                <div className="forecast-card-title"><div><strong>{entry.pair}</strong><span>{entry.direction} · {entry.setup}</span></div></div>
+                {entry.notes || entry.entryPlan || entry.reasonToTake || entry.reasonCancelled ? <p className="forecast-summary">{entry.notes || entry.entryPlan || entry.reasonToTake || entry.reasonCancelled}</p> : <p className="forecast-summary is-empty">No forecast entry yet.</p>}
                 <div className="forecast-status-actions" aria-label={`Update ${entry.pair} forecast status`}>
                   {decisionStatuses.map((status) => <button className={`is-${status.toLowerCase()}`} type="button" key={status} aria-pressed={entry.status === status} disabled={isSyncing} onClick={() => void onStatusChange(entry, status)}>{status === "Waiting" ? <Clock3 size={14} /> : status === "Taken" ? <CheckCircle2 size={14} /> : status === "Invalidated" ? <CircleSlash2 size={14} /> : <ShieldCheck size={14} />}{status}</button>)}
                 </div>
