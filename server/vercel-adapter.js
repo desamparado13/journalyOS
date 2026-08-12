@@ -1,4 +1,5 @@
 import worker from "./index.js";
+import { waitUntil } from "@vercel/functions";
 
 function webRequest(request) {
   const protocol = request.headers["x-forwarded-proto"] || "https";
@@ -32,7 +33,7 @@ function runtimeEnvironment() {
 }
 
 export async function handleVercelJarvis(request, response) {
-  const result = await worker.fetch(webRequest(request), runtimeEnvironment());
+  const result = await worker.fetch(webRequest(request), runtimeEnvironment(), { waitUntil });
   response.status(result.status);
   result.headers.forEach((value, key) => response.setHeader(key, value));
   response.send(Buffer.from(await result.arrayBuffer()));

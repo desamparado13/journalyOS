@@ -56,6 +56,39 @@ async function ask(question, history = []) {
 }
 
 const results = [];
+const webhookCalls = [];
+const webhookBackground = [];
+let webhookIngestCount = 0;
+const webhookEnv = {
+  ...ownerEnv,
+  NEXT_PUBLIC_SUPABASE_URL: "https://journaly-test.supabase.co",
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
+  SUPABASE_FETCH: async (url, init) => {
+    const body = JSON.parse(init.body);
+    webhookCalls.push({ url, body });
+    if (String(url).endsWith("/ingest_jarvis_tradingview_event")) {
+      webhookIngestCount += 1;
+      return new Response(JSON.stringify([{ event_id: "00000000-0000-4000-8000-000000000001", is_duplicate: webhookIngestCount > 1 }]), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (String(url).endsWith("/process_jarvis_tradingview_event")) return new Response(null, { status: 204 });
+    return new Response("Not found", { status: 404 });
+  },
+};
+const makeWebhookRequest = () => new Request("http://local/api/jarvis/tradingview", {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: `Bearer jtv_${"a".repeat(43)}` },
+  body: JSON.stringify({ ticker: "AUDJPY", timeframe: "15", event: "structure_break", timestamp: "2026-08-12T12:00:00Z", price: 102.2, MRH: 102.4, MRL: 101.9, bullish_break_count: 3, bearish_break_count: 0, candle: { open: 102, high: 102.5, low: 101.95, close: 102.2 } }),
+});
+const webhookRequest = makeWebhookRequest();
+const webhookResponse = await worker.fetch(webhookRequest, webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
+const webhookPayload = await webhookResponse.json();
+await Promise.all(webhookBackground);
+results.push({ test: "TradingView immediate intake and background processing", pass: webhookResponse.status === 200 && webhookPayload.accepted === true && webhookCalls.length === 2 && webhookCalls[0].body.p_ticker === "AUDJPY" && webhookCalls[0].body.p_bullish_break_count === 3 && webhookCalls[0].body.p_raw_payload.webhook_token == null, status: webhookResponse.status });
+
+const duplicateResponse = await worker.fetch(makeWebhookRequest(), webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
+const duplicatePayload = await duplicateResponse.json();
+results.push({ test: "TradingView duplicate suppression", pass: duplicateResponse.status === 200 && duplicatePayload.duplicate === true && webhookCalls.length === 3, status: duplicateResponse.status });
+
 const hi = await ask("hi jarvis");
 results.push({ test: "natural greeting and spend metering", pass: /\b(hey|hi|yo|good|what|pot)\b/i.test(hi.answer) && !/intelligence ready|i'm with you/i.test(hi.answer) && Number.isFinite(hi.usage?.costUsd) && hi.usage.costUsd > 0, tools: hi.toolsUsed, costUsd: hi.usage?.costUsd });
 

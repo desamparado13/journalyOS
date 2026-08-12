@@ -39,6 +39,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
+  Webhook,
   X,
 } from "lucide-react";
 import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -46,6 +47,7 @@ import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
 import Jarvis, { JARVIS_LEARNING_PREFIX } from "./Jarvis";
+import TradingViewEventLog from "./TradingViewEventLog";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
@@ -334,7 +336,8 @@ type AppView =
   | "backtest-comparison"
   | "backtesting-analytics"
   | "add-backtest"
-  | "view-backtests";
+  | "view-backtests"
+  | "jarvis-events";
 
 const appViews: readonly AppView[] = [
   "dashboard",
@@ -360,6 +363,7 @@ const appViews: readonly AppView[] = [
   "backtesting-analytics",
   "add-backtest",
   "view-backtests",
+  "jarvis-events",
 ];
 
 type SessionUser = {
@@ -4897,6 +4901,14 @@ export default function App() {
             <FlaskConical size={18} />
             Backtest
           </button>
+          {currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? <button
+            className={activeView === "jarvis-events" ? "is-active" : ""}
+            type="button"
+            onClick={() => setActiveView("jarvis-events")}
+          >
+            <Webhook size={18} />
+            Jarvis events
+          </button> : null}
             </>
           ) : (
             dayTradeNavigation.map(({ view, label, icon: Icon }) => (
@@ -5710,6 +5722,10 @@ export default function App() {
               onRemoveTrader={(id) => updateTraderFriends(traderFriends.filter((friend) => friend.id !== id))}
             />
           </section>
+        ) : null}
+
+        {activeView === "jarvis-events" && currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
+          <TradingViewEventLog userId={currentUser.id} displayName={accountProfile.displayName || "Pot"} />
         ) : null}
 
         {activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis" ? (

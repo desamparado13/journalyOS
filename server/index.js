@@ -138,6 +138,125 @@ function validChartImage(value) {
   return null;
 }
 
+function supabaseConnection(env) {
+  const url = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = env.SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  return url && key ? { url: String(url).replace(/\/$/, ""), key, fetch: env.SUPABASE_FETCH || fetch } : null;
+}
+
+function finiteNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function nonNegativeInteger(value) {
+  const number = finiteNumber(value);
+  return number === null ? 0 : Math.max(0, Math.trunc(number));
+}
+
+function eventTimestamp(value) {
+  if (typeof value === "number" || /^\d{10,13}$/.test(String(value || ""))) {
+    const numeric = Number(value);
+    const date = new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+  const date = new Date(String(value || ""));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+async function sha256Text(value) {
+  const data = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function supabaseRpc(env, name, body) {
+  const connection = supabaseConnection(env);
+  if (!connection) throw new Error("TradingView storage is not configured.");
+  return connection.fetch(`${connection.url}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: { apikey: connection.key, authorization: `Bearer ${connection.key}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function processTradingViewEvent(env, eventId, webhookToken) {
+  try {
+    const response = await supabaseRpc(env, "process_jarvis_tradingview_event", { p_event_id: eventId, p_token: webhookToken });
+    if (!response.ok) console.error("[TradingView processing failure]", JSON.stringify({ status: response.status, eventId }));
+  } catch (error) {
+    console.error("[TradingView processing failure]", JSON.stringify({ category: "network", eventId, message: error instanceof Error ? error.message : "unknown" }));
+  }
+}
+
+async function handleTradingView(request, env, ctx) {
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (!/^application\/json\b/i.test(request.headers.get("content-type") || "")) return json({ error: "Content-Type must be application/json." }, 415);
+
+  let payload;
+  try { payload = await request.json(); } catch { return json({ error: "Invalid JSON body." }, 400); }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return json({ error: "A JSON object is required." }, 400);
+
+  const authorization = bearerToken(request);
+  const webhookToken = authorization || request.headers.get("x-jarvis-webhook-token")?.trim() || String(payload.webhook_token || payload.token || "").trim();
+  if (!webhookToken || webhookToken.length < 24 || webhookToken.length > 300) return json({ error: "Invalid webhook token." }, 401);
+
+  const ticker = String(payload.ticker || payload.symbol || "").trim().toUpperCase().replace(/[^A-Z0-9._:-]/g, "").slice(0, 40);
+  const timeframe = String(payload.timeframe || payload.interval || "").trim().slice(0, 20);
+  const event = String(payload.event || payload.alert || "structure_break").trim().slice(0, 120);
+  const timestamp = eventTimestamp(payload.timestamp ?? payload.time ?? payload.candle?.timestamp ?? payload.candle?.time);
+  if (!ticker || !timeframe || !event || !timestamp) return json({ error: "ticker, timeframe, event, and a valid timestamp are required." }, 400);
+
+  const candleSource = payload.candle && typeof payload.candle === "object" ? payload.candle : payload;
+  const candle = ["open", "high", "low", "close"].some((key) => finiteNumber(candleSource[key]) !== null) ? {
+    open: finiteNumber(candleSource.open), high: finiteNumber(candleSource.high), low: finiteNumber(candleSource.low), close: finiteNumber(candleSource.close),
+  } : null;
+  const bullishBreakCount = nonNegativeInteger(payload.bullish_break_count);
+  const bearishBreakCount = nonNegativeInteger(payload.bearish_break_count);
+  const dedupeKey = await sha256Text([ticker, timeframe, bullishBreakCount, bearishBreakCount, timestamp, candle?.open ?? "", candle?.high ?? "", candle?.low ?? "", candle?.close ?? ""].join("|"));
+  const safePayload = { ...payload };
+  delete safePayload.webhook_token;
+  delete safePayload.token;
+
+  let storageResponse;
+  try {
+    storageResponse = await supabaseRpc(env, "ingest_jarvis_tradingview_event", {
+      p_token: webhookToken,
+      p_ticker: ticker,
+      p_timeframe: timeframe,
+      p_event: event,
+      p_event_timestamp: timestamp,
+      p_price: finiteNumber(payload.price ?? candle?.close),
+      p_mrh: finiteNumber(payload.MRH ?? payload.mrh),
+      p_mrl: finiteNumber(payload.MRL ?? payload.mrl),
+      p_bullish_break_count: bullishBreakCount,
+      p_bearish_break_count: bearishBreakCount,
+      p_candle: candle,
+      p_raw_payload: safePayload,
+      p_dedupe_key: dedupeKey,
+    });
+  } catch {
+    return json({ error: "TradingView storage is unavailable." }, 503);
+  }
+  const result = await storageResponse.json().catch(() => null);
+  if (!storageResponse.ok) {
+    const invalidToken = storageResponse.status === 401 || /invalid webhook token|28000/i.test(JSON.stringify(result));
+    console.warn("[TradingView ingest rejection]", JSON.stringify({ category: invalidToken ? "invalid_token" : "storage", status: storageResponse.status, ticker, timeframe }));
+    return json({ error: invalidToken ? "Invalid webhook token." : "TradingView event could not be stored." }, invalidToken ? 401 : 503);
+  }
+
+  const row = Array.isArray(result) ? result[0] : result;
+  const eventId = row?.event_id;
+  const duplicate = row?.is_duplicate === true;
+  if (eventId && !duplicate) {
+    const work = processTradingViewEvent(env, eventId, webhookToken);
+    if (ctx?.waitUntil) ctx.waitUntil(work);
+    else void work;
+  }
+  return json({ ok: true, accepted: true, duplicate, eventId: eventId || null }, 200);
+}
+
 function referenceSearchText(analysis) {
   return [analysis.filename, analysis.date, analysis.pair, analysis.sourceSetup, ...(analysis.sourceAliases || []).flatMap((source) => [source.filename, source.pair, source.sourceSetup])]
     .filter(Boolean)
@@ -586,10 +705,11 @@ async function handleJarvis(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/api/jarvis/chat") return handleJarvis(request, env);
     if (url.pathname === "/api/jarvis/health") return handleHealth(request, env);
+    if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
 
     const response = await env.ASSETS.fetch(request);
     if (response.status !== 404 || url.pathname.includes(".")) return response;
