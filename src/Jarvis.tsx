@@ -12,7 +12,8 @@ import {
   Crosshair,
   Eye,
   Gauge,
-  Mic,
+  ImagePlus,
+  Paperclip,
   Radio,
   RefreshCcw,
   ShieldCheck,
@@ -21,7 +22,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
@@ -31,6 +32,8 @@ const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
+const JARVIS_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
+const JARVIS_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 
 type JarvisTrade = {
   id: string;
@@ -76,6 +79,8 @@ type JarvisMessage = {
   title?: string;
   text: string;
   metrics?: Array<{ label: string; value: string; tone?: "good" | "warn" | "bad" }>;
+  imagePreview?: string;
+  attachmentName?: string;
 };
 
 type JarvisHealth = {
@@ -419,8 +424,11 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   const [memory, setMemory] = useState<JarvisMemoryState>(() => readJarvisMemory(userId, username));
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
+  const [attachedImage, setAttachedImage] = useState<{ dataUrl: string; name: string } | null>(null);
+  const [attachmentError, setAttachmentError] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
@@ -480,7 +488,8 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(messages.slice(-30)));
+    const storedMessages = messages.slice(-30).map(({ imagePreview: _imagePreview, ...message }) => message);
+    localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(storedMessages));
   }, [messages, userId]);
 
   useEffect(() => {
@@ -545,16 +554,48 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
     }
   }
 
+  function chooseImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!JARVIS_IMAGE_TYPES.has(file.type)) {
+      setAttachmentError("Use a PNG, JPG, or WebP screenshot.");
+      return;
+    }
+    if (file.size > JARVIS_IMAGE_MAX_BYTES) {
+      setAttachmentError("That image is over 3 MB. Compress or crop it, then try again.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") return;
+      setAttachedImage({ dataUrl: reader.result, name: file.name.slice(0, 120) });
+      setAttachmentError("");
+      inputRef.current?.focus();
+    };
+    reader.onerror = () => setAttachmentError("Jarvis could not read that image. Try another file.");
+    reader.readAsDataURL(file);
+  }
+
+  function removeAttachedImage() {
+    setAttachedImage(null);
+    setAttachmentError("");
+    inputRef.current?.focus();
+  }
+
   async function askJarvis(nextPrompt: string) {
-    const cleanPrompt = nextPrompt.trim();
+    const imageForRequest = attachedImage;
+    const cleanPrompt = nextPrompt.trim() || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
     const recentHistory = messages.slice(-14).map((message) => ({
       role: message.role === "jarvis" ? "assistant" : "user",
       content: [message.title, message.text].filter(Boolean).join("\n"),
     }));
-    const userMessage: JarvisMessage = { id: crypto.randomUUID(), role: "user", text: cleanPrompt };
+    const userMessage: JarvisMessage = { id: crypto.randomUUID(), role: "user", text: cleanPrompt, imagePreview: imageForRequest?.dataUrl, attachmentName: imageForRequest?.name };
     setMessages((current) => [...current, userMessage]);
     setPrompt("");
+    setAttachedImage(null);
+    setAttachmentError("");
     setIsThinking(true);
 
     try {
@@ -578,7 +619,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
           userId,
           question: cleanPrompt,
           history: recentHistory,
-          chartImage: wantsChartReview ? chartTrade?.screenshot || null : null,
+          chartImage: imageForRequest?.dataUrl || (wantsChartReview ? chartTrade?.screenshot || null : null),
           context: {
             generatedAt: new Date().toISOString(),
             profile: {
@@ -600,7 +641,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               activeSetup: chartTrade?.setup || null,
               activeTradeId: chartTrade?.id || null,
               activeForecastId: orderedForecasts.find((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair))?.id || null,
-              lastChartAvailable: Boolean(chartTrade?.screenshot),
+              lastChartAvailable: Boolean(imageForRequest || chartTrade?.screenshot),
               lastJarvisDecision: lastDecision,
               rollingConversation: recentHistory.slice(-8),
             },
@@ -816,6 +857,8 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                         <div className="jarvis-message-body">
                           <span>{message.role === "jarvis" ? "JARVIS" : "YOU"}</span>
                           {message.title ? <h3>{message.title}</h3> : null}
+                          {message.imagePreview ? <img className="jarvis-message-image" src={message.imagePreview} alt={message.attachmentName || "Attached trading chart"} /> : null}
+                          {message.attachmentName ? <small className="jarvis-attachment-name"><Paperclip size={11} /> {message.attachmentName}</small> : null}
                           <p>{message.text}</p>
                           {message.metrics?.length ? <div className="jarvis-response-metrics">{message.metrics.map((metric) => <div className={metric.tone ? `is-${metric.tone}` : ""} key={`${metric.label}-${metric.value}`}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div> : null}
                         </div>
@@ -826,13 +869,15 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                 )}
               </div>
 
-              <form className="jarvis-composer" onSubmit={submitPrompt}>
-                <button className="jarvis-mic" type="button" title="Voice arrives in a future Jarvis phase" aria-label="Voice mode is coming in a future phase"><Mic size={19} /></button>
+              <form className={`jarvis-composer${attachedImage ? " has-attachment" : ""}`} onSubmit={submitPrompt}>
+                <input ref={fileInputRef} className="jarvis-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseImage} />
+                <button className="jarvis-attach" type="button" title="Attach a chart screenshot" aria-label="Attach a chart screenshot" onClick={() => fileInputRef.current?.click()}><ImagePlus size={19} /></button>
+                {attachedImage ? <div className="jarvis-attachment-preview"><img src={attachedImage.dataUrl} alt="Chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove attached image"><X size={14} /></button></div> : null}
                 <textarea
                   ref={inputRef}
                   rows={1}
                   value={prompt}
-                  placeholder="Ask Jarvis about your trading..."
+                  placeholder={attachedImage ? "Ask Jarvis about this chart..." : "Ask Jarvis about your trading..."}
                   onChange={(event) => setPrompt(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
@@ -841,8 +886,8 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                     }
                   }}
                 />
-                <button className="jarvis-send" type="submit" disabled={!prompt.trim() || isThinking} aria-label="Send to Jarvis"><ArrowUp size={19} /></button>
-                <small><Command size={12} /> Enter to send · Shift + Enter for a new line</small>
+                <button className="jarvis-send" type="submit" disabled={(!prompt.trim() && !attachedImage) || isThinking} aria-label="Send to Jarvis"><ArrowUp size={19} /></button>
+                <small className={attachmentError ? "is-error" : ""}>{attachmentError || <><Command size={12} /> PNG, JPG or WebP · max 3 MB</>}</small>
               </form>
             </main>
 

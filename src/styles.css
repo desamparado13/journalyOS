@@ -1614,6 +1614,8 @@ label span,
 .jarvis-message-body > span { color: #4c8097; font-size: 0.56rem; font-weight: 900; letter-spacing: 0.16em; }
 .jarvis-message-body h3 { margin: 7px 0 5px; color: #dcfaff; font-size: 1rem; }
 .jarvis-message-body p { margin: 5px 0 0; white-space: pre-line; color: #a1bac8; font-size: 0.82rem; line-height: 1.65; }
+.jarvis-message-image { display: block; width: min(520px, 100%); max-height: 330px; margin: 9px 0 7px; border: 1px solid rgba(103, 232, 249, 0.2); border-radius: 11px; object-fit: contain; background: #020a11; }
+.jarvis-attachment-name { display: inline-flex; align-items: center; gap: 4px; color: #5f8498; font-size: 0.59rem; }
 .jarvis-response-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 13px; }
 .jarvis-response-metrics > div { display: grid; gap: 3px; padding: 9px 10px; border: 1px solid rgba(125, 211, 252, 0.1); border-radius: 8px; background: rgba(2, 10, 18, 0.5); }
 .jarvis-response-metrics span { color: #57778a; font-size: 0.57rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -1628,14 +1630,25 @@ label span,
 .jarvis-thinking small { margin-left: 5px; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; }
 
 .jarvis-composer { position: relative; width: min(760px, calc(100% - 44px)); min-height: 74px; margin: 0 auto 22px; padding: 10px 52px 23px 50px; border: 1px solid rgba(103, 232, 249, 0.24); border-radius: 16px; background: rgba(5, 19, 31, 0.92); box-shadow: 0 18px 60px rgba(0, 0, 0, 0.34), inset 0 0 28px rgba(34, 211, 238, 0.025); }
+.jarvis-composer.has-attachment { padding-top: 74px; }
 .jarvis-composer:focus-within { border-color: rgba(103, 232, 249, 0.55); box-shadow: 0 18px 60px rgba(0, 0, 0, 0.34), 0 0 28px rgba(34, 211, 238, 0.08); }
 .jarvis-composer textarea { width: 100%; min-height: 31px; max-height: 90px; padding: 5px 0; resize: none; border: 0; outline: 0; background: transparent; color: #e6faff; font-size: 0.85rem; line-height: 1.45; }
 .jarvis-composer textarea::placeholder { color: #547487; }
 .jarvis-composer > small { position: absolute; right: 52px; bottom: 7px; display: flex; align-items: center; gap: 4px; color: #3f6174; font-size: 0.56rem; }
-.jarvis-mic,
+.jarvis-composer > small.is-error { color: #fb7185; }
+.jarvis-file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.jarvis-attachment-preview { position: absolute; top: 9px; left: 49px; right: 50px; display: grid; grid-template-columns: 48px minmax(0, 1fr) 26px; gap: 9px; align-items: center; min-height: 54px; padding: 5px 7px; border: 1px solid rgba(103, 232, 249, 0.15); border-radius: 10px; background: rgba(3, 14, 24, 0.86); }
+.jarvis-attachment-preview img { width: 48px; height: 42px; border-radius: 7px; object-fit: cover; }
+.jarvis-attachment-preview span { min-width: 0; }
+.jarvis-attachment-preview strong, .jarvis-attachment-preview small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-attachment-preview strong { color: #b9dbe8; font-size: 0.67rem; }
+.jarvis-attachment-preview small { margin-top: 2px; color: #4f768a; font-size: 0.56rem; }
+.jarvis-attachment-preview button { display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 7px; color: #66899b; background: transparent; cursor: pointer; }
+.jarvis-attachment-preview button:hover { color: #fb7185; background: rgba(251, 113, 133, 0.08); }
+.jarvis-attach,
 .jarvis-send { position: absolute; display: grid; width: 32px; height: 32px; place-items: center; border-radius: 9px; cursor: pointer; }
-.jarvis-mic { left: 10px; top: 12px; border: 0; color: #65879a; background: transparent; }
-.jarvis-mic:hover { color: #67e8f9; background: rgba(34, 211, 238, 0.08); }
+.jarvis-attach { left: 10px; top: 12px; border: 0; color: #65879a; background: transparent; }
+.jarvis-attach:hover { color: #67e8f9; background: rgba(34, 211, 238, 0.08); }
 .jarvis-send { right: 10px; top: 12px; border: 1px solid rgba(103, 232, 249, 0.48); color: #e9feff; background: linear-gradient(145deg, #0891b2, #0e7490); box-shadow: 0 0 18px rgba(34, 211, 238, 0.18); }
 .jarvis-send:disabled { border-color: rgba(125, 211, 252, 0.09); color: #456475; background: #0a1b27; box-shadow: none; cursor: default; }
 

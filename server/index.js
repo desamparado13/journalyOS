@@ -126,7 +126,7 @@ async function authenticateUser(request, env, requestedUserId) {
 
 function validChartImage(value) {
   if (typeof value !== "string" || value.length > MAX_CHART_IMAGE_LENGTH) return null;
-  if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,/i.test(value)) return value;
+  if (/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(value)) return value;
   if (/^https:\/\//i.test(value)) return value;
   return null;
 }
