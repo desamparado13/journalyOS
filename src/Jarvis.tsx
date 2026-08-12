@@ -50,6 +50,23 @@ type JarvisTrade = {
   screenshot: string;
 };
 
+type JarvisBacktest = {
+  id: string;
+  date: string;
+  time: string;
+  pair: string;
+  setup: string;
+  direction: string;
+  durationMinutes: number | null;
+  stopLossPips: number | null;
+  maePips: number | null;
+  pnl: number;
+  result: string;
+  notes: string;
+  scaleIn: string;
+  screenshot: string;
+};
+
 type JarvisForecast = {
   id: string;
   date: string;
@@ -110,6 +127,7 @@ type JarvisProps = {
   username: string;
   displayName: string;
   trades: JarvisTrade[];
+  backtests: JarvisBacktest[];
   forecasts: JarvisForecast[];
   session: JarvisSession;
   journalEntries: Array<{ id: string; date: string; content: string; advice: string }>;
@@ -442,7 +460,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   return null;
 }
 
-export default function Jarvis({ userId, username, displayName, trades, forecasts, session, journalEntries }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
@@ -666,16 +684,22 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
 
     try {
       const orderedTrades = latestFirst(trades);
+      const orderedBacktests = latestFirst(backtests);
       const orderedForecasts = latestFirst(forecasts);
       if (!supabase) throw new Error("Journaly authentication is unavailable.");
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error("Your Journaly session has expired.");
-      const requestedPair = getPairFromPrompt(cleanPrompt, orderedTrades.map((trade) => trade.pair));
+      const requestedPair = getPairFromPrompt(cleanPrompt, [...orderedTrades, ...orderedBacktests].map((trade) => trade.pair));
       const chartTrade = requestedPair
         ? orderedTrades.find((trade) => trade.pair === requestedPair && trade.screenshot)
         : orderedTrades.find((trade) => trade.screenshot);
+      const chartBacktest = requestedPair
+        ? orderedBacktests.find((trade) => trade.pair === requestedPair && trade.screenshot)
+        : orderedBacktests.find((trade) => trade.screenshot);
+      const wantsBacktest = /\b(backtest|back test|historical test)\b/i.test(cleanPrompt);
       const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
+      const activeChartRecord = wantsBacktest ? chartBacktest : chartTrade;
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
       const response = await fetch("/api/jarvis/chat", {
@@ -685,7 +709,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
           userId,
           question: cleanPrompt,
           history: recentHistory,
-          chartImage: imageForRequest?.dataUrl || (wantsChartReview ? chartTrade?.screenshot || null : null),
+          chartImage: imageForRequest?.dataUrl || (wantsChartReview ? activeChartRecord?.screenshot || null : null),
           context: {
             generatedAt: new Date().toISOString(),
             profile: {
@@ -698,17 +722,20 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
             marketSession: session,
             summary: {
               totalTrades: trades.length,
+              totalBacktests: backtests.length,
               reviewedTrades: reviewedTrades.length,
               goodExecutions: goodTrades,
               activeForecasts: activeForecasts.length,
               learnedCases: learningRecords.length,
             },
             sessionState: {
-              activePair: chartTrade?.pair || requestedPair || null,
-              activeSetup: chartTrade?.setup || null,
-              activeTradeId: chartTrade?.id || null,
+              activePair: activeChartRecord?.pair || requestedPair || null,
+              activeSetup: activeChartRecord?.setup || null,
+              activeTradeId: wantsBacktest ? null : chartTrade?.id || null,
+              activeBacktestId: wantsBacktest ? chartBacktest?.id || null : null,
+              activeDataSource: wantsBacktest ? "backtest" : "live",
               activeForecastId: orderedForecasts.find((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair))?.id || null,
-              lastChartAvailable: Boolean(imageForRequest || chartTrade?.screenshot),
+              lastChartAvailable: Boolean(imageForRequest || activeChartRecord?.screenshot),
               lastJarvisDecision: lastDecision,
               rollingConversation: recentHistory.slice(-8),
             },
@@ -721,6 +748,21 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               outcome: trade.result,
               pnlR: trade.pnl,
               executionQuality: trade.quality,
+              notes: trade.notes,
+              hasScreenshot: Boolean(trade.screenshot),
+            })),
+            backtests: orderedBacktests.slice(0, 600).map((trade) => ({
+              id: trade.id,
+              date: trade.date,
+              pair: trade.pair,
+              setup: trade.setup,
+              direction: trade.direction,
+              outcome: trade.result,
+              pnlR: trade.pnl,
+              durationMinutes: trade.durationMinutes,
+              stopLossPips: trade.stopLossPips,
+              maePips: trade.maePips,
+              scaleIn: trade.scaleIn,
               notes: trade.notes,
               hasScreenshot: Boolean(trade.screenshot),
             })),
@@ -876,6 +918,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                 <button type="button" onClick={() => askJarvis("What am I currently watching?")}><Target size={17} /> Forecasts <span>{activeForecasts.length}</span></button>
                 <button type="button" onClick={() => askJarvis("Show me my recent mistakes")}><Eye size={17} /> Review</button>
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
+                <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
                 <button type="button" onClick={() => setMessages([])}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
@@ -890,6 +933,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                   </p>
                 </div>
                 <div><Check size={13} /><p><strong>Trade journal</strong><small>{trades.length} records indexed</small></p></div>
+                <div><Check size={13} /><p><strong>Backtest journal</strong><small>{backtests.length} records indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>

@@ -34,6 +34,9 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_setup_examples", description: "Get independently audited historical chart examples matching a setup or pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] }, pair: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 8 } }, required: ["setup", "pair", "limit"] } },
   { type: "function", name: "get_trade", description: "Get one authenticated user's trade by id or the latest trade.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { id: { type: ["string", "null"] }, latest: { type: "boolean" } }, required: ["id", "latest"] } },
   { type: "function", name: "get_recent_trades", description: "Get real Journaly trades, optionally filtered by pair, setup, or calendar month (YYYY-MM).", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "setup", "month", "limit"] } },
+  { type: "function", name: "get_recent_backtests", description: "Get backtest records only, with pair/setup/month filters. Results are historical tests and must never be described as live trades.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "setup", "month", "limit"] } },
+  { type: "function", name: "get_backtest_statistics", description: "Calculate backtest-only win rate, R, expectancy, and sample size for an optional pair, setup, and month. Always label the output as backtest evidence.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "month"] } },
+  { type: "function", name: "compare_live_vs_backtest", description: "Compare live-trade and backtest performance using separately calculated sample sizes, win rates, total R, and expectancy. Use when the user asks whether backtests translate to live execution.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "month"] } },
   { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
@@ -298,7 +301,9 @@ function setupStats(trades) {
 
 function executeJournalyTool(name, args, data) {
   const trades = Array.isArray(data.trades) ? data.trades : [];
+  const backtests = Array.isArray(data.backtests) ? data.backtests : [];
   const forecasts = Array.isArray(data.forecasts) ? data.forecasts : [];
+  const filterRecords = (records) => records.filter((record) => (!args.pair || normalizePair(record.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(record.setup, args.setup)) && (!args.month || String(record.date || "").startsWith(args.month)));
   switch (name) {
     case "get_user_profile":
       return data.profile;
@@ -318,6 +323,29 @@ function executeJournalyTool(name, args, data) {
       const filtered = trades.filter((trade) => (!args.pair || normalizePair(trade.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(trade.setup, args.setup)) && (!args.month || String(trade.date || "").startsWith(args.month)));
       return { trades: filtered.slice(0, args.limit), totalMatching: filtered.length };
     }
+    case "get_recent_backtests": {
+      const filtered = filterRecords(backtests);
+      return { source: "backtest", backtests: filtered.slice(0, args.limit), totalMatching: filtered.length };
+    }
+    case "get_backtest_statistics": {
+      const filtered = filterRecords(backtests);
+      return { source: "backtest", pair: args.pair, setup: args.setup, month: args.month, statistics: setupStats(filtered), dataCoverage: { recordsAvailable: backtests.length, oldestDate: backtests.at(-1)?.date || null, newestDate: backtests[0]?.date || null } };
+    }
+    case "compare_live_vs_backtest": {
+      const liveFiltered = filterRecords(trades);
+      const backtestFiltered = filterRecords(backtests);
+      const live = setupStats(liveFiltered);
+      const historical = setupStats(backtestFiltered);
+      return {
+        filter: { pair: args.pair, setup: args.setup, month: args.month },
+        live,
+        backtest: historical,
+        gap: {
+          expectancyR: live.expectancyR == null || historical.expectancyR == null ? null : Math.round((live.expectancyR - historical.expectancyR) * 100) / 100,
+          winRatePoints: live.winRate == null || historical.winRate == null ? null : Math.round((live.winRate - historical.winRate) * 10) / 10,
+        },
+      };
+    }
     case "get_active_forecasts":
       return { forecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair))) };
     case "get_skipped_trades": {
@@ -327,7 +355,8 @@ function executeJournalyTool(name, args, data) {
     case "get_pair_state": {
       const pair = normalizePair(args.pair);
       const pairTrades = trades.filter((trade) => normalizePair(trade.pair) === pair);
-      return { pair, recentTrades: pairTrades.slice(0, 12), activeForecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && normalizePair(forecast.pair) === pair), statistics: setupStats(pairTrades) };
+      const pairBacktests = backtests.filter((trade) => normalizePair(trade.pair) === pair);
+      return { pair, recentTrades: pairTrades.slice(0, 12), recentBacktests: pairBacktests.slice(0, 12), activeForecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && normalizePair(forecast.pair) === pair), liveStatistics: setupStats(pairTrades), backtestStatistics: setupStats(pairBacktests) };
     }
     case "get_setup_statistics": {
       const filtered = trades.filter((trade) => matchesText(trade.setup, args.setup) && (!args.month || String(trade.date || "").startsWith(args.month)));
@@ -435,6 +464,7 @@ async function handleJarvis(request, env) {
     profile,
     memories: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
     trades: Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : [],
+    backtests: Array.isArray(journalData?.backtests) ? journalData.backtests : [],
     forecasts: Array.isArray(journalData?.forecasts) ? journalData.forecasts : [],
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
     sessionState: journalData?.sessionState || {},
@@ -448,6 +478,7 @@ async function handleJarvis(request, env) {
     availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
     learnedCaseCount: toolData.learningRecords.length,
+    dataCoverage: { liveTrades: toolData.trades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length },
   };
   const chartImage = validChartImage(body?.chartImage);
   const currentContent = [

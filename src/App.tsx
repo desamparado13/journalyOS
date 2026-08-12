@@ -7184,6 +7184,7 @@ export default function App() {
           username={currentUser.email}
           displayName={accountProfile.displayName || currentUser.email.split("@")[0]}
           trades={trades}
+          backtests={backtests}
           forecasts={tradeDecisions}
           session={marketSession}
           journalEntries={journalEntries}

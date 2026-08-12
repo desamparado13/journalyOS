@@ -30,6 +30,12 @@ const context = {
     { id: "t2", date: "2026-08-04", pair: "EURUSD", setup: "Internal Reversal", direction: "Buy", outcome: "Loss", pnlR: -1, executionQuality: "Mid", notes: "Trigger was not unique." },
     { id: "t1", date: "2026-07-28", pair: "GBPUSD", setup: "Flag", direction: "Buy", outcome: "Win", pnlR: 2, executionQuality: "Bad", notes: "Anticipatory entry." },
   ],
+  backtests: [
+    { id: "b4", date: "2026-08-11", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", outcome: "Win", pnlR: 2, notes: "Confirmed engulf after PPA shift.", hasScreenshot: true },
+    { id: "b3", date: "2026-08-09", pair: "AUDJPY", setup: "Internal Reversal", direction: "Sell", outcome: "Win", pnlR: 2, notes: "Clean retest." },
+    { id: "b2", date: "2026-08-06", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", outcome: "Loss", pnlR: -1, notes: "Valid setup, normal loss." },
+    { id: "b1", date: "2026-08-02", pair: "EURUSD", setup: "Liquidity sweep", direction: "Sell", outcome: "Win", pnlR: 2, notes: "Sweep plus bearish PPA." },
+  ],
   forecasts: [
     { id: "f1", date: "2026-08-12", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", status: "Waiting", plannedRiskPercent: 0.5, entryPlan: "Wait for a strong bullish engulf." },
     { id: "f0", date: "2026-08-08", pair: "EURUSD", setup: "Liquidity sweep", direction: "Sell", status: "Cancelled", reasonCancelled: "PPA stayed bullish", outcome: "Avoided loss", resultR: -1 },
@@ -78,6 +84,12 @@ results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).incl
 
 const learning = await ask("what have you learned from my saved charts and skipped trades?");
 results.push({ test: "persistent learning retrieval", pass: /skip|chart|sweep|PPA|lesson|pattern/i.test(learning.answer) && (learning.toolsUsed || []).some((tool) => tool === "get_learning_records" || tool === "get_skipped_trades"), tools: learning.toolsUsed });
+
+const backtestStats = await ask("how have my AUDJPY Internal Reversal backtests performed?");
+results.push({ test: "backtest-only analytics", pass: /backtest|historical/i.test(backtestStats.answer) && /3|66\.7|1R|internal/i.test(backtestStats.answer) && (backtestStats.toolsUsed || []).includes("get_backtest_statistics"), tools: backtestStats.toolsUsed });
+
+const liveVsBacktest = await ask("compare my live trades against my backtests for AUDJPY Internals");
+results.push({ test: "live versus backtest comparison", pass: /live/i.test(liveVsBacktest.answer) && /backtest/i.test(liveVsBacktest.answer) && (liveVsBacktest.toolsUsed || []).includes("compare_live_vs_backtest"), tools: liveVsBacktest.toolsUsed });
 
 const blockedRequest = new Request("http://local/api/jarvis/chat", {
   method: "POST",
