@@ -75,6 +75,17 @@ type JarvisMessage = {
   metrics?: Array<{ label: string; value: string; tone?: "good" | "warn" | "bad" }>;
 };
 
+type JarvisHealth = {
+  provider: string;
+  configuredModel: string | null;
+  apiConfigured: boolean;
+  apiReachable: boolean;
+  lastSuccessfulRequestAt: string | null;
+  lastErrorCategory: string | null;
+  lastHttpStatus: number | null;
+  fallbackActive: boolean;
+};
+
 type JarvisProps = {
   userId: string;
   username: string;
@@ -236,7 +247,7 @@ function latestFirst<T extends { date: string; time?: string }>(source: T[]) {
   return [...source].sort((a, b) => `${b.date} ${b.time || ""}`.localeCompare(`${a.date} ${a.time || ""}`));
 }
 
-function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: JarvisForecast[]): Omit<JarvisMessage, "id" | "role"> {
+function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: JarvisForecast[]): Omit<JarvisMessage, "id" | "role"> | null {
   const lower = prompt.toLowerCase();
   const orderedTrades = latestFirst(trades);
   const activeForecasts = latestFirst(forecasts.filter((item) => item.status === "Waiting"));
@@ -345,10 +356,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
     };
   }
 
-  return {
-    title: "I'm with you",
-    text: "Tell me what you’re looking at or what’s bothering you about the trade. I can still work from your Journaly records while the full AI conversation is temporarily unavailable.",
-  };
+  return null;
 }
 
 export default function Jarvis({ userId, username, displayName, trades, forecasts, session }: JarvisProps) {
@@ -358,6 +366,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<JarvisMessage[]>(() => readJarvisMessages(userId));
   const [memory, setMemory] = useState<JarvisMemoryState>(() => readJarvisMemory(userId, username));
+  const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -385,6 +394,20 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", close);
     };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !supabase) return;
+    let cancelled = false;
+    supabase.auth.getSession().then(async ({ data }) => {
+      const token = data.session?.access_token;
+      if (!token) return;
+      const response = await fetch("/api/jarvis/health?probe=1", { headers: { authorization: `Bearer ${token}` } }).catch(() => null);
+      if (!response?.ok) return;
+      const health = await response.json().catch(() => null);
+      if (!cancelled && health) setAiHealth(health);
+    });
+    return () => { cancelled = true; };
   }, [isOpen]);
 
   useEffect(() => {
@@ -481,6 +504,8 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
         ? orderedTrades.find((trade) => trade.pair === requestedPair && trade.screenshot)
         : orderedTrades.find((trade) => trade.screenshot);
       const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
+      const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
+      const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
       const response = await fetch("/api/jarvis/chat", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
@@ -505,7 +530,17 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               goodExecutions: goodTrades,
               activeForecasts: activeForecasts.length,
             },
-            recentTrades: orderedTrades.slice(0, 30).map((trade) => ({
+            sessionState: {
+              activePair: chartTrade?.pair || requestedPair || null,
+              activeSetup: chartTrade?.setup || null,
+              activeTradeId: chartTrade?.id || null,
+              activeForecastId: orderedForecasts.find((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair))?.id || null,
+              lastChartAvailable: Boolean(chartTrade?.screenshot),
+              lastJarvisDecision: lastDecision,
+              rollingConversation: recentHistory.slice(-8),
+            },
+            trades: orderedTrades.slice(0, 300).map((trade) => ({
+              id: trade.id,
               date: trade.date,
               pair: trade.pair,
               setup: trade.setup,
@@ -534,7 +569,23 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
         }),
       });
       const payload = await response.json();
-      if (!response.ok || typeof payload?.answer !== "string") throw new Error(payload?.error || "Jarvis is unavailable.");
+      if (!response.ok || typeof payload?.answer !== "string") {
+        const error = new Error(payload?.error || "Jarvis is unavailable.") as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
+        error.category = payload?.category;
+        error.status = response.status;
+        error.fallbackAllowed = payload?.fallbackAllowed === true;
+        throw error;
+      }
+      setAiHealth((current) => ({
+        provider: payload.provider || current?.provider || "OpenAI",
+        configuredModel: payload.model || current?.configuredModel || null,
+        apiConfigured: true,
+        apiReachable: true,
+        lastSuccessfulRequestAt: new Date().toISOString(),
+        lastErrorCategory: null,
+        lastHttpStatus: 200,
+        fallbackActive: false,
+      }));
       if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
       }
@@ -542,15 +593,33 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
         ...current,
         { id: crypto.randomUUID(), role: "jarvis", text: payload.answer },
       ]);
-    } catch {
+    } catch (error) {
+      const failure = error as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
+      setAiHealth((current) => ({
+        provider: current?.provider || "OpenAI",
+        configuredModel: current?.configuredModel || null,
+        apiConfigured: current?.apiConfigured ?? true,
+        apiReachable: failure.status ? failure.status < 500 : false,
+        lastSuccessfulRequestAt: current?.lastSuccessfulRequestAt || null,
+        lastErrorCategory: failure.category || (failure.status === 401 || failure.status === 403 ? "authentication" : "network"),
+        lastHttpStatus: failure.status || null,
+        fallbackActive: failure.fallbackAllowed === true,
+      }));
       const fallback = buildJarvisResponse(cleanPrompt, trades, forecasts);
       setMessages((current) => [
         ...current,
-        {
+        fallback ? {
           id: crypto.randomUUID(),
           role: "jarvis",
           ...fallback,
-          text: `${fallback.text}\n\nAI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.`,
+          text: `${fallback.text}\n\nLimited Journaly fallback is active while the conversational AI reconnects.`,
+        } : {
+          id: crypto.randomUUID(),
+          role: "jarvis",
+          title: "Conversational AI unavailable",
+          text: failure.status === 401
+            ? "Your Journaly session needs to be refreshed. Sign in again, then retry this message."
+            : "I can’t answer that naturally without the conversational model. Your message is still here—retry in a moment and I’ll resume automatically.",
         },
       ]);
     } finally {
@@ -584,7 +653,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
         <span className="jarvis-launcher-radar" />
         <span className="jarvis-launcher-orbit" />
         <span className="jarvis-launcher-core"><span>J</span></span>
-        <span className="jarvis-launcher-label"><strong>Jarvis</strong><small>Online</small></span>
+        <span className="jarvis-launcher-label"><strong>Jarvis</strong><small>{aiHealth?.fallbackActive ? "Limited" : "Online"}</small></span>
       </button>
 
       {isOpen ? (
@@ -596,7 +665,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               <div><strong>JARVIS</strong><small>Journaly intelligence system</small></div>
             </div>
             <div className="jarvis-header-status">
-              <span><i /> Systems nominal</span>
+              <span><i /> {!aiHealth ? "Checking conversational AI" : aiHealth.apiReachable ? "Conversational AI online" : "AI connection needs attention"}</span>
               <span>{session.label} · {session.timeLabel}</span>
             </div>
             <button className="jarvis-close" type="button" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={20} /></button>
@@ -615,6 +684,14 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
 
               <div className="jarvis-source-stack">
                 <span>Knowledge sources</span>
+                <div className={aiHealth?.apiReachable === false ? "is-pending" : ""}>
+                  {aiHealth?.apiReachable === false ? <CircleDot size={13} /> : <Check size={13} />}
+                  <p title={aiHealth ? `API configured: ${aiHealth.apiConfigured ? "yes" : "no"}\nAPI reachable: ${aiHealth.apiReachable ? "yes" : "no"}\nLast success: ${aiHealth.lastSuccessfulRequestAt || "none in this runtime"}\nLast error: ${aiHealth.lastErrorCategory || "none"}\nLast HTTP status: ${aiHealth.lastHttpStatus ?? "none"}\nFallback active: ${aiHealth.fallbackActive ? "yes" : "no"}` : "Checking secure connection"}>
+                    <strong>Conversational AI</strong>
+                    <small>{aiHealth ? `${aiHealth.provider} · ${aiHealth.configuredModel || "model pending"} · configured ${aiHealth.apiConfigured ? "yes" : "no"} · reachable ${aiHealth.apiReachable ? "yes" : "no"}` : "Checking secure connection"}</small>
+                    {aiHealth ? <small>{`HTTP ${aiHealth.lastHttpStatus ?? "—"} · error ${aiHealth.lastErrorCategory || "none"} · fallback ${aiHealth.fallbackActive ? "on" : "off"}`}</small> : null}
+                  </p>
+                </div>
                 <div><Check size={13} /><p><strong>Trade journal</strong><small>{trades.length} records indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>

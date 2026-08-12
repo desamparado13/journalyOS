@@ -1,4 +1,4 @@
-import { JARVIS_OWNER_KNOWLEDGE, JARVIS_REFERENCE_ANALYSES, JARVIS_REFERENCE_SUMMARY, JARVIS_SYSTEM_PROMPT } from "./jarvis-knowledge.js";
+import { JARVIS_OWNER_KNOWLEDGE, JARVIS_REFERENCE_ANALYSES, JARVIS_REFERENCE_SUMMARY, JARVIS_STRATEGY_RULES, JARVIS_SYSTEM_PROMPT } from "./jarvis-knowledge.js";
 
 const FALLBACK_MODELS = ["gpt-5.6-luna", "gpt-4.1-mini"];
 const MAX_QUESTION_LENGTH = 6000;
@@ -6,6 +6,34 @@ const MAX_HISTORY_MESSAGES = 16;
 const MAX_CHART_IMAGE_LENGTH = 8_000_000;
 const OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
 const OWNER_USERNAME = "christian.angelo.desamparado";
+const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
+const AI_TIMEOUT_MS = 45_000;
+const MAX_TOOL_ROUNDS = 3;
+
+const aiHealth = {
+  provider: "OpenAI",
+  configuredModel: null,
+  apiConfigured: false,
+  apiReachable: false,
+  lastSuccessfulRequestAt: null,
+  lastErrorCategory: null,
+  lastHttpStatus: null,
+  fallbackActive: false,
+};
+
+const JOURNALY_TOOLS = [
+  { type: "function", name: "get_user_profile", description: "Get the authenticated user's Journaly profile. Use only when identity or preferences matter.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_user_memories", description: "Get durable memories stored for the authenticated user.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { category: { type: ["string", "null"] } }, required: ["category"] } },
+  { type: "function", name: "get_strategy_rules", description: "Get Pot's current PPA-first strategy rules. Use for setup or decision reasoning, not casual conversation.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] } }, required: ["setup"] } },
+  { type: "function", name: "get_setup_examples", description: "Get independently audited historical chart examples matching a setup or pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] }, pair: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 8 } }, required: ["setup", "pair", "limit"] } },
+  { type: "function", name: "get_trade", description: "Get one authenticated user's trade by id or the latest trade.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { id: { type: ["string", "null"] }, latest: { type: "boolean" } }, required: ["id", "latest"] } },
+  { type: "function", name: "get_recent_trades", description: "Get real Journaly trades, optionally filtered by pair, setup, or calendar month (YYYY-MM).", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "setup", "month", "limit"] } },
+  { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
+  { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
+  { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
+  { type: "function", name: "get_account_risk", description: "Get documented planned risk from active Journaly forecasts. This is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+];
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -138,9 +166,167 @@ function parseJarvisOutput(text) {
   return { answer: text.trim(), memoryUpdates: [] };
 }
 
+function errorCategory(status, code, message) {
+  const detail = `${code || ""} ${message || ""}`.toLowerCase();
+  if (status === 401 || /api.?key|authentication|unauthorized/.test(detail)) return "authentication";
+  if (status === 402 || /billing|quota|credit|insufficient_quota/.test(detail)) return "billing_or_quota";
+  if (status === 429 || /rate.?limit/.test(detail)) return "rate_limit";
+  if (/model|not_found/.test(detail)) return "model_configuration";
+  if (status >= 400 && status < 500) return "request_schema";
+  if (status >= 500) return "provider_server";
+  if (/abort|timeout/.test(detail)) return "timeout";
+  return "network";
+}
+
+function recordAiFailure({ status = null, code = null, message = "", model = null, requestId = null }) {
+  const category = errorCategory(status, code, message);
+  Object.assign(aiHealth, {
+    configuredModel: model || aiHealth.configuredModel,
+    apiReachable: Boolean(status),
+    lastErrorCategory: category,
+    lastHttpStatus: status,
+    fallbackActive: true,
+  });
+  console.error("[Jarvis AI failure]", JSON.stringify({ category, status, code, model, requestId }));
+  return category;
+}
+
+async function openAiRequest(apiKey, requestBody) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  try {
+    const response = await fetch(OPENAI_ENDPOINT, {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { response, payload };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function normalizePair(value) {
+  const aliases = { AJ: "AUDJPY", AU: "AUDUSD", EJ: "EURJPY", EU: "EURUSD", EA: "EURAUD", GU: "GBPUSD", NJ: "NZDJPY" };
+  const pair = String(value || "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+  return aliases[pair] || pair;
+}
+
+function matchesText(value, query) {
+  return !query || String(value || "").toLowerCase().includes(String(query).toLowerCase());
+}
+
+function setupStats(trades) {
+  const wins = trades.filter((trade) => Number(trade.pnlR) > 0).length;
+  const losses = trades.filter((trade) => Number(trade.pnlR) < 0).length;
+  const totalR = trades.reduce((sum, trade) => sum + Number(trade.pnlR || 0), 0);
+  const reviewed = trades.filter((trade) => trade.executionQuality);
+  const quality = Object.fromEntries(["Good", "Mid", "Bad"].map((grade) => [grade, reviewed.filter((trade) => trade.executionQuality === grade).length]));
+  return {
+    sampleSize: trades.length,
+    wins,
+    losses,
+    breakEven: trades.length - wins - losses,
+    winRate: trades.length ? Math.round((wins / trades.length) * 1000) / 10 : null,
+    totalR: Math.round(totalR * 100) / 100,
+    expectancyR: trades.length ? Math.round((totalR / trades.length) * 100) / 100 : null,
+    reviewed: reviewed.length,
+    quality,
+  };
+}
+
+function executeJournalyTool(name, args, data) {
+  const trades = Array.isArray(data.trades) ? data.trades : [];
+  const forecasts = Array.isArray(data.forecasts) ? data.forecasts : [];
+  switch (name) {
+    case "get_user_profile":
+      return data.profile;
+    case "get_user_memories":
+      return { memories: (data.memories || []).filter((memory) => !args.category || memory.category === args.category) };
+    case "get_strategy_rules": {
+      const rules = Array.isArray(JARVIS_STRATEGY_RULES) ? JARVIS_STRATEGY_RULES : JARVIS_STRATEGY_RULES?.rules || JARVIS_STRATEGY_RULES;
+      return { strategyVersion: "v0.3", setup: args.setup, rules };
+    }
+    case "get_setup_examples":
+      return { examples: JARVIS_REFERENCE_ANALYSES.filter((item) => (!args.setup || matchesText(item.sourceSetup, args.setup)) && (!args.pair || normalizePair(item.pair) === normalizePair(args.pair))).slice(0, args.limit) };
+    case "get_trade":
+      return { trade: args.latest || !args.id ? trades[0] || null : trades.find((trade) => trade.id === args.id) || null };
+    case "get_recent_trades": {
+      const filtered = trades.filter((trade) => (!args.pair || normalizePair(trade.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(trade.setup, args.setup)) && (!args.month || String(trade.date || "").startsWith(args.month)));
+      return { trades: filtered.slice(0, args.limit), totalMatching: filtered.length };
+    }
+    case "get_active_forecasts":
+      return { forecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair))) };
+    case "get_pair_state": {
+      const pair = normalizePair(args.pair);
+      const pairTrades = trades.filter((trade) => normalizePair(trade.pair) === pair);
+      return { pair, recentTrades: pairTrades.slice(0, 12), activeForecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && normalizePair(forecast.pair) === pair), statistics: setupStats(pairTrades) };
+    }
+    case "get_setup_statistics": {
+      const filtered = trades.filter((trade) => matchesText(trade.setup, args.setup) && (!args.month || String(trade.date || "").startsWith(args.month)));
+      return { setup: args.setup, month: args.month, statistics: setupStats(filtered), dataCoverage: { recordsAvailable: trades.length, oldestDate: trades.at(-1)?.date || null, newestDate: trades[0]?.date || null } };
+    }
+    case "get_account_risk": {
+      const active = forecasts.filter((forecast) => forecast.status === "Waiting");
+      return { documentedPlannedRiskPercent: active.reduce((sum, item) => sum + Number(item.plannedRiskPercent || 0), 0), activeForecastCount: active.length, liveBrokerRiskConnected: false };
+    }
+    case "get_session_state":
+      return data.sessionState || {};
+    default:
+      return { error: "Unknown Journaly tool." };
+  }
+}
+
+async function authorizeOwner(request, env, requestedUserId) {
+  const user = await authenticateUser(request, env, requestedUserId);
+  if (!user || (requestedUserId && requestedUserId !== user.id)) {
+    console.warn("[Jarvis auth failure]", JSON.stringify({ category: "invalid_session", status: 401 }));
+    return { error: json({ error: "Your Journaly session has expired. Sign in again to use Jarvis." }, 401) };
+  }
+  if (String(user.email || "").trim().toLowerCase() !== OWNER_EMAIL) {
+    console.warn("[Jarvis auth failure]", JSON.stringify({ category: "owner_allowlist", status: 403 }));
+    return { error: json({ error: "Jarvis is currently available only to its owner." }, 403) };
+  }
+  return { user };
+}
+
+async function handleHealth(request, env) {
+  if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  let authorization;
+  try {
+    const testUserId = env.JARVIS_AUTH_BYPASS_USER_ID ? new URL(request.url).searchParams.get("userId") : null;
+    authorization = await authorizeOwner(request, env, testUserId);
+  } catch {
+    return json({ error: "Jarvis authentication failed." }, 503);
+  }
+  if (authorization.error) return authorization.error;
+  const configuredModel = env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
+  aiHealth.configuredModel = configuredModel;
+  aiHealth.apiConfigured = Boolean(env.OPENAI_API_KEY);
+  if (new URL(request.url).searchParams.get("probe") === "1" && env.OPENAI_API_KEY) {
+    try {
+      const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(configuredModel)}`, { headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+      aiHealth.apiReachable = response.ok;
+      aiHealth.lastHttpStatus = response.status;
+      if (!response.ok) recordAiFailure({ status: response.status, model: configuredModel });
+    } catch (error) {
+      recordAiFailure({ message: error instanceof Error ? error.message : String(error), model: configuredModel });
+    }
+  }
+  return json(aiHealth);
+}
+
 async function handleJarvis(request, env) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (!env.OPENAI_API_KEY) return json({ error: "Jarvis AI is not configured yet." }, 503);
+  const configuredModel = env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
+  aiHealth.configuredModel = configuredModel;
+  aiHealth.apiConfigured = Boolean(env.OPENAI_API_KEY);
+  if (!env.OPENAI_API_KEY) {
+    const category = recordAiFailure({ message: "OPENAI_API_KEY missing", model: configuredModel });
+    return json({ error: "Jarvis AI is not configured yet.", category }, 503);
+  }
 
   let body;
   try {
@@ -153,40 +339,45 @@ async function handleJarvis(request, env) {
   if (!question) return json({ error: "A question is required." }, 400);
   if (question.length > MAX_QUESTION_LENGTH) return json({ error: "That message is too long for this Jarvis version." }, 413);
 
-  let authenticatedUser;
+  let authorization;
   try {
-    authenticatedUser = await authenticateUser(request, env, body?.userId);
-  } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Jarvis authentication failed." }, 503);
+    authorization = await authorizeOwner(request, env, body?.userId);
+  } catch {
+    return json({ error: "Jarvis authentication failed." }, 503);
   }
-  if (!authenticatedUser || (body?.userId && body.userId !== authenticatedUser.id)) return json({ error: "Your Journaly session has expired. Sign in again to use Jarvis." }, 401);
-  if (String(authenticatedUser.email || "").trim().toLowerCase() !== OWNER_EMAIL) {
-    return json({ error: "Jarvis is currently available only to its owner." }, 403);
-  }
+  if (authorization.error) return authorization.error;
+  const authenticatedUser = authorization.user;
 
   const history = normalizeHistory(body?.history);
   const journalContext = body?.context && typeof body.context === "object" ? body.context : {};
   const username = String(authenticatedUser.email || "").split("@")[0] || null;
   const isOwnerProfile = username?.toLowerCase() === OWNER_USERNAME;
-  const referenceAnalyses = isOwnerProfile ? selectReferenceAnalyses(question, journalContext) : [];
   const { profile: suppliedProfile = {}, ...journalData } = journalContext;
-  const trustedContext = {
-    ...journalData,
-    authenticatedUser: {
+  const profile = {
       id: authenticatedUser.id,
       username,
       preferredName: typeof suppliedProfile?.preferredName === "string" ? suppliedProfile.preferredName.slice(0, 80) : null,
       preferences: suppliedProfile?.preferences || {},
-    },
-    userMemory: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
-    referenceLibrary: isOwnerProfile ? {
-      ...JARVIS_REFERENCE_SUMMARY,
-      relevantAudits: referenceAnalyses,
-    } : { uniqueImageCount: 0, relevantAudits: [] },
+  };
+  const toolData = {
+    profile,
+    memories: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
+    trades: Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : [],
+    forecasts: Array.isArray(journalData?.forecasts) ? journalData.forecasts : [],
+    sessionState: journalData?.sessionState || {},
+  };
+  const compactContext = {
+    authenticatedUser: profile,
+    generatedAt: journalData.generatedAt,
+    marketSession: journalData.marketSession,
+    summary: journalData.summary,
+    sessionState: journalData.sessionState,
+    availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
+    historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
   };
   const chartImage = validChartImage(body?.chartImage);
   const currentContent = [
-    { type: "input_text", text: `CURRENT AUTHENTICATED JOURNALY CONTEXT\n${JSON.stringify(trustedContext)}\n\nUSER MESSAGE\n${question}` },
+    { type: "input_text", text: `CURRENT AUTHENTICATED SESSION\n${JSON.stringify(compactContext)}\n\nUSER MESSAGE\n${question}` },
   ];
   if (chartImage) currentContent.push({ type: "input_image", image_url: chartImage, detail: "high" });
   const input = [
@@ -196,56 +387,84 @@ async function handleJarvis(request, env) {
       content: currentContent,
     },
   ];
-  const configuredModel = env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
   const models = Array.from(new Set([configuredModel, ...FALLBACK_MODELS]));
   let lastError = "Jarvis could not complete that response.";
+  let lastCategory = "unknown";
 
   for (const model of models) {
-    const requestBody = {
+    let roundInput = input;
+    let toolCallsUsed = [];
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+      const requestBody = {
       model,
       instructions: isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT,
-      input,
+      input: roundInput,
       max_output_tokens: 1100,
       store: false,
       safety_identifier: await safetyIdentifier(authenticatedUser.id),
+      tools: JOURNALY_TOOLS,
+      tool_choice: "auto",
+      parallel_tool_calls: true,
       text: { format: { type: "json_schema", name: "jarvis_reply", strict: true, schema: RESPONSE_SCHEMA } },
-    };
+      };
 
-    if (model.startsWith("gpt-5.6")) {
-      requestBody.reasoning = { effort: "low", context: "current_turn" };
-      requestBody.text.verbosity = "medium";
-    }
+      if (model.startsWith("gpt-5.6")) {
+        requestBody.reasoning = { effort: "low", context: "current_turn" };
+        requestBody.text.verbosity = "medium";
+      }
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.OPENAI_API_KEY}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(requestBody),
-    });
-    const payload = await response.json().catch(() => ({}));
+      let response;
+      let payload;
+      try {
+        ({ response, payload } = await openAiRequest(env.OPENAI_API_KEY, requestBody));
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        lastCategory = recordAiFailure({ message: lastError, model });
+        break;
+      }
 
-    if (response.ok) {
+      if (!response.ok) {
+        lastError = payload?.error?.message || lastError;
+        const code = payload?.error?.code || payload?.error?.type || "";
+        lastCategory = recordAiFailure({ status: response.status, code, message: lastError, model, requestId: response.headers.get("x-request-id") });
+        const retryableModelError = /model|unsupported|invalid_request/i.test(`${code} ${lastError}`);
+        if (!retryableModelError) break;
+        round = MAX_TOOL_ROUNDS;
+        continue;
+      }
+
+      const calls = (payload?.output || []).filter((item) => item?.type === "function_call");
+      if (calls.length) {
+        const outputs = calls.map((call) => {
+          let args = {};
+          try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
+          toolCallsUsed.push(call.name);
+          return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(executeJournalyTool(call.name, args, toolData)) };
+        });
+        roundInput = [...roundInput, ...(payload.output || []), ...outputs];
+        continue;
+      }
+
       const outputText = extractResponseText(payload);
-      if (!outputText) return json({ error: "Jarvis returned an empty response." }, 502);
+      if (!outputText) {
+        lastError = "Jarvis returned an empty response.";
+        lastCategory = recordAiFailure({ status: 502, code: "empty_response", message: lastError, model, requestId: response.headers.get("x-request-id") });
+        break;
+      }
+      Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
-      return json({ ...result, model, chartReviewed: Boolean(chartImage), referenceAuditsUsed: referenceAnalyses.length });
+      return json({ ...result, model, provider: "OpenAI", chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)] });
     }
-
-    lastError = payload?.error?.message || lastError;
-    const code = payload?.error?.code || payload?.error?.type || "";
-    const retryableModelError = /model|unsupported|invalid_request/i.test(`${code} ${lastError}`);
-    if (!retryableModelError) break;
   }
 
-  return json({ error: lastError }, 502);
+  return json({ error: "Jarvis could not reach its conversational AI.", category: lastCategory, fallbackAllowed: true }, 502);
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/api/jarvis/chat") return handleJarvis(request, env);
+    if (url.pathname === "/api/jarvis/health") return handleHealth(request, env);
 
     const response = await env.ASSETS.fetch(request);
     if (response.status !== 404 || url.pathname.includes(".")) return response;
