@@ -22,6 +22,11 @@ JOURNALY TRADE ACTIONS
 - Return tradeAction.intent=draft while required details are missing, with missingFields listing only pair, setup, or direction. Return intent=ready once those three fields are known.
 - Never claim a trade was saved. Journaly will show a confirmation card and only the authenticated client can insert it after explicit confirmation.
 - If the message is unrelated to creating a trade, return tradeAction as null.`;
+const JARVIS_ANALYTICS_INSTRUCTIONS = `
+JOURNALY NUMERIC ACCURACY
+- Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
+- For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
+- Treat tool statistics as authoritative. If a screenshot conflicts with tool data, state the conflict without inventing a reconciliation.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -54,6 +59,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
+  { type: "function", name: "get_monthly_performance", description: "Authoritative live-trade monthly ledger and ranking. Use for every question about monthly totals, best/worst months, month comparisons, or performance by month. Never manually sum recent trades for these questions.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["year"] } },
   { type: "function", name: "get_account_risk", description: "Get documented planned risk from active Journaly forecasts. This is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
 ];
@@ -160,6 +166,36 @@ async function authenticateUser(request, env, requestedUserId) {
   if (!response.ok) return null;
   const user = await response.json().catch(() => null);
   return user?.id ? user : null;
+}
+
+async function loadAuthenticatedMonthlyTrades(request, env, userId) {
+  if (env.JARVIS_AUTH_BYPASS_USER_ID) return null;
+  const token = bearerToken(request);
+  const connection = supabaseConnection(env);
+  if (!token || !connection) return null;
+  const query = new URL(`${connection.url}/rest/v1/trades`);
+  query.searchParams.set("select", "id,trade_date,pair,setup,pnl_r");
+  query.searchParams.set("user_id", `eq.${userId}`);
+  query.searchParams.set("order", "trade_date.asc,id.asc");
+  try {
+    const allRows = [];
+    for (let page = 0; page < 10; page += 1) {
+      const start = page * 1000;
+      const response = await connection.fetch(query.toString(), { headers: { apikey: connection.key, authorization: `Bearer ${token}`, range: `${start}-${start + 999}` } });
+      if (!response.ok) {
+        console.warn("[Jarvis ledger load failure]", JSON.stringify({ status: response.status, userId }));
+        return null;
+      }
+      const rows = await response.json();
+      if (!Array.isArray(rows)) return null;
+      allRows.push(...rows);
+      if (rows.length < 1000) break;
+    }
+    return allRows.map((row) => ({ id: row.id, date: row.trade_date, pair: row.pair, setup: row.setup, pnlR: Number(row.pnl_r || 0) }));
+  } catch {
+    console.warn("[Jarvis ledger load failure]", JSON.stringify({ category: "network", userId }));
+    return null;
+  }
 }
 
 function validChartImage(value) {
@@ -450,8 +486,58 @@ function setupStats(trades) {
   };
 }
 
+function monthlyPerformance(trades, year = null) {
+  const valid = trades.filter((trade) => /^\d{4}-\d{2}-\d{2}$/.test(String(trade.date || "")) && (!year || String(trade.date).startsWith(`${year}-`)));
+  const grouped = new Map();
+  valid.forEach((trade) => {
+    const month = String(trade.date).slice(0, 7);
+    const current = grouped.get(month) || { month, totalHundredthsR: 0, trades: [] };
+    const hundredthsR = Math.round(Number(trade.pnlR || 0) * 100);
+    current.totalHundredthsR += hundredthsR;
+    current.trades.push({ id: trade.id || null, date: trade.date, pair: trade.pair, setup: trade.setup, pnlR: hundredthsR / 100 });
+    grouped.set(month, current);
+  });
+  const months = [...grouped.values()].map((row) => {
+    const wins = row.trades.filter((trade) => trade.pnlR > 0).length;
+    const losses = row.trades.filter((trade) => trade.pnlR < 0).length;
+    return {
+      month: row.month,
+      tradeCount: row.trades.length,
+      totalR: row.totalHundredthsR / 100,
+      wins,
+      losses,
+      breakEven: row.trades.length - wins - losses,
+      arithmeticVerified: row.totalHundredthsR === row.trades.reduce((sum, trade) => sum + Math.round(trade.pnlR * 100), 0),
+      trades: row.trades.sort((a, b) => `${a.date}|${a.id || ""}`.localeCompare(`${b.date}|${b.id || ""}`)),
+    };
+  });
+  return months.sort((a, b) => b.totalR - a.totalR || b.tradeCount - a.tradeCount || a.month.localeCompare(b.month));
+}
+
+function verifiedMonthlyAnswer(ledger) {
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  if (!ledger?.months?.length) return `I found no live trades${ledger?.year ? ` in ${ledger.year}` : ""}, so there is no monthly ranking yet.`;
+  const groups = new Map();
+  ledger.months.forEach((month) => {
+    const year = month.month.slice(0, 4);
+    if (!groups.has(year)) groups.set(year, []);
+    groups.get(year).push(month);
+  });
+  const sections = [...groups.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([year, months]) => {
+    const ranked = [...months].sort((a, b) => b.totalR - a.totalR || b.tradeCount - a.tradeCount || a.month.localeCompare(b.month));
+    const lines = ranked.map((month, index) => {
+      const name = monthNames[Number(month.month.slice(5, 7)) - 1] || month.month;
+      const total = `${month.totalR > 0 ? "+" : ""}${month.totalR.toFixed(2)}R`;
+      return `${index + 1}. ${name} ${year}: ${total} across ${month.tradeCount} trade${month.tradeCount === 1 ? "" : "s"}`;
+    });
+    return `Verified live monthly ranking for ${year}:\n${lines.join("\n")}`;
+  });
+  return `${sections.join("\n\n")}\n\nThese figures are calculated from ${ledger.recordsIncluded} complete live-trade records using integer hundredths of R; every monthly total passed the ledger reconciliation check.`;
+}
+
 function executeJournalyTool(name, args, data) {
   const trades = Array.isArray(data.trades) ? data.trades : [];
+  const monthlyTrades = Array.isArray(data.monthlyTrades) ? data.monthlyTrades : trades;
   const backtests = Array.isArray(data.backtests) ? data.backtests : [];
   const forecasts = Array.isArray(data.forecasts) ? data.forecasts : [];
   const filterRecords = (records) => records.filter((record) => (!args.pair || normalizePair(record.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(record.setup, args.setup)) && (!args.month || String(record.date || "").startsWith(args.month)));
@@ -527,6 +613,10 @@ function executeJournalyTool(name, args, data) {
     case "get_setup_statistics": {
       const filtered = trades.filter((trade) => matchesText(trade.setup, args.setup) && (!args.month || String(trade.date || "").startsWith(args.month)));
       return { setup: args.setup, month: args.month, statistics: setupStats(filtered), dataCoverage: { recordsAvailable: trades.length, oldestDate: trades.at(-1)?.date || null, newestDate: trades[0]?.date || null } };
+    }
+    case "get_monthly_performance": {
+      const months = monthlyPerformance(monthlyTrades, args.year);
+      return { source: "live_trades", ledgerSource: data.monthlyLedgerSource || "authenticated_client_snapshot", year: args.year, calculation: "integer_hundredths_of_R", months, bestMonth: months[0] || null, recordsIncluded: months.reduce((sum, month) => sum + month.tradeCount, 0), allMonthsVerified: months.every((month) => month.arithmeticVerified) };
     }
     case "get_account_risk": {
       const active = forecasts.filter((forecast) => forecast.status === "Waiting");
@@ -614,6 +704,8 @@ async function handleJarvis(request, env) {
   }
   if (authorization.error) return authorization.error;
   const authenticatedUser = authorization.user;
+  const wantsMonthlyLedger = /\b(month|monthly|best\s+months?|worst\s+months?|performance\s+by\s+month)\b/i.test(question);
+  const authenticatedMonthlyTrades = wantsMonthlyLedger ? await loadAuthenticatedMonthlyTrades(request, env, authenticatedUser.id) : null;
 
   const history = normalizeHistory(body?.history);
   const journalContext = body?.context && typeof body.context === "object" ? body.context : {};
@@ -630,6 +722,8 @@ async function handleJarvis(request, env) {
     profile,
     memories: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
     trades: Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : [],
+    monthlyTrades: authenticatedMonthlyTrades || (Array.isArray(journalData?.monthlyTrades) ? journalData.monthlyTrades : Array.isArray(journalData?.trades) ? journalData.trades : []),
+    monthlyLedgerSource: authenticatedMonthlyTrades ? "authenticated_database" : "authenticated_client_snapshot",
     backtests: Array.isArray(journalData?.backtests) ? journalData.backtests : [],
     forecasts: Array.isArray(journalData?.forecasts) ? journalData.forecasts : [],
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
@@ -645,7 +739,7 @@ async function handleJarvis(request, env) {
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
     auditedBacktestChartLibrary: JARVIS_BACKTEST_AUDIT_SUMMARY,
     learnedCaseCount: toolData.learningRecords.length,
-    dataCoverage: { liveTrades: toolData.trades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length },
+    dataCoverage: { liveTrades: toolData.trades.length, monthlyLedgerTrades: toolData.monthlyTrades.length, monthlyLedgerSource: toolData.monthlyLedgerSource, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length },
   };
   const chartImage = validChartImage(body?.chartImage);
   const currentContent = [
@@ -666,11 +760,12 @@ async function handleJarvis(request, env) {
   for (const model of models) {
     let roundInput = input;
     let toolCallsUsed = [];
+    let verifiedMonthlyLedger = null;
     const usage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,
@@ -714,7 +809,9 @@ async function handleJarvis(request, env) {
           let args = {};
           try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
           toolCallsUsed.push(call.name);
-          return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(executeJournalyTool(call.name, args, toolData)) };
+          const toolResult = executeJournalyTool(call.name, args, toolData);
+          if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
+          return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
         continue;
@@ -728,6 +825,7 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
+      if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       return json({ ...result, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
     }
   }

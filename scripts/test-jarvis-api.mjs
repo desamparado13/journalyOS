@@ -29,6 +29,7 @@ const context = {
     { id: "t3", date: "2026-08-07", pair: "AUDJPY", setup: "Internal Reversal", direction: "Sell", outcome: "Win", pnlR: 2, executionQuality: "Good", notes: "Clean momentum shift." },
     { id: "t2", date: "2026-08-04", pair: "EURUSD", setup: "Internal Reversal", direction: "Buy", outcome: "Loss", pnlR: -1, executionQuality: "Mid", notes: "Trigger was not unique." },
     { id: "t1", date: "2026-07-28", pair: "GBPUSD", setup: "Flag", direction: "Buy", outcome: "Win", pnlR: 2, executionQuality: "Bad", notes: "Anticipatory entry." },
+    ...[2, 2.64, 0, 2.06, -0.35, 2, 2, -0.5, 2, -1].map((pnlR, index) => ({ id: `apr-${index + 1}`, date: `2026-04-${String([6, 6, 10, 14, 15, 17, 20, 28, 29, 30][index]).padStart(2, "0")}`, pair: index === 9 ? "EURUSD" : "AUDJPY", setup: index === 9 ? "Break and retest" : "Flag", direction: "Buy", outcome: pnlR > 0 ? "Win" : pnlR < 0 ? "Loss" : "Breakeven", pnlR, executionQuality: null, notes: "Monthly accuracy fixture." })),
   ],
   backtests: [
     { id: "b4", date: "2026-08-11", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", outcome: "Win", pnlR: 2, notes: "Confirmed engulf after PPA shift.", hasScreenshot: true },
@@ -117,6 +118,9 @@ results.push({ test: "confirmed trade draft", pass: tradeDraft.tradeAction?.inte
 
 const stats = await ask("how have my Internals performed this month?");
 results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).includes("get_setup_statistics") && /3|33\.3|0R|internal/i.test(stats.answer), tools: stats.toolsUsed });
+
+const monthly = await ask("Rank my best live trading months in 2026.");
+results.push({ test: "authoritative monthly performance", pass: (monthly.toolsUsed || []).includes("get_monthly_performance") && /April|2026-04/i.test(monthly.answer) && /10\.85R?/i.test(monthly.answer) && /10 trades?/i.test(monthly.answer), tools: monthly.toolsUsed, answer: monthly.answer });
 
 const learning = await ask("what have you learned from my saved charts and skipped trades?");
 results.push({ test: "persistent learning retrieval", pass: /skip|chart|sweep|PPA|lesson|pattern/i.test(learning.answer) && (learning.toolsUsed || []).some((tool) => tool === "get_learning_records" || tool === "get_skipped_trades"), tools: learning.toolsUsed });

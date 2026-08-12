@@ -854,6 +854,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               notes: trade.notes,
               hasScreenshot: Boolean(trade.screenshot),
             })),
+            monthlyTrades: orderedTrades.map((trade) => ({ id: trade.id, date: trade.date, pair: trade.pair, setup: trade.setup, pnlR: trade.pnl })),
             backtests: orderedBacktests.slice(0, 600).map((trade) => ({
               id: trade.id,
               date: trade.date,
