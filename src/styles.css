@@ -1456,6 +1456,7 @@ label span,
 .jarvis-header-status,
 .jarvis-rail-title,
 .jarvis-safety-card,
+.jarvis-spend-card,
 .jarvis-context-heading,
 .jarvis-context-card header,
 .jarvis-version {
@@ -1557,6 +1558,13 @@ label span,
 .jarvis-source-stack small { color: #4f7185; font-size: 0.61rem; }
 .jarvis-source-stack .is-pending { color: #526f80; }
 .jarvis-source-stack .is-pending strong { color: #648397; }
+.jarvis-spend-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; margin-top: auto; margin-bottom: 9px; padding: 12px; border: 1px solid rgba(56, 189, 248, 0.18); border-radius: 12px; color: #67e8f9; background: linear-gradient(135deg, rgba(14, 116, 144, 0.14), rgba(14, 165, 233, 0.035)); }
+.jarvis-spend-card > div { min-width: 0; }
+.jarvis-spend-card span, .jarvis-spend-card small { display: block; color: #57798a; font-size: 0.58rem; font-weight: 750; }
+.jarvis-spend-card > div > span { letter-spacing: 0.08em; text-transform: uppercase; }
+.jarvis-spend-card > div > strong { display: block; margin: 2px 0; color: #d9fbff; font-size: 1rem; font-variant-numeric: tabular-nums; }
+.jarvis-spend-card p { margin: 0; text-align: right; }
+.jarvis-spend-card p strong { display: block; margin-top: 2px; color: #8be9f5; font-size: 0.68rem; font-variant-numeric: tabular-nums; }
 .jarvis-safety-card { gap: 9px; margin-top: auto; padding: 12px; border: 1px solid rgba(45, 212, 191, 0.14); border-radius: 12px; color: #5eead4; background: rgba(20, 184, 166, 0.045); }
 .jarvis-safety-card strong { display: block; color: #a7f3d0; font-size: 0.7rem; }
 .jarvis-safety-card p { margin: 2px 0 0; color: #57798a; font-size: 0.61rem; line-height: 1.35; }

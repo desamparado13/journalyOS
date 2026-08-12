@@ -7,6 +7,7 @@ import {
   Check,
   ChevronRight,
   CircleDot,
+  CircleDollarSign,
   Command,
   Crosshair,
   Eye,
@@ -26,6 +27,7 @@ import { supabase } from "./supabaseClient";
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
 const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
 const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
+const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -85,6 +87,16 @@ type JarvisHealth = {
   lastErrorCategory: string | null;
   lastHttpStatus: number | null;
   fallbackActive: boolean;
+};
+
+type JarvisSpend = {
+  month: string;
+  totalUsd: number;
+  lastRequestUsd: number;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  updatedAt: string | null;
 };
 
 type JarvisProps = {
@@ -206,6 +218,39 @@ function readJarvisMessages(userId: string): JarvisMessage[] {
   } catch {
     return [];
   }
+}
+
+function currentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function emptyJarvisSpend(): JarvisSpend {
+  return { month: currentMonthKey(), totalUsd: 0, lastRequestUsd: 0, requests: 0, inputTokens: 0, outputTokens: 0, updatedAt: null };
+}
+
+function readJarvisSpend(userId: string): JarvisSpend {
+  const empty = emptyJarvisSpend();
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${JARVIS_SPEND_KEY_PREFIX}:${userId}`) || "null");
+    if (!saved || saved.month !== empty.month) return empty;
+    return {
+      ...empty,
+      totalUsd: Number(saved.totalUsd || 0),
+      lastRequestUsd: Number(saved.lastRequestUsd || 0),
+      requests: Number(saved.requests || 0),
+      inputTokens: Number(saved.inputTokens || 0),
+      outputTokens: Number(saved.outputTokens || 0),
+      updatedAt: typeof saved.updatedAt === "string" ? saved.updatedAt : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
+function formatUsd(value: number) {
+  const digits = value > 0 && value < 0.01 ? 4 : 2;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
 }
 
 const quickCommands = [
@@ -373,6 +418,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   const [messages, setMessages] = useState<JarvisMessage[]>(() => readJarvisMessages(userId));
   const [memory, setMemory] = useState<JarvisMemoryState>(() => readJarvisMemory(userId, username));
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
+  const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -448,6 +494,10 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   useEffect(() => {
     localStorage.setItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`, JSON.stringify(memory));
   }, [memory, userId]);
+
+  useEffect(() => {
+    localStorage.setItem(`${JARVIS_SPEND_KEY_PREFIX}:${userId}`, JSON.stringify(spend));
+  }, [spend, userId]);
 
   function startOrbDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return;
@@ -604,6 +654,21 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
       if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
       }
+      if (Number.isFinite(payload?.usage?.costUsd)) {
+        const requestCost = Math.max(0, Number(payload.usage.costUsd));
+        setSpend((current) => {
+          const active = current.month === currentMonthKey() ? current : emptyJarvisSpend();
+          return {
+            ...active,
+            totalUsd: active.totalUsd + requestCost,
+            lastRequestUsd: requestCost,
+            requests: active.requests + 1,
+            inputTokens: active.inputTokens + Number(payload.usage.inputTokens || 0),
+            outputTokens: active.outputTokens + Number(payload.usage.outputTokens || 0),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+      }
       setMessages((current) => [
         ...current,
         { id: crypto.randomUUID(), role: "jarvis", text: payload.answer },
@@ -716,6 +781,11 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
 
+              <div className="jarvis-spend-card" title="Estimated from Jarvis token usage at current published model rates. Your provider invoice, taxes, and credits may differ.">
+                <CircleDollarSign size={18} />
+                <div><span>Estimated GPT spend</span><strong>{formatUsd(spend.totalUsd)}</strong><small>{spend.month} · {spend.requests} request{spend.requests === 1 ? "" : "s"}</small></div>
+                <p><span>Last</span><strong>{formatUsd(spend.lastRequestUsd)}</strong></p>
+              </div>
               <div className="jarvis-safety-card"><ShieldCheck size={18} /><div><strong>Read-only mode</strong><p>Jarvis cannot place or modify trades.</p></div></div>
             </aside>
 

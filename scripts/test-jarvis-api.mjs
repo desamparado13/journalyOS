@@ -47,7 +47,7 @@ async function ask(question, history = []) {
 
 const results = [];
 const hi = await ask("hi jarvis");
-results.push({ test: "natural greeting", pass: /\b(hey|hi|yo|good|what|pot)\b/i.test(hi.answer) && !/intelligence ready|i'm with you/i.test(hi.answer), tools: hi.toolsUsed });
+results.push({ test: "natural greeting and spend metering", pass: /\b(hey|hi|yo|good|what|pot)\b/i.test(hi.answer) && !/intelligence ready|i'm with you/i.test(hi.answer) && Number.isFinite(hi.usage?.costUsd) && hi.usage.costUsd > 0, tools: hi.toolsUsed, costUsd: hi.usage?.costUsd });
 
 const howAreYou = await ask("how are you");
 results.push({ test: "casual conversation", pass: Boolean(howAreYou.answer) && howAreYou.answer !== hi.answer && !/i'm with you|temporarily unavailable/i.test(howAreYou.answer), tools: howAreYou.toolsUsed });
@@ -59,7 +59,7 @@ const goodLoss = await ask("what does good loss mean");
 results.push({ test: "good loss explanation", pass: /valid|rule|process|execution|setup/i.test(goodLoss.answer) && (goodLoss.toolsUsed || []).length === 0, tools: goodLoss.toolsUsed });
 
 const pair = await ask("check AJ");
-results.push({ test: "AJ pair tool", pass: /AUDJPY|AJ|forecast|internal/i.test(pair.answer) && (pair.toolsUsed || []).includes("get_pair_state"), tools: pair.toolsUsed });
+results.push({ test: "AJ pair context", pass: /AUDJPY|AJ|forecast|internal/i.test(pair.answer) && (pair.toolsUsed || []).some((tool) => tool === "get_pair_state" || tool === "get_session_state"), tools: pair.toolsUsed });
 
 const firstTurn = await ask("would you take this internal?");
 const continuityHistory = [

@@ -10,6 +10,10 @@ const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
 const VERCEL_GATEWAY_ENDPOINT = "https://ai-gateway.vercel.sh/v1/responses";
 const AI_TIMEOUT_MS = 45_000;
 const MAX_TOOL_ROUNDS = 3;
+const MODEL_PRICING_PER_MILLION = {
+  "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
+  "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
+};
 
 const aiHealth = {
   provider: "OpenAI",
@@ -177,6 +181,33 @@ function errorCategory(status, code, message) {
   if (status >= 500) return "provider_server";
   if (/abort|timeout/.test(detail)) return "timeout";
   return "network";
+}
+
+function addUsage(total, usage) {
+  const inputDetails = usage?.input_tokens_details || {};
+  total.inputTokens += Number(usage?.input_tokens || 0);
+  total.cachedInputTokens += Number(inputDetails.cached_tokens || 0);
+  total.cacheWriteTokens += Number(inputDetails.cache_write_tokens || 0);
+  total.outputTokens += Number(usage?.output_tokens || 0);
+}
+
+function usageSummary(model, usage) {
+  const baseModel = String(model).split("/").at(-1);
+  const pricing = MODEL_PRICING_PER_MILLION[baseModel];
+  const regularInputTokens = Math.max(0, usage.inputTokens - usage.cachedInputTokens - usage.cacheWriteTokens);
+  const costUsd = pricing ? (
+    regularInputTokens * pricing.input
+    + usage.cachedInputTokens * pricing.cachedInput
+    + usage.cacheWriteTokens * pricing.cacheWrite
+    + usage.outputTokens * pricing.output
+  ) / 1_000_000 : null;
+  return {
+    ...usage,
+    totalTokens: usage.inputTokens + usage.outputTokens,
+    costUsd,
+    currency: "USD",
+    estimated: true,
+  };
 }
 
 function recordAiFailure({ status = null, code = null, message = "", model = null, requestId = null }) {
@@ -426,6 +457,7 @@ async function handleJarvis(request, env) {
   for (const model of models) {
     let roundInput = input;
     let toolCallsUsed = [];
+    const usage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
@@ -465,6 +497,8 @@ async function handleJarvis(request, env) {
         continue;
       }
 
+      addUsage(usage, payload?.usage);
+
       const calls = (payload?.output || []).filter((item) => item?.type === "function_call");
       if (calls.length) {
         const outputs = calls.map((call) => {
@@ -485,7 +519,7 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
-      return json({ ...result, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)] });
+      return json({ ...result, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
     }
   }
 
