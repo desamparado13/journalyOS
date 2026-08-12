@@ -10,6 +10,18 @@ const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
 const VERCEL_GATEWAY_ENDPOINT = "https://ai-gateway.vercel.sh/v1/responses";
 const AI_TIMEOUT_MS = 45_000;
 const MAX_TOOL_ROUNDS = 3;
+const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
+JOURNALY TRADE ACTIONS
+- You may prepare a new Journaly live-trade draft when the user clearly says they are taking, entering, logging, or adding a trade.
+- Journaly's current new-trade fields are only: date, time, pair, setup, direction, stopLossPips, MAE, PnL in R, result, and notes.
+- Never ask for fields outside that list. In particular, do not ask for maximum holding days, broker order details, or other invented fields.
+- Required conversational details are pair, setup, and direction. Ask naturally for only the missing items. Date and time default to now; MAE and PnL default to 0; result defaults to Breakeven. Stop-loss pips and notes are optional.
+- Supported pairs: AUDUSD, EURUSD, EURJPY, AUDJPY, GBPUSD, NZDJPY, EURAUD. Treat AJ as AUDJPY, AU as AUDUSD, EU as EURUSD, EJ as EURJPY, GU as GBPUSD, NJ as NZDJPY, and EA as EURAUD when context is unambiguous.
+- Supported setups: REVERSAL, Internal reversal, Liquidity sweep, Break and retest, Flag, Flag+, EU timed entry.
+- A stop stated as an absolute price is not stopLossPips; preserve it in notes unless the user also gives the pip distance.
+- Return tradeAction.intent=draft while required details are missing, with missingFields listing only pair, setup, or direction. Return intent=ready once those three fields are known.
+- Never claim a trade was saved. Journaly will show a confirmation card and only the authenticated client can insert it after explicit confirmation.
+- If the message is unrelated to creating a trade, return tradeAction as null.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -49,7 +61,7 @@ const JOURNALY_TOOLS = [
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "memoryUpdates", "learningSummary"],
+  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction"],
   properties: {
     answer: { type: "string", maxLength: 12000 },
     learningSummary: { type: ["string", "null"], maxLength: 1600 },
@@ -67,6 +79,25 @@ const RESPONSE_SCHEMA = {
           value: { type: "string", maxLength: 800 },
           confidence: { type: "number", minimum: 0, maximum: 1 },
         },
+      },
+    },
+    tradeAction: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["intent", "date", "time", "pair", "setup", "direction", "stopLossPips", "mae", "pnl", "result", "notes", "missingFields"],
+      properties: {
+        intent: { type: "string", enum: ["draft", "ready"] },
+        date: { type: ["string", "null"], maxLength: 10 },
+        time: { type: ["string", "null"], maxLength: 5 },
+        pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] },
+        setup: { type: ["string", "null"], enum: ["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry", null] },
+        direction: { type: ["string", "null"], enum: ["Long", "Short", null] },
+        stopLossPips: { type: ["number", "null"], minimum: 0 },
+        mae: { type: ["number", "null"] },
+        pnl: { type: ["number", "null"] },
+        result: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] },
+        notes: { type: ["string", "null"], maxLength: 3000 },
+        missingFields: { type: "array", maxItems: 3, items: { type: "string", enum: ["pair", "setup", "direction"] } },
       },
     },
   },
@@ -289,12 +320,12 @@ function parseJarvisOutput(text) {
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.answer === "string") {
-      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null };
+      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null };
     }
   } catch {
     // Older fallback models may return plain text; keep the conversation available without storing memory.
   }
-  return { answer: text.trim(), memoryUpdates: [], learningSummary: null };
+  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null };
 }
 
 function errorCategory(status, code, message) {
@@ -639,7 +670,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,

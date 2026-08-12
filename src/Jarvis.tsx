@@ -34,6 +34,8 @@ const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
 const JARVIS_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 const JARVIS_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const JARVIS_TRADE_PAIRS = new Set(["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD"]);
+const JARVIS_TRADE_SETUPS = new Set(["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry"]);
 export const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
 
 type JarvisTrade = {
@@ -101,6 +103,21 @@ type JarvisMessage = {
   attachmentName?: string;
 };
 
+type JarvisTradeAction = {
+  intent: "draft" | "ready";
+  date: string | null;
+  time: string | null;
+  pair: string | null;
+  setup: string | null;
+  direction: "Long" | "Short" | null;
+  stopLossPips: number | null;
+  mae: number | null;
+  pnl: number | null;
+  result: "Win" | "Loss" | "Breakeven" | null;
+  notes: string | null;
+  missingFields: Array<"pair" | "setup" | "direction">;
+};
+
 type JarvisHealth = {
   provider: string;
   configuredModel: string | null;
@@ -131,6 +148,7 @@ type JarvisProps = {
   forecasts: JarvisForecast[];
   session: JarvisSession;
   journalEntries: Array<{ id: string; date: string; content: string; advice: string }>;
+  onTradeCreated: () => void | Promise<void>;
 };
 
 type JarvisLearningRecord = {
@@ -348,6 +366,30 @@ function latestFirst<T extends { date: string; time?: string }>(source: T[]) {
   return [...source].sort((a, b) => `${b.date} ${b.time || ""}`.localeCompare(`${a.date} ${a.time || ""}`));
 }
 
+function normalizeTradeAction(value: unknown, previous: JarvisTradeAction | null): JarvisTradeAction | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<JarvisTradeAction>;
+  const pair = typeof candidate.pair === "string" && JARVIS_TRADE_PAIRS.has(candidate.pair) ? candidate.pair : previous?.pair || null;
+  const setup = typeof candidate.setup === "string" && JARVIS_TRADE_SETUPS.has(candidate.setup) ? candidate.setup : previous?.setup || null;
+  const direction = candidate.direction === "Long" || candidate.direction === "Short" ? candidate.direction : previous?.direction || null;
+  const missingFields = ([!pair ? "pair" : null, !setup ? "setup" : null, !direction ? "direction" : null].filter(Boolean)) as JarvisTradeAction["missingFields"];
+  const numberOrPrevious = (next: unknown, prior: number | null | undefined) => Number.isFinite(next) ? Number(next) : prior ?? null;
+  return {
+    intent: missingFields.length ? "draft" : "ready",
+    date: /^\d{4}-\d{2}-\d{2}$/.test(String(candidate.date || "")) ? String(candidate.date) : previous?.date || null,
+    time: /^\d{2}:\d{2}$/.test(String(candidate.time || "")) ? String(candidate.time) : previous?.time || null,
+    pair,
+    setup,
+    direction,
+    stopLossPips: numberOrPrevious(candidate.stopLossPips, previous?.stopLossPips),
+    mae: numberOrPrevious(candidate.mae, previous?.mae),
+    pnl: numberOrPrevious(candidate.pnl, previous?.pnl),
+    result: candidate.result === "Win" || candidate.result === "Loss" || candidate.result === "Breakeven" ? candidate.result : previous?.result || null,
+    notes: typeof candidate.notes === "string" ? candidate.notes.slice(0, 3000) : previous?.notes || null,
+    missingFields,
+  };
+}
+
 function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: JarvisForecast[]): Omit<JarvisMessage, "id" | "role"> | null {
   const lower = prompt.toLowerCase();
   const orderedTrades = latestFirst(trades);
@@ -460,7 +502,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   return null;
 }
 
-export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, onTradeCreated }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
@@ -473,11 +515,14 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [attachmentError, setAttachmentError] = useState("");
   const [sessionLearningRecords, setSessionLearningRecords] = useState<JarvisLearningRecord[]>([]);
   const [learningSyncState, setLearningSyncState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [tradeDraft, setTradeDraft] = useState<JarvisTradeAction | null>(null);
+  const [isSavingTrade, setIsSavingTrade] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const tradeSaveLock = useRef(false);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
@@ -665,10 +710,67 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     setLearningSyncState("saved");
   }
 
+  async function saveTradeDraft(draft: JarvisTradeAction) {
+    if (!supabase || tradeSaveLock.current || draft.intent !== "ready" || draft.missingFields.length || !draft.pair || !draft.setup || !draft.direction) return;
+    tradeSaveLock.current = true;
+    setIsSavingTrade(true);
+    const now = new Date();
+    const pair = draft.pair;
+    const direction = draft.direction;
+    const pnl = draft.pnl ?? 0;
+    const result = draft.result || (pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven");
+    try {
+      const { error } = await supabase.from("trades").insert({
+        user_id: userId,
+        trade_date: draft.date || now.toISOString().slice(0, 10),
+        trade_time: draft.time || now.toTimeString().slice(0, 5),
+        pair,
+        setup: draft.setup,
+        direction,
+        mae: draft.mae ?? 0,
+        mae_pips: null,
+        stop_loss_pips: draft.stopLossPips,
+        pnl_r: pnl,
+        result,
+        notes: draft.notes?.trim() || "",
+        screenshot_url: "",
+        source_app: "Jarvis",
+        legacy_id: null,
+        duration_minutes: null,
+        finalized_at: null,
+        updated_at: now.toISOString(),
+      });
+      if (error) {
+        setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: `Journaly could not save that trade: ${error.message}` }]);
+        return;
+      }
+      setTradeDraft(null);
+      await onTradeCreated();
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade added", text: `${pair} ${direction.toLowerCase()} is now in your Journaly trade log. I used only the fields available in Add Trade.` }]);
+    } catch (error) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: error instanceof Error ? error.message : "Journaly could not save that trade." }]);
+    } finally {
+      tradeSaveLock.current = false;
+      setIsSavingTrade(false);
+    }
+  }
+
   async function askJarvis(nextPrompt: string) {
     const imageForRequest = attachedImage;
     const cleanPrompt = nextPrompt.trim() || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
+    if (tradeDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }, { id: crypto.randomUUID(), role: "jarvis", text: "Trade draft discarded. Nothing was added to Journaly." }]);
+      setPrompt("");
+      setTradeDraft(null);
+      return;
+    }
+    if (tradeDraft?.intent === "ready" && /^(confirm|confirmed|save|save it|add it|do it)$/i.test(cleanPrompt)) {
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }]);
+      setPrompt("");
+      await saveTradeDraft(tradeDraft);
+      return;
+    }
     const learningSource: JarvisLearningRecord["source"] = imageForRequest ? "chart" : /\bskip(?:ped|ping)?\b/i.test(cleanPrompt) ? "skipped_trade" : "insight";
     const shouldArchiveLearning = Boolean(imageForRequest) || /\b(remember|learn from|lesson|insight|note that|my rule|from now on|key takeaway|teach|i (?:notice|noticed|find|found)|skip(?:ped|ping)? trade)\b/i.test(cleanPrompt);
     const recentHistory = messages.slice(-14).map((message) => ({
@@ -738,6 +840,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               lastChartAvailable: Boolean(imageForRequest || activeChartRecord?.screenshot),
               lastJarvisDecision: lastDecision,
               rollingConversation: recentHistory.slice(-8),
+              pendingTradeDraft: tradeDraft,
             },
             trades: orderedTrades.slice(0, 300).map((trade) => ({
               id: trade.id,
@@ -810,6 +913,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
       }
+      if (payload.tradeAction) setTradeDraft((current) => normalizeTradeAction(payload.tradeAction, current));
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
@@ -919,7 +1023,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("Show me my recent mistakes")}><Eye size={17} /> Review</button>
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
-                <button type="button" onClick={() => setMessages([])}><RefreshCcw size={17} /> New conversation</button>
+                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               <div className="jarvis-source-stack">
@@ -948,7 +1052,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><span>Estimated GPT spend</span><strong>{formatUsd(spend.totalUsd)}</strong><small>{spend.month} · {spend.requests} request{spend.requests === 1 ? "" : "s"}</small></div>
                 <p><span>Last</span><strong>{formatUsd(spend.lastRequestUsd)}</strong></p>
               </div>
-              <div className="jarvis-safety-card"><ShieldCheck size={18} /><div><strong>Read-only mode</strong><p>Jarvis cannot place or modify trades.</p></div></div>
+              <div className="jarvis-safety-card"><ShieldCheck size={18} /><div><strong>Confirmed actions</strong><p>Jarvis can add Journaly trades only after your approval. Broker execution stays locked.</p></div></div>
             </aside>
 
             <main className="jarvis-conversation">
@@ -985,6 +1089,25 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                         </div>
                       </article>
                     ))}
+                    {tradeDraft ? (
+                      <article className={`jarvis-trade-draft is-${tradeDraft.intent}`} aria-label="Pending Journaly trade">
+                        <header><span>{tradeDraft.intent === "ready" ? "Ready to add" : "Trade draft"}</span><strong>{tradeDraft.pair || "Pair needed"}</strong></header>
+                        <div className="jarvis-trade-draft-grid">
+                          <p><span>Setup</span><strong>{tradeDraft.setup || "Needed"}</strong></p>
+                          <p><span>Direction</span><strong>{tradeDraft.direction || "Needed"}</strong></p>
+                          <p><span>Date / time</span><strong>{tradeDraft.date || "Now"} / {tradeDraft.time || "Now"}</strong></p>
+                          <p><span>Stop loss</span><strong>{tradeDraft.stopLossPips === null ? "Not supplied" : `${tradeDraft.stopLossPips} pips`}</strong></p>
+                          <p><span>PnL</span><strong>{formatR(tradeDraft.pnl ?? 0)}</strong></p>
+                          <p><span>Result</span><strong>{tradeDraft.result || "Breakeven"}</strong></p>
+                        </div>
+                        {tradeDraft.notes ? <p className="jarvis-trade-draft-notes">{tradeDraft.notes}</p> : null}
+                        {tradeDraft.missingFields.length ? <small>Jarvis still needs: {tradeDraft.missingFields.join(", ")}.</small> : <small>Say “Confirm” or use the button below. Nothing is saved before approval.</small>}
+                        <footer>
+                          <button type="button" className="is-cancel" onClick={() => setTradeDraft(null)}>Discard</button>
+                          <button type="button" className="is-confirm" disabled={tradeDraft.intent !== "ready" || isSavingTrade} onClick={() => void saveTradeDraft(tradeDraft)}><Check size={15} /> {isSavingTrade ? "Adding..." : "Confirm & add"}</button>
+                        </footer>
+                      </article>
+                    ) : null}
                     {isThinking ? <div className="jarvis-thinking"><span /><span /><span /><small>Thinking with your strategy</small></div> : null}
                   </div>
                 )}
@@ -1035,7 +1158,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.3</strong><small>Conversational · visual · personal memory · read-only</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.4</strong><small>Conversational / visual / memory / confirmed Journaly actions</small></div></div>
             </aside>
           </div>
         </section>

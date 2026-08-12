@@ -7204,6 +7204,7 @@ export default function App() {
           forecasts={tradeDecisions}
           session={marketSession}
           journalEntries={journalEntries}
+          onTradeCreated={loadTrades}
         />
       ) : null}
     </div>

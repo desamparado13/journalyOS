@@ -1614,6 +1614,22 @@ label span,
 .jarvis-message-body > span { color: #4c8097; font-size: 0.56rem; font-weight: 900; letter-spacing: 0.16em; }
 .jarvis-message-body h3 { margin: 7px 0 5px; color: #dcfaff; font-size: 1rem; }
 .jarvis-message-body p { margin: 5px 0 0; white-space: pre-line; color: #a1bac8; font-size: 0.82rem; line-height: 1.65; }
+.jarvis-trade-draft { margin-left: 48px; overflow: hidden; border: 1px solid rgba(45, 212, 191, 0.3); border-radius: 14px; background: linear-gradient(145deg, rgba(6, 78, 89, 0.24), rgba(5, 19, 31, 0.9)); box-shadow: 0 16px 44px rgba(0, 0, 0, 0.24); animation: jarvis-message-in 300ms ease both; }
+.jarvis-trade-draft.is-draft { border-color: rgba(251, 191, 36, 0.28); }
+.jarvis-trade-draft > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; border-bottom: 1px solid rgba(125, 211, 252, 0.1); }
+.jarvis-trade-draft > header span { color: #5eead4; font-size: 0.62rem; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; }
+.jarvis-trade-draft.is-draft > header span { color: #fbbf24; }
+.jarvis-trade-draft > header strong { color: #e6faff; }
+.jarvis-trade-draft-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: rgba(125, 211, 252, 0.08); }
+.jarvis-trade-draft-grid p { display: grid; gap: 4px; min-width: 0; margin: 0; padding: 11px 13px; background: rgba(4, 17, 28, 0.92); }
+.jarvis-trade-draft-grid span { color: #52768a; font-size: 0.58rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.jarvis-trade-draft-grid strong { overflow: hidden; color: #bddbe8; font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-trade-draft-notes { margin: 0; padding: 11px 15px 0; color: #8fb0bf; font-size: 0.74rem; line-height: 1.5; }
+.jarvis-trade-draft > small { display: block; padding: 11px 15px; color: #6f93a4; font-size: 0.65rem; }
+.jarvis-trade-draft > footer { display: flex; justify-content: flex-end; gap: 8px; padding: 0 15px 13px; }
+.jarvis-trade-draft > footer button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border: 1px solid rgba(125, 211, 252, 0.15); border-radius: 8px; color: #8fb0bf; background: transparent; font-size: 0.69rem; font-weight: 800; cursor: pointer; }
+.jarvis-trade-draft > footer .is-confirm { border-color: rgba(45, 212, 191, 0.3); color: #a7f3d0; background: rgba(20, 184, 166, 0.12); }
+.jarvis-trade-draft > footer button:disabled { opacity: 0.42; cursor: not-allowed; }
 .jarvis-message-image { display: block; width: min(520px, 100%); max-height: 330px; margin: 9px 0 7px; border: 1px solid rgba(103, 232, 249, 0.2); border-radius: 11px; object-fit: contain; background: #020a11; }
 .jarvis-attachment-name { display: inline-flex; align-items: center; gap: 4px; color: #5f8498; font-size: 0.59rem; }
 .jarvis-response-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin-top: 13px; }
@@ -1786,6 +1802,8 @@ label span,
 .tv-event-rows b.is-error { color: var(--negative); }
 
 @media (max-width: 780px) {
+  .jarvis-trade-draft { margin-left: 0; }
+  .jarvis-trade-draft-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tv-event-page { padding: 16px; }
   .tv-event-hero { display: grid; }
   .tv-setup-grid, .tv-state-grid { grid-template-columns: 1fr; }

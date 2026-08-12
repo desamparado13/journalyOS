@@ -112,6 +112,9 @@ const continuityHistory = [
 const followUp = await ask("what if it engulfs?", continuityHistory);
 results.push({ test: "conversation continuity", pass: /engulf|trigger|confirm|internal|watch|take|armed/i.test(followUp.answer), tools: followUp.toolsUsed });
 
+const tradeDraft = await ask("Jarvis, log my AJ long as an Internal reversal with a 14 pip stop.");
+results.push({ test: "confirmed trade draft", pass: tradeDraft.tradeAction?.intent === "ready" && tradeDraft.tradeAction?.pair === "AUDJPY" && tradeDraft.tradeAction?.setup === "Internal reversal" && tradeDraft.tradeAction?.direction === "Long" && tradeDraft.tradeAction?.stopLossPips === 14 && Array.isArray(tradeDraft.tradeAction?.missingFields) && tradeDraft.tradeAction.missingFields.length === 0 && /confirm|ready|add/i.test(tradeDraft.answer), tradeAction: tradeDraft.tradeAction });
+
 const stats = await ask("how have my Internals performed this month?");
 results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).includes("get_setup_statistics") && /3|33\.3|0R|internal/i.test(stats.answer), tools: stats.toolsUsed });
 
