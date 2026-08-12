@@ -2829,6 +2829,11 @@ export default function App() {
     ];
   }, [tradeCalendarMonth, trades]);
 
+  const tradeCalendarQuality = useMemo(
+    () => calculateTradeQualityAnalytics(trades.filter((trade) => trade.date.startsWith(tradeCalendarMonth))),
+    [tradeCalendarMonth, trades],
+  );
+
   const monthlyHeatmap = useMemo(() => {
     const byMonth = trades.reduce<Record<string, Trade[]>>((grouped, trade) => {
       const month = trade.date.slice(0, 7);
@@ -6658,6 +6663,7 @@ export default function App() {
                 days={tradeCalendarDays}
                 month={tradeCalendarMonth}
                 monthOptions={tradeCalendarMonthOptions}
+                quality={tradeCalendarQuality}
                 onMonthChange={setTradeCalendarMonth}
                 onViewImage={(trade) =>
                   trade.screenshot &&
@@ -8912,12 +8918,14 @@ function TradeCalendar({
   days,
   month,
   monthOptions,
+  quality,
   onMonthChange,
   onViewImage,
 }: {
   days: Array<null | { date: string; day: number; trades: Trade[]; totalR: number }>;
   month: string;
   monthOptions: string[];
+  quality: TradeQualityAnalytics;
   onMonthChange: (month: string) => void;
   onViewImage: (trade: Trade) => void;
 }) {
@@ -8951,6 +8959,7 @@ function TradeCalendar({
             </button>
           </div>
         </div>
+        <MonthlyQualityRing data={quality} month={month} />
         <label>
           <span>Month</span>
           <select value={month} onChange={(event) => onMonthChange(event.target.value)}>
@@ -8995,6 +9004,60 @@ function TradeCalendar({
             <div className="calendar-day is-empty" key={`empty-${index}`} />
           ),
         )}
+      </div>
+    </section>
+  );
+}
+
+function MonthlyQualityRing({ data, month }: { data: TradeQualityAnalytics; month: string }) {
+  const total = data.reviewed;
+  const segments = data.rows.map((row) => ({
+    label: row.label as TradeQuality,
+    count: row.trades,
+    percentage: total ? Math.round((row.trades / total) * 100) : 0,
+  }));
+  let offset = 0;
+
+  return (
+    <section className="monthly-quality-ring" aria-label={`${formatMonthLabel(month)} trade quality distribution`} key={month}>
+      <div className="monthly-quality-chart">
+        <svg viewBox="0 0 42 42" role="img" aria-label={`${data.coverage}% of trades reviewed`}>
+          <circle className="monthly-quality-track" cx="21" cy="21" r="15.9155" pathLength="100" />
+          {segments.map((segment) => {
+            const dashOffset = -offset;
+            offset += segment.percentage;
+            return segment.percentage > 0 ? (
+              <circle
+                className={`monthly-quality-segment is-${segment.label.toLowerCase()}`}
+                cx="21"
+                cy="21"
+                r="15.9155"
+                pathLength="100"
+                strokeDasharray={`${segment.percentage} ${100 - segment.percentage}`}
+                strokeDashoffset={dashOffset}
+                key={segment.label}
+              />
+            ) : null;
+          })}
+        </svg>
+        <div className="monthly-quality-center">
+          <strong>{data.coverage}%</strong>
+          <span>reviewed</span>
+        </div>
+      </div>
+      <div className="monthly-quality-copy">
+        <span>Monthly quality</span>
+        <div className="monthly-quality-legend">
+          {segments.map((segment) => (
+            <div className={`is-${segment.label.toLowerCase()}`} key={segment.label}>
+              <i aria-hidden="true" />
+              <span>{segment.label}</span>
+              <strong>{segment.percentage}%</strong>
+              <small>{segment.count}</small>
+            </div>
+          ))}
+        </div>
+        {data.unrated > 0 ? <small>{data.unrated} unrated trade{data.unrated === 1 ? "" : "s"}</small> : null}
       </div>
     </section>
   );
