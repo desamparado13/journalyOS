@@ -12,13 +12,22 @@ const request = new Request("http://local/api/jarvis/chat", {
   headers: { "content-type": "application/json" },
   body: JSON.stringify({
     userId: "local-smoke-test",
-    question: "Reply with one short sentence confirming Jarvis is ready for a trading conversation.",
+    question: "Hi Jarvis. Please remember that my risk per trade is 0.5%. Also, do you know the internal reversal screenshots?",
     history: [],
-    context: { summary: { totalTrades: 0 } },
+    context: {
+      profile: {
+        preferredName: "Pot",
+        preferences: { familiarity: "high", humor: "medium", directness: "high", verbosity: "concise" },
+        memories: [],
+      },
+      summary: { totalTrades: 0 },
+    },
   }),
 });
 const response = await worker.fetch(request, {
   OPENAI_API_KEY: apiKey,
+  JARVIS_AUTH_BYPASS_USER_ID: "local-smoke-test",
+  JARVIS_AUTH_BYPASS_EMAIL: "christiian.angelo.desamparado@journaly.invalid",
   ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
 });
 const payload = await response.json();
@@ -27,7 +36,9 @@ console.log(JSON.stringify({
   status: response.status,
   model: payload.model || null,
   answerReceived: typeof payload.answer === "string" && payload.answer.length > 0,
+  memoryUpdateReceived: Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.some((update) => update.category === "risk_rule"),
+  referenceAuditsUsed: payload.referenceAuditsUsed || 0,
   errorCategory: payload.error ? "api_error" : null,
 }));
 
-if (!response.ok || !payload.answer) process.exitCode = 1;
+if (!response.ok || !payload.answer || !Array.isArray(payload.memoryUpdates) || !payload.memoryUpdates.some((update) => update.category === "risk_rule") || payload.referenceAuditsUsed < 1) process.exitCode = 1;

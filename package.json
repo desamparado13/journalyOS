@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build && node scripts/prepare-sites-build.mjs",
+    "analyze:jarvis-images": "node scripts/analyze-jarvis-reference-images.mjs",
     "test:jarvis": "node scripts/test-jarvis-api.mjs",
     "preview": "vite preview"
   },

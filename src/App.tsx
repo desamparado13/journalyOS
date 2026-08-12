@@ -7177,7 +7177,9 @@ export default function App() {
         </main>
       </div>
       <Jarvis
+        key={currentUser.id}
         userId={currentUser.id}
+        username={currentUser.email}
         displayName={accountProfile.displayName || currentUser.email.split("@")[0]}
         trades={trades}
         forecasts={tradeDecisions}

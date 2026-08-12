@@ -1,0 +1,35 @@
+{
+  "user_profile": {
+    "authenticated_user_id": "required immutable internal ID",
+    "username": "string",
+    "preferred_name": "string or null",
+    "timezone": "string or null",
+    "locale": "string or null"
+  },
+  "jarvis_preferences": {
+    "familiarity": "low|medium|high",
+    "humor": "low|medium|high",
+    "empathy": "low|medium|high",
+    "directness": "low|medium|high",
+    "verbosity": "concise|balanced|detailed",
+    "light_slang": "boolean",
+    "mirror_light_swearing": "boolean"
+  },
+  "trading_memory": {
+    "strategy_version": "string",
+    "durable_rules": "array",
+    "setup_preferences": "object",
+    "pair_preferences": "object",
+    "risk_rules": "object",
+    "known_mistakes": "array",
+    "user_corrections": "array"
+  },
+  "session_state": {
+    "active_pair": "nullable string",
+    "active_timeframe": "nullable string",
+    "active_setup": "nullable string",
+    "active_forecast_id": "nullable string",
+    "last_decision": "nullable string",
+    "rolling_summary": "string"
+  }
+}

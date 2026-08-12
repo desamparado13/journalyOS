@@ -1,0 +1,1962 @@
+{
+  "version": "0.3",
+  "generatedAt": "2026-08-12T05:19:41.327Z",
+  "methodology": "Independent OpenAI vision review of unique chart screenshots. Source labels are hypotheses; grades reflect visible evidence only, never P/L.",
+  "archives": [
+    {
+      "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+      "setup": "flag",
+      "files": 5,
+      "duplicateImages": 0
+    },
+    {
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "setup": "break and retest",
+      "files": 9,
+      "duplicateImages": 0
+    },
+    {
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "setup": "liquidity sweep",
+      "files": 7,
+      "duplicateImages": 0
+    },
+    {
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "setup": "internal reversal",
+      "files": 27,
+      "duplicateImages": 0
+    },
+    {
+      "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+      "setup": "reversal",
+      "files": 6,
+      "duplicateImages": 1
+    }
+  ],
+  "uniqueImageCount": 53,
+  "analyses": [
+    {
+      "sha256": "24eec02a74174e9e90d7a0e055acbd767970100685aecbda499cfb9ab5465b0a",
+      "filename": "001-2026-07-28-12-01-audusd-internal-reversal-69964b4c.webp",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-28",
+      "time": "12:01",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 55,
+      "summary": "The chart can plausibly represent an early bullish internal reversal, but visible confirmation is weak and the entry appears to face immediate bearish momentum.",
+      "visibleEvidence": [
+        "Recent price action is broadly bearish with lower highs and lower lows.",
+        "A small bullish push breaks a nearby internal high before the long-position box is placed.",
+        "The stop is positioned below the nearby swing-low area, consistent with a reversal concept."
+      ],
+      "concerns": [
+        "The bullish trigger is not clearly unique or dominant relative to nearby candles.",
+        "A strong bearish candle immediately invalidates the apparent reversal attempt.",
+        "The exact MRH/MRL break and entry timing are difficult to verify from the overlay alone."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are judged; unseen context, execution details, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "001-2026-07-28-12-01-audusd-internal-reversal-69964b4c.webp",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-28",
+          "time": "12:01",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "debd81637ac4e6c5eab272a468052d665118af7ad2d0e8b7d13b199154daac2a",
+      "filename": "001-2026-07-28-01-00-audusd-reversal-0ed0d3ef.webp",
+      "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+      "date": "2026-07-28",
+      "time": "01:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 58,
+      "summary": "A bullish reversal is plausible from the recent low/base, but the chart does not clearly show a decisive structural break or uniquely strong trigger before entry.",
+      "visibleEvidence": [
+        "Price had declined into the 0.6962–0.6965 area, then formed a base and bounced strongly.",
+        "The long entry near 0.69752 follows bullish recovery candles and uses a visible fixed-risk stop near 0.69612.",
+        "Entry remains below the marked recent high around 0.69864, so reversal confirmation is incomplete."
+      ],
+      "concerns": [
+        "The setup is still inside a broader range and lacks a clean break of the most recent high.",
+        "The local pullback before entry is choppy rather than a clearly dominant confirmation pattern.",
+        "The displayed target is approximately 1R, which does not visibly match the stated Reversal runner/structural-trail objective."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations were assessed; outcome, execution timing, and unseen context were not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "001-2026-07-28-01-00-audusd-reversal-0ed0d3ef.webp",
+          "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+          "date": "2026-07-28",
+          "time": "01:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "8fe928605503a9695f2dfcf64e2ee9a02a3935f0b4ac4834a5b69db9a4cce1ed",
+      "filename": "002-2026-07-27-07-00-euraud-internal-reversal-776bc9b8.webp",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-27",
+      "time": "07:00",
+      "pair": "EURAUD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart visibly supports a bullish internal-reversal hypothesis, but the trigger and stop placement are not fully clear enough for strong confirmation.",
+      "visibleEvidence": [
+        "Price sweeps/rejects the recent low near 1.626 and rebounds.",
+        "A nearby internal structure appears to break upward before the long entry around 1.62895.",
+        "The position is visibly long, with target above and stop below."
+      ],
+      "concerns": [
+        "The prior move is strongly bearish, so reversal context is not especially clean.",
+        "The stop appears close to the recent low but its exact relationship to the relevant MRL is ambiguous.",
+        "The screenshot does not clearly isolate a uniquely dominant confirmation candle."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessable; unseen context, execution timing, and outcome cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "002-2026-07-27-07-00-euraud-internal-reversal-776bc9b8.webp",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-27",
+          "time": "07:00",
+          "pair": "EURAUD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "207447c3190c415d8a9cc81933cd1c967d41a95d28ec6b0ebde32e4c413ef50a",
+      "filename": "003-2026-07-27-07-00-audusd-internal-reversal-1e025fde.webp",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-27",
+      "time": "07:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 64,
+      "summary": "The chart supports a short reversal concept after a sharp rally and bearish rejection, but the internal-reversal classification and exact trigger are not fully clear.",
+      "visibleEvidence": [
+        "Price rallies from the July 24 low into a local high near 0.7005.",
+        "A strong bearish candle rejects the high and breaks nearby local structure.",
+        "The short risk/reward box is positioned above the apparent entry, consistent with a short reversal."
+      ],
+      "concerns": [
+        "The stop appears below the most recent wick/high rather than clearly 2 pips beyond the relevant MRH.",
+        "The precise trigger and MRH/MRL break are difficult to identify from the visible annotations.",
+        "Prior price action is mixed, with substantial earlier selling and recovery; the reversal context is not especially clean."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations were assessed; execution timing, unseen context, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "003-2026-07-27-07-00-audusd-internal-reversal-1e025fde.webp",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-27",
+          "time": "07:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "e56993123f8f3a3d349e30e29142830a80ac48abe3b38d8a613d68a8e26a08ed",
+      "filename": "001-2026-07-24-21-53-audusd-break-and-retest-aad91b69.webp",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-07-24",
+      "time": "21:53",
+      "pair": "AUDUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart plausibly supports a bearish Break & Retest, but the broken MRH/MRL line and retest are not cleanly defined.",
+      "visibleEvidence": [
+        "A prior bullish push is followed by bearish displacement and lower prices.",
+        "Price revisits the marked entry area near 0.69895 before rejecting lower.",
+        "The short setup visibly includes a stop above and target below the entry."
+      ],
+      "concerns": [
+        "The relevant broken structure line is difficult to distinguish from nearby liquidity-box levels.",
+        "The retest is somewhat noisy and overlaps several local candles rather than showing a crisp rejection.",
+        "No execution marker is visible, so entry timing cannot be verified."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations are assessable; execution, higher-timeframe context, and outcome are not visible.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "001-2026-07-24-21-53-audusd-break-and-retest-aad91b69.webp",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-07-24",
+          "time": "21:53",
+          "pair": "AUDUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "b54dd8a27bc51ca798b3f034ab1cd7a3fd6d36c9e11fcb42919be29965bd66b9",
+      "filename": "004-2026-07-22-08-18-audusd-internal-reversal-ab61b806.webp",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-22",
+      "time": "08:18",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 15,
+      "summary": "The visible chart does not strongly support an Internal Reversal. It shows EURJPY—not AUDUSD—and price is in a strong bullish expansion near the high with no clear bearish internal break or momentum shift.",
+      "visibleEvidence": [
+        "Chart header identifies EURJPY on the 1-hour timeframe.",
+        "Strong bullish advance precedes the marked position.",
+        "Price consolidates near the recent high and continues pressing upward.",
+        "Risk box appears positioned for a short trade."
+      ],
+      "concerns": [
+        "No clearly visible bearish trigger or meaningful MRH break before entry.",
+        "Short is counter to strong immediate momentum.",
+        "Source metadata pair conflicts with the chart."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations were assessed; unseen context, execution timing, and outcome cannot be inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "004-2026-07-22-08-18-audusd-internal-reversal-ab61b806.webp",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-22",
+          "time": "08:18",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "8e9a77b774d1f9ecb1e25ab42cefa03429bbfcd4452884877ddc115ee884ce20",
+      "filename": "005-2026-07-20-22-00-audjpy-internal-reversal-6fc7bbd1.webp",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-20",
+      "time": "22:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 58,
+      "summary": "The chart shows a possible short internal-reversal attempt, but visible evidence more strongly supports continued bullish momentum than an early reversal.",
+      "visibleEvidence": [
+        "Persistent upward trend into the setup area.",
+        "A local consolidation/liquidity zone is visible near 113.75–113.92.",
+        "Short-position risk/reward markings and recent-high/recent-low annotations are visible."
+      ],
+      "concerns": [
+        "No clear bearish momentum shift or decisive local structure break is visible before the short area.",
+        "Price subsequently breaks upward through the marked recent high, undermining reversal confirmation.",
+        "The displayed stop appears wider than the stated internal-reversal rule of roughly 2 pips beyond the relevant MRH/MRL."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is assessed; execution timing, P/L, higher-timeframe context, and unseen candles cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "005-2026-07-20-22-00-audjpy-internal-reversal-6fc7bbd1.webp",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-20",
+          "time": "22:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "6514a2e0502e6ad21d958807c9736d0adb952cedf723be1a006f3c53641efd5a",
+      "filename": "001-2026-07-16-15-05-gbpusd-flag-d9904dfd.webp",
+      "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+      "date": "2026-07-16",
+      "time": "15:05",
+      "pair": "GBPUSD",
+      "sourceSetup": "flag",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The chart visibly shows a strong bullish impulse followed by a compact, mildly downward consolidation, which is consistent with a bullish flag. However, the marked long entry appears before a clear upside breakout and during renewed bearish candles, weakening trigger quality.",
+      "visibleEvidence": [
+        "Strong bullish expansion into the 1.354–1.356 area.",
+        "Subsequent tight sideways-to-downward consolidation near the highs.",
+        "Long-position risk/reward box is visibly placed above a lower stop.",
+        "No clear bullish breakout above the consolidation high is visible at entry."
+      ],
+      "concerns": [
+        "Entry appears anticipatory rather than confirmed by a clean flag breakout.",
+        "Recent bearish candles are pressing toward the stop, indicating weak immediate momentum.",
+        "The visible stop is relatively close to the consolidation, with no clearly marked structural breakout trigger."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessed; unseen context, execution timing, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "001-2026-07-16-15-05-gbpusd-flag-d9904dfd.webp",
+          "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+          "date": "2026-07-16",
+          "time": "15:05",
+          "pair": "GBPUSD",
+          "sourceSetup": "flag"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "0c6f2e1fbd45048bf041496d6a0cf0a8fd67ebe188e3f9f53df8a1a2a9c99cdb",
+      "filename": "002-2026-07-13-09-17-euraud-break-and-retest-e9079787.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-07-13",
+      "time": "09:17",
+      "pair": "EURAUD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 70,
+      "summary": "The chart visibly supports a bullish break-and-retest interpretation, though the retest is not exceptionally clean or uniquely defined.",
+      "visibleEvidence": [
+        "Strong bullish expansion from the July 13 low breaks nearby prior structure.",
+        "Price pulls back toward the broken/local structure area before continuing upward.",
+        "The long-position box is aligned with the bullish continuation idea."
+      ],
+      "concerns": [
+        "The exact broken MRH/MRL line and retest level are partly obscured by overlapping dotted markings.",
+        "The pullback contains some volatility and does not show a sharply isolated rejection.",
+        "Higher-timeframe context and actual execution timing are not visible."
+      ],
+      "visibilityLimits": "Assessment is limited to the displayed 1-hour candles and annotations; outcome, fills, and unseen context cannot be judged.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "002-2026-07-13-09-17-euraud-break-and-retest-e9079787.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-07-13",
+          "time": "09:17",
+          "pair": "EURAUD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "1571c826144cd04c43ae49ecaa48b747c01c2ed1940deb88ce93297b8c87abdd",
+      "filename": "006-2026-07-08-09-03-audusd-internal-reversal-7bd88bdd.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-08",
+      "time": "09:03",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The chart supports a bullish Internal Reversal hypothesis: price was pulling back, then showed an internal bullish break with a tight stop below the recent swing low. However, the trigger and local structure are not exceptionally clear.",
+      "visibleEvidence": [
+        "Prior decline into the Jul 8 low, followed by a bullish impulse and break of nearby internal structure.",
+        "Long entry is positioned near 0.69355, with the stop roughly 2 pips below the recent low/MRL area.",
+        "The visible risk box is consistent with an early reversal rather than a later confirmed reversal."
+      ],
+      "concerns": [
+        "The relevant MRH break is somewhat ambiguous among overlapping candles.",
+        "The chart does not clearly show a uniquely dominant confirmation candle or clean post-break retest.",
+        "Subsequent candles move back below the entry, but this is not used to judge outcome quality."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessable; execution timing, unseen candles, higher-timeframe context, and P/L are not verifiable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "006-2026-07-08-09-03-audusd-internal-reversal-7bd88bdd.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-08",
+          "time": "09:03",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "0ae4d1fc4b957e01727fd7724c7b97b2d195f125ecdf3c54474388fd2a33008f",
+      "filename": "007-2026-07-06-15-00-gbpusd-internal-reversal-0c897c47.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-07-06",
+      "time": "15:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 78,
+      "summary": "The visible chart supports a bullish internal reversal, though exact MRH/MRL definitions and trigger criteria are not fully explicit.",
+      "visibleEvidence": [
+        "Prior bullish structure is followed by a contained local pullback.",
+        "Price appears to sweep or reject the local low near 1.3330.",
+        "Strong bullish candles break the nearby local bearish structure before the marked entry around 1.3350.",
+        "Stop is placed below the recent swing low and the target is positioned above the entry."
+      ],
+      "concerns": [
+        "The reversal occurs within a broader bullish context, so it may also resemble a continuation entry.",
+        "The precise internal line break and trigger candle are somewhat difficult to distinguish from the chart markings."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessable; higher-timeframe context, execution timing, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "007-2026-07-06-15-00-gbpusd-internal-reversal-0c897c47.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-07-06",
+          "time": "15:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "591d341ebcf9e2fa962feea3100585d5409eb24c6ddaa6637c243ce6c96badf5",
+      "filename": "001-2026-06-25-01-26-audusd-liquidity-sweep-1d873388.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-06-25",
+      "time": "01:26",
+      "pair": "AUDUSD",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "confirmed",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 82,
+      "summary": "Visible price action supports a bullish liquidity sweep: price briefly breaks below recent lows, rejects sharply, and rallies into the marked long setup.",
+      "visibleEvidence": [
+        "Clear downside wick below the nearby prior-low area / Most Recent Low.",
+        "Immediate bullish response with several advancing candles.",
+        "Long risk/reward box is positioned after the rejection, with stop below the swept low."
+      ],
+      "concerns": [
+        "The exact trigger and entry rationale are not explicitly marked.",
+        "The sweep occurs within choppy/ranging price action, so structural significance is moderate rather than exceptional."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart is assessable; higher-timeframe context, execution timing, and outcome are not visible.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "001-2026-06-25-01-26-audusd-liquidity-sweep-1d873388.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-06-25",
+          "time": "01:26",
+          "pair": "AUDUSD",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "e8284ded37aed0b26ac1d557c0859bd7e118d8e3753d90683d31e754e7a5fd20",
+      "filename": "008-2026-06-24-22-14-eurusd-internal-reversal-f252dbd0.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-06-24",
+      "time": "22:14",
+      "pair": "EURUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 74,
+      "summary": "The chart supports an early bullish reversal from a prolonged downtrend, with a local structure break and pullback entry. However, the marked target appears substantially beyond the fixed 2R rule for an Internal Reversal.",
+      "visibleEvidence": [
+        "Clear prior bearish trend into a base near 1.1330–1.1340.",
+        "Bullish momentum shift from the base, followed by breaks of nearby internal highs.",
+        "Entry is positioned near the local structure area around 1.1344, with protection below the recent low.",
+        "Marked target near 1.1388 is visibly much farther than approximately 2R from the shown entry and stop."
+      ],
+      "concerns": [
+        "The stop/target geometry does not visibly match the specified Internal Reversal fixed-2R model.",
+        "Some early structure breaks occur inside the consolidation and may be noise rather than strong confirmation."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart is judged; execution timing, P/L, and unseen higher-timeframe context cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "008-2026-06-24-22-14-eurusd-internal-reversal-f252dbd0.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-06-24",
+          "time": "22:14",
+          "pair": "EURUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "1db2865bbf94e29b2af9d38a182be56500e4978924a19ff7ddf0eef42c0d0fbe",
+      "filename": "009-2026-06-24-22-00-eurjpy-internal-reversal-c3ebeb9f.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-06-24",
+      "time": "22:00",
+      "pair": "EURJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart visibly supports a bullish early reversal after an extended decline, but the exact internal-reversal trigger and stop placement are not fully clear.",
+      "visibleEvidence": [
+        "Clear preceding bearish trend into a local low near 183.25.",
+        "Strong bullish response followed by higher highs and higher lows.",
+        "Entry/risk box begins near the reversal structure and targets the prior high area."
+      ],
+      "concerns": [
+        "The displayed stop is substantially beyond the relevant nearby low, rather than appearing to be only about 2 pips beyond the MRL as required for an Internal Reversal.",
+        "The trigger candle/line break is not explicitly marked, so early internal timing cannot be confirmed.",
+        "Several candles of recovery appear before the setup becomes structurally clear."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is assessed; unseen context, execution timing, and outcome are not inferable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "009-2026-06-24-22-00-eurjpy-internal-reversal-c3ebeb9f.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-06-24",
+          "time": "22:00",
+          "pair": "EURJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "64c7e7e6be82ef5e9075c280ad2af8a10f80e29766f1637cafff4fdce92b6810",
+      "filename": "002-2026-06-22-13-22-gbpusd-reversal-c15c7919.png",
+      "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+      "date": "2026-06-22",
+      "time": "13:22",
+      "pair": "GBPUSD",
+      "sourceSetup": "reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart supports a bullish reversal hypothesis, but the exact setup and trigger are not fully clear.",
+      "visibleEvidence": [
+        "Prior strong bearish trend followed by basing near 1.316–1.319.",
+        "Strong bullish impulse from the low, breaking above nearby consolidation structure.",
+        "Long-position overlay is placed on a pullback around 1.3211, with upside target above prior local highs."
+      ],
+      "concerns": [
+        "The entry trigger is not visually distinctive or clearly tied to a specific MRH/MRL break.",
+        "The displayed stop is roughly 48 pips below entry, not visibly consistent with the fixed 14-pip Reversal rule or a tight 2-pip structural stop.",
+        "The chart does not establish whether this is Internal Reversal, Reversal, or Liquidity Sweep."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is judged; unseen candles, execution timing, higher-timeframe context, and outcome are unavailable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "002-2026-06-22-13-22-gbpusd-reversal-c15c7919.png",
+          "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+          "date": "2026-06-22",
+          "time": "13:22",
+          "pair": "GBPUSD",
+          "sourceSetup": "reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "a48c1dbb0c1a57a8dbcce783c9a28210a7a4ea9fa4e64247aabefafbdd8db31f",
+      "filename": "002-2026-06-09-04-30-audjpy-liquidity-sweep-af7385c7.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-06-09",
+      "time": "04:30",
+      "pair": "AUDJPY",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart visibly supports a possible bullish liquidity sweep, but confirmation is weak and the broader visible trend is strongly bearish.",
+      "visibleEvidence": [
+        "Price probes below the prior low/liquidity area near 112.50 and rebounds.",
+        "A long-position risk/reward box is placed above the sweep area.",
+        "The sweep occurs after an extended downward move and consolidation."
+      ],
+      "concerns": [
+        "Follow-through above the recent high/MRH near 113.13 is not visible.",
+        "Price remains weak near the recent low, with no clear strong bullish displacement.",
+        "The setup is countertrend, so the sweep alone provides limited reversal evidence."
+      ],
+      "visibilityLimits": "Exact trigger candle, execution timing, and unseen higher-timeframe context cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "002-2026-06-09-04-30-audjpy-liquidity-sweep-af7385c7.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-06-09",
+          "time": "04:30",
+          "pair": "AUDJPY",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "d18733e7e61c0830293882aad3638aa7c95ff280bee1282f3130e79e2ae30a49",
+      "filename": "003-2026-06-08-09-20-audusd-break-and-retest-dc2abb42.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-06-08",
+      "time": "09:20",
+      "pair": "AUDUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "questionable",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 65,
+      "summary": "The visible price action is broadly consistent with a bearish Break & Retest, but the screenshot does not match the supplied pair metadata: it shows NZDJPY on 1h, not AUDUSD.",
+      "visibleEvidence": [
+        "A strong bearish expansion breaks below the prior structure.",
+        "Price subsequently retraces into the broken-area/consolidation zone.",
+        "The short-position overlay is placed around the apparent retest, with risk above and target below."
+      ],
+      "concerns": [
+        "The retest level and trigger are not cleanly distinguished from the surrounding choppy candles.",
+        "Entry appears within a broad consolidation rather than at a sharply defined rejection.",
+        "The visible chart contradicts the stated AUDUSD pair, so the archive label cannot be fully confirmed."
+      ],
+      "visibilityLimits": "Execution timing, exact line-break interpretation, higher-timeframe context, and outcome are not verifiable from the screenshot.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "003-2026-06-08-09-20-audusd-break-and-retest-dc2abb42.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-06-08",
+          "time": "09:20",
+          "pair": "AUDUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "464b2fe7303dc23e71dcc83de933e3f679b03e2d7ecbfb4cb469c4ffef69f2f9",
+      "filename": "010-2026-06-04-12-09-audjpy-internal-reversal-8b44969f.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-06-04",
+      "time": "12:09",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 28,
+      "summary": "The chart shows a possible early long reversal attempt after a sustained bearish move, but visible confirmation for an Internal Reversal is weak.",
+      "visibleEvidence": [
+        "AUDJPY is in a clear sequence of lower highs and lower lows.",
+        "A small bullish reaction appears near 113.87–113.90.",
+        "The long setup is positioned around 114.020, with risk below the recent low."
+      ],
+      "concerns": [
+        "No clear bullish MRH break or dominant momentum shift is visible before the planned entry.",
+        "The most recent candles remain weak and close below the entry area.",
+        "The broader bearish structure is still intact, making this look more like an unconfirmed countertrend attempt."
+      ],
+      "visibilityLimits": "Only the displayed candles and levels were assessed; unseen timeframe context, execution timing, and outcome cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "010-2026-06-04-12-09-audjpy-internal-reversal-8b44969f.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-06-04",
+          "time": "12:09",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "9299b80bf4bfa914999ac396a59ecd88cbc62c07e0957757ff2a5272bc3fec00",
+      "filename": "002-2026-05-28-07-04-audusd-flag-58ce7c7a.png",
+      "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+      "date": "2026-05-28",
+      "time": "07:04",
+      "pair": "AUDUSD",
+      "sourceSetup": "flag",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 78,
+      "summary": "The visible chart supports a bullish flag interpretation, though the continuation trigger is not clearly visible yet.",
+      "visibleEvidence": [
+        "Strong bullish impulse from approximately 0.7111 to 0.7169.",
+        "Short, relatively tight pullback/consolidation beneath the recent high.",
+        "Long risk/reward box is aligned with a bullish continuation idea."
+      ],
+      "concerns": [
+        "No clear breakout or strong confirmation candle above the consolidation is visible.",
+        "The pullback structure is brief and somewhat irregular, so flag boundaries are not strongly defined.",
+        "Entry appears within the consolidation rather than clearly at a confirmed break/retest."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations can be judged; unseen higher-timeframe context and execution details are unavailable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "002-2026-05-28-07-04-audusd-flag-58ce7c7a.png",
+          "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+          "date": "2026-05-28",
+          "time": "07:04",
+          "pair": "AUDUSD",
+          "sourceSetup": "flag"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "677ee5a08aa233d612f545effceefc29275df633bbb5aec91dd9169d69dd17c8",
+      "filename": "011-2026-05-27-09-00-audjpy-internal-reversal-c8246891.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-05-27",
+      "time": "09:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The chart supports an early bearish reversal after an extended upswing, consistent with an Internal Reversal label. However, the visible stop is substantially wider than the rule's roughly 2-pip-beyond-MRH placement.",
+      "visibleEvidence": [
+        "Price trends upward into a local high near 114.30.",
+        "A strong bearish candle breaks the immediate bullish sequence before the short-position box begins near 113.991.",
+        "The setup is positioned early in the reversal, rather than after extensive confirmation."
+      ],
+      "concerns": [
+        "The stop near 114.375 is about 7–8 pips above the visible high, not approximately 2 pips beyond the relevant MRH.",
+        "The local trigger is somewhat ambiguous because several small candles follow the initial bearish impulse.",
+        "No unseen execution details or higher-timeframe context can be verified."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessed; outcome, exact execution timing, and unseen context are not inferable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "011-2026-05-27-09-00-audjpy-internal-reversal-c8246891.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-05-27",
+          "time": "09:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "e9142b1dda038ca2c4bdd64928002f7d55e7a7ffeba256773a0b61d7612d8dd6",
+      "filename": "003-2026-05-19-08-55-nzdjpy-reversal-89fbb084.png",
+      "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+      "date": "2026-05-19",
+      "time": "08:55",
+      "pair": "NZDJPY",
+      "sourceSetup": "reversal",
+      "labelCheck": "confirmed",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 84,
+      "summary": "The visible chart supports a bullish reversal: an established selloff reaches a clear low, followed by strong upward momentum and breaks above nearby prior swing structure.",
+      "visibleEvidence": [
+        "Sustained bearish move into the 92.56 area.",
+        "Strong bullish displacement from the low.",
+        "Price breaks and holds above nearby MRH/swing levels around 92.78 and 93.10.",
+        "NZDJPY wick tolerance is acceptable at the visible low."
+      ],
+      "concerns": [
+        "The exact trigger and execution timing are not explicitly marked.",
+        "Higher-timeframe context and outcome are not assessable from the screenshot."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart and visible annotations were judged; no unseen candles, P/L, or execution details were inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "003-2026-05-19-08-55-nzdjpy-reversal-89fbb084.png",
+          "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+          "date": "2026-05-19",
+          "time": "08:55",
+          "pair": "NZDJPY",
+          "sourceSetup": "reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "3ed5029b6c8d6b6c72e5d20f556e16b1c942b561a69813489077c583fdc2e699",
+      "filename": "004-2026-05-18-18-00-gbpusd-break-and-retest-bec206a1.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-05-18",
+      "time": "18:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "confirmed",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 82,
+      "summary": "The visible structure supports a bullish Break & Retest: price breaks above prior resistance/MRH near 1.3380, pulls back toward that level, then holds and continues higher.",
+      "visibleEvidence": [
+        "Strong bullish expansion breaks the prior swing structure.",
+        "Subsequent candles retrace toward the broken level around 1.3380.",
+        "Price remains above the apparent retest zone and consolidates higher."
+      ],
+      "concerns": [
+        "The exact entry and trigger candle are not explicitly marked.",
+        "The retest is somewhat shallow and overlaps nearby candle noise, reducing execution clarity.",
+        "Higher-timeframe context and actual execution timing are not visible."
+      ],
+      "visibilityLimits": "Assessment is limited to the displayed 1-hour candles and drawn levels; outcome, execution, and unseen context cannot be judged.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "004-2026-05-18-18-00-gbpusd-break-and-retest-bec206a1.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-05-18",
+          "time": "18:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "3caf3351bac34587851ea0564eff6515c59c21095decfad13fd5937ff2cb503f",
+      "filename": "005-2026-05-15-15-00-eurusd-break-and-retest-59115e7f.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-05-15",
+      "time": "15:00",
+      "pair": "EURUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "confirmed",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 86,
+      "summary": "Visible price action supports a bearish Break & Retest: established downtrend, clean support/MRL break, brief pullback toward the broken level, then bearish continuation.",
+      "visibleEvidence": [
+        "Clear sequence of lower highs and lower lows.",
+        "Strong bearish expansion breaks the prior dotted support around 1.1645.",
+        "Small retracement/retest reaches the broken area before another bearish candle.",
+        "Short-position levels are visibly placed above the retest and below price."
+      ],
+      "concerns": [
+        "The retest is brief and somewhat shallow, so trigger uniqueness is only moderately clear.",
+        "Exact execution timing cannot be verified from the screenshot."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessable; unseen higher-timeframe context, execution details, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "005-2026-05-15-15-00-eurusd-break-and-retest-59115e7f.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-05-15",
+          "time": "15:00",
+          "pair": "EURUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "00cad34e0205baad16ecbe11d1ce09a498148f055a0d49019a2c6fb14c1b6d2f",
+      "filename": "003-2026-05-11-06-59-euraud-liquidity-sweep-5c7320dc.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-05-11",
+      "time": "06:59",
+      "pair": "EURAUD",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "questionable",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 35,
+      "summary": "A later rejection of the local highs is visible, but the marked short appears established before that sweep, so the chart does not clearly support a liquidity-sweep entry.",
+      "visibleEvidence": [
+        "Price later spikes above nearby highs around 1.6290 and reverses sharply.",
+        "The short-position box begins near 1.6260 before that apparent high sweep.",
+        "Recent-high and recent-low levels are marked, with the stop above and target below."
+      ],
+      "concerns": [
+        "Entry timing relative to the sweep is unclear and appears premature.",
+        "The preceding price action is largely range-bound, so the high break could be ordinary volatility rather than a clean liquidity event.",
+        "No explicit sweep/confirmation marker is visible."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations are assessable; execution timing and unseen context cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "003-2026-05-11-06-59-euraud-liquidity-sweep-5c7320dc.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-05-11",
+          "time": "06:59",
+          "pair": "EURAUD",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "a86c42b568e5fba020f4d835001fd9d0195a5880e40683509a9392c9753d0597",
+      "filename": "012-2026-05-06-19-56-audusd-internal-reversal-021bdee2.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-05-06",
+      "time": "19:56",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart supports a bearish internal-reversal hypothesis, but the trigger and stop placement are not clearly validated.",
+      "visibleEvidence": [
+        "A strong bullish expansion reaches the 0.727 area, followed by opposing bearish momentum and a local consolidation.",
+        "The short position appears entered near 0.72505 after rejection from the recent high area.",
+        "Price subsequently breaks lower, providing visible directional follow-through."
+      ],
+      "concerns": [
+        "The precise MRH/MRL break and unique local trigger are difficult to identify.",
+        "The visible stop near 0.72797 appears wide relative to the internal-reversal rule of roughly 2 pips beyond the relevant MRH.",
+        "The setup may also resemble a later reversal or range rejection rather than a clearly early internal reversal."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations are assessable; execution timing, unseen context, and outcome cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "012-2026-05-06-19-56-audusd-internal-reversal-021bdee2.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-05-06",
+          "time": "19:56",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "11304dec9e1f2ff597360f5a097d253714ca2ee3091880bad16c6238b24ea2de",
+      "filename": "006-2026-04-30-19-00-eurusd-break-and-retest-d2496f2b.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-04-30",
+      "time": "19:00",
+      "pair": "EURUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "confirmed",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 88,
+      "summary": "The visible chart supports a bullish Break & Retest setup with clear momentum expansion and a pullback near the broken structure.",
+      "visibleEvidence": [
+        "Prior bearish structure is followed by a strong bullish displacement.",
+        "Price breaks above nearby resistance/MRH structure, then retraces toward the marked entry around 1.16974.",
+        "The stop is placed below the retest area at about 1.16833, consistent with the labeled continuation setup.",
+        "The target near 1.17254 provides approximately a 2R profile."
+      ],
+      "concerns": [
+        "The exact broken MRH/MRL line is somewhat obscured by overlapping candles and annotations.",
+        "Only the visible local context can be assessed; broader-timeframe alignment is unavailable."
+      ],
+      "visibilityLimits": "Cannot verify execution timing, outcome, or unseen higher-timeframe context.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "006-2026-04-30-19-00-eurusd-break-and-retest-d2496f2b.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-04-30",
+          "time": "19:00",
+          "pair": "EURUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "1f1ef3e14e6fae89f93b656f6e0806960d4ec425fb06dd81b9b9482960f3e649",
+      "filename": "007-2026-04-29-18-00-audusd-break-and-retest-74762cc4.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-04-29",
+      "time": "18:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "plausible",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 78,
+      "summary": "The visible chart supports a bearish Break & Retest interpretation, though the exact trigger and entry timing cannot be confirmed from the screenshot alone.",
+      "visibleEvidence": [
+        "Price makes a strong bearish expansion from the recent high area.",
+        "A prior horizontal structure near the short entry appears to break, followed by a shallow retest before continuation lower.",
+        "The short-position box shows entry near 0.71543, with a fixed-looking stop near 0.71683 and target near 0.71263, consistent with the labeled setup."
+      ],
+      "concerns": [
+        "The broken MRH/MRL line and retest interaction are only partially clear due to chart scale and overlapping candles.",
+        "Execution timing and whether the entry occurred exactly at the retest cannot be verified."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations were assessed; no unseen candles, execution data, higher-timeframe context, or outcome were inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "007-2026-04-29-18-00-audusd-break-and-retest-74762cc4.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-04-29",
+          "time": "18:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "a3edaa1a5d4e4035b48bf1e9f5a8fff640146e3b49ca27942dc72a348ec65b96",
+      "filename": "013-2026-04-28-10-38-euraud-internal-reversal-3fe22967.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-04-28",
+      "time": "10:38",
+      "pair": "EURAUD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart plausibly supports an Internal Reversal, but the trigger and structural break are not especially clear.",
+      "visibleEvidence": [
+        "A pronounced bearish move terminates in a low-area consolidation.",
+        "Price then produces a strong bullish impulse and breaks nearby local structure.",
+        "The long-position box is placed after this early reversal attempt, with risk below the recent low."
+      ],
+      "concerns": [
+        "The broader visible trend remains strongly bearish.",
+        "Several breaks occur within the low-area consolidation and may be liquidity-box noise.",
+        "The exact unique trigger candle and MRH/MRL reference are difficult to identify; the stop also appears wider than a strict 2-pip structural buffer."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart is assessed; higher-timeframe context, execution timing, and outcome are not inferable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "013-2026-04-28-10-38-euraud-internal-reversal-3fe22967.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-04-28",
+          "time": "10:38",
+          "pair": "EURAUD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "924efee0c0c4af331f8af9a95f35e2ec38a47bc7915fc615768016584d27e263",
+      "filename": "014-2026-04-20-07-06-nzdjpy-internal-reversal-d83c09c1.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-04-20",
+      "time": "07:06",
+      "pair": "NZDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The chart visibly supports an early bullish reversal after a sharp selloff, with a strong opposing candle and subsequent internal highs breaking upward. The source label is plausible, but the execution is not a clean rule match.",
+      "visibleEvidence": [
+        "Sharp bearish expansion into the 92.99 area, followed by a strong bullish response.",
+        "Several nearby internal highs are broken during the recovery.",
+        "Long position is shown with an approximately 2R target structure.",
+        "Entry appears near the early reversal/base area rather than after a fully developed trend."
+      ],
+      "concerns": [
+        "The displayed stop is materially wider than the Internal Reversal rule's stated 2-pips-beyond-MRL stop.",
+        "The reversal develops inside a choppy consolidation, so some breaks may be liquidity-box noise.",
+        "The trigger's uniqueness relative to the nearby 3–7 candles is only moderate."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is judged; unseen context, execution timing, P/L, and higher-timeframe structure cannot be confirmed.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "014-2026-04-20-07-06-nzdjpy-internal-reversal-d83c09c1.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-04-20",
+          "time": "07:06",
+          "pair": "NZDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "a18a672bef4f3bd2850eaa67f16879d51835027585ec72f78d03007698309056",
+      "filename": "015-2026-04-17-15-57-gbpusd-internal-reversal-12f3591b.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-04-17",
+      "time": "15:57",
+      "pair": "GBPUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart supports an early bullish reversal after a bearish decline and local low, but the visible structure also resembles a liquidity sweep/confirmed reversal. Internal-reversal classification is plausible rather than definitive.",
+      "visibleEvidence": [
+        "Bearish sequence leads into a local low around 1.350–1.351.",
+        "A strong bullish candle breaks above nearby local structure before the marked long area.",
+        "The stop is visibly placed below the recent swing low.",
+        "The target is approximately 2R from the marked entry-to-stop range."
+      ],
+      "concerns": [
+        "The displayed stop appears materially wider than the prescribed 2-pip-beyond-MRL stop for an Internal Reversal.",
+        "The strongest bullish expansion appears before or around the entry, making this look somewhat later-confirmed rather than clearly early/internal.",
+        "Several nearby breaks occur within a choppy consolidation, so their reversal significance is limited."
+      ],
+      "visibilityLimits": "Only the shown 1-hour chart is available; exact trigger timing, execution, higher-timeframe context, and unseen candles cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "015-2026-04-17-15-57-gbpusd-internal-reversal-12f3591b.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-04-17",
+          "time": "15:57",
+          "pair": "GBPUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "08ea9b674f2392e22e18e959d1eb8b56cd5c6347a9377e64980e5a29637479af",
+      "filename": "016-2026-04-15-00-00-eurusd-internal-reversal-4f3f7bcb.jpg",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-04-15",
+      "time": "00:00",
+      "pair": "EURUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "unclear",
+      "technicalGrade": "Unclear",
+      "setupMatchConfidence": 0,
+      "summary": "The image is a funded certificate, not a EURUSD trading chart, so the source label cannot be verified.",
+      "visibleEvidence": [],
+      "concerns": [
+        "No candles, price action, MRH/MRL levels, trigger, entry, or stop are visible.",
+        "The displayed date is 29/04/26, not the supplied trade date."
+      ],
+      "visibilityLimits": "No chart evidence is available for assessing the setup or execution.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "016-2026-04-15-00-00-eurusd-internal-reversal-4f3f7bcb.jpg",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-04-15",
+          "time": "00:00",
+          "pair": "EURUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "d20a68729028f74f47485a98fb62ddedf50d176eed34c7a720b0b5d32df4a379",
+      "filename": "003-2026-04-14-07-16-eurusd-flag-ff6a0448.png",
+      "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+      "date": "2026-04-14",
+      "time": "07:16",
+      "pair": "EURUSD",
+      "sourceSetup": "flag",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 78,
+      "summary": "The chart visibly supports a bullish continuation/flag interpretation, though the consolidation is mostly horizontal rather than a clearly defined sloping flag.",
+      "visibleEvidence": [
+        "Strong preceding bullish impulse into the 1.1760–1.1770 area.",
+        "Several candles consolidate in a relatively tight range before the bullish expansion.",
+        "Price then breaks upward with multiple strong bullish candles and continues toward the marked target.",
+        "The long setup uses a visible stop below the consolidation and a favorable reward area."
+      ],
+      "concerns": [
+        "The flag boundaries are not clearly drawn or structurally distinct; this could also be a range breakout.",
+        "The marked entry/trigger appears close to or within the consolidation, making confirmation timing ambiguous.",
+        "Only the visible chart is assessable; higher-timeframe context and execution details are unavailable."
+      ],
+      "visibilityLimits": "No inference made about P/L, execution timing, unseen candles, or higher-timeframe context.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "003-2026-04-14-07-16-eurusd-flag-ff6a0448.png",
+          "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+          "date": "2026-04-14",
+          "time": "07:16",
+          "pair": "EURUSD",
+          "sourceSetup": "flag"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "f31ec727085033e20546e1173b3c012098609d878c98a3204a5739d38235b6d5",
+      "filename": "017-2026-04-10-05-00-audjpy-internal-reversal-8b58cd36.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-04-10",
+      "time": "05:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 62,
+      "summary": "The chart plausibly supports an internal bearish reversal, but the evidence is modest and occurs against a strong preceding bullish expansion.",
+      "visibleEvidence": [
+        "Price rejects the marked recent high near 112.620.",
+        "Several candles then move lower, breaking the immediate local consolidation structure.",
+        "The short-position box uses a nearby stop above the high and a fixed-risk target below."
+      ],
+      "concerns": [
+        "The broader visible prior price action is strongly bullish.",
+        "The internal structure and exact trigger candle are not clearly marked.",
+        "The move may represent ordinary consolidation rather than a decisive reversal."
+      ],
+      "visibilityLimits": "Exact entry timing, execution, P/L, and unseen higher-timeframe context cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "017-2026-04-10-05-00-audjpy-internal-reversal-8b58cd36.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-04-10",
+          "time": "05:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "7e60d8b2076799be1e98ad0196d31855ccbd1dbd8432884a98da3e9340e9a879",
+      "filename": "018-2026-04-06-08-05-audjpy-internal-reversal-5500ffab.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-04-06",
+      "time": "08:05",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "confirmed",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 88,
+      "summary": "The visible chart supports an AUDJPY Internal Reversal: a selloff forms a local low, bullish momentum shifts, and price breaks nearby internal structure before the long entry.",
+      "visibleEvidence": [
+        "Clear prior decline into a local low near 109.90.",
+        "Strong bullish impulse with multiple internal MRH/structure breaks.",
+        "Long entry is near 110.084 after the initial reversal move.",
+        "Stop is placed below the relevant local MRL, with a visually consistent fixed-2R target."
+      ],
+      "concerns": [
+        "The chart does not show the exact trigger annotation or execution timing, so trigger uniqueness cannot be fully verified.",
+        "Several later breaks occur after entry, but these do not invalidate the earlier internal-reversal classification."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessed; unseen candles, execution details, P/L, and higher-timeframe context are unavailable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "018-2026-04-06-08-05-audjpy-internal-reversal-5500ffab.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-04-06",
+          "time": "08:05",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        },
+        {
+          "filename": "004-2026-04-06-07-26-audusd-reversal-3cd1f7cc.png",
+          "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+          "date": "2026-04-06",
+          "time": "07:26",
+          "pair": "AUDUSD",
+          "sourceSetup": "reversal"
+        }
+      ],
+      "labelConflict": true
+    },
+    {
+      "sha256": "86160a0ec7dc65e5e904264f5d4d56155617689cda2cd23eeda9f33df4524007",
+      "filename": "019-2026-03-31-09-00-gbpusd-internal-reversal-0a2e699b.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-03-31",
+      "time": "09:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 74,
+      "summary": "The visible chart supports an early bullish internal reversal from a bearish downswing, though the broader prior trend is strongly bearish and the local structure is somewhat noisy.",
+      "visibleEvidence": [
+        "Extended bearish sequence into a low/base area.",
+        "Bullish momentum shift with multiple strong upward candles.",
+        "Visible break of nearby internal swing structure before the marked long zone.",
+        "Stop is placed below the local low/MRL area, with upside risk-reward drawn."
+      ],
+      "concerns": [
+        "Several breaks occur within a choppy base, so some may be liquidity-box noise.",
+        "The reversal is countertrend; evidence for a larger confirmed reversal is limited.",
+        "Exact trigger and execution timing are not fully identifiable from the screenshot."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations were assessed; unseen context, execution details, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "019-2026-03-31-09-00-gbpusd-internal-reversal-0a2e699b.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-03-31",
+          "time": "09:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "31e977c7261cf274c60eb364e406df2d869fb0c004cd3c64d431ffb7e1ea4813",
+      "filename": "020-2026-03-30-23-00-audjpy-internal-reversal-395a08d1.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-03-30",
+      "time": "23:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 65,
+      "summary": "The chart shows a plausible bullish internal reversal attempt, but the source label is not fully supported by the visible structure and risk placement.",
+      "visibleEvidence": [
+        "AUDJPY is in a clear broader downtrend.",
+        "Price forms a local low, then shows a bullish push breaking nearby internal resistance.",
+        "The long entry appears during a pullback near 109.356, with target around the recent high at 109.802.",
+        "The stop is visibly below the recent low, around 109.044."
+      ],
+      "concerns": [
+        "The stop appears substantially wider than the Internal Reversal rule of roughly 2 pips beyond the relevant MRL.",
+        "The bullish reversal is relatively late and follows a broader bearish sequence, making it closer to a later reversal or structural continuation decision than a clean early internal reversal.",
+        "The relevant trigger and exact MRH/MRL break are not unambiguously marked at entry."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are judged; execution timing, outcome, and unseen context cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "020-2026-03-30-23-00-audjpy-internal-reversal-395a08d1.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-03-30",
+          "time": "23:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "bfabf812ac601a681990a37c78a5dcb492cbba17e96d44479a762715f1dc8659",
+      "filename": "004-2026-03-26-22-00-audjpy-liquidity-sweep-41e35afb.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-03-26",
+      "time": "22:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 68,
+      "summary": "The chart visibly supports a possible bullish liquidity sweep, but confirmation is limited and the broader structure remains bearish.",
+      "visibleEvidence": [
+        "Price declines into the marked recent low near 110.196 and briefly trades below it toward 110.12.",
+        "The latest candles rebound back above the marked low, consistent with a downside liquidity sweep.",
+        "The broader chart shows persistent lower highs and lower lows.",
+        "A long risk/reward box is drawn above the sweep area, indicating a bullish reversal hypothesis."
+      ],
+      "concerns": [
+        "The sweep rejection is modest; no clearly dominant bullish displacement candle is visible.",
+        "There is no obvious confirmed MRH break or strong local reversal structure yet.",
+        "The marked low and entry context are very close to the chart edge, limiting assessment of follow-through and management."
+      ],
+      "visibilityLimits": "Only the displayed candles and annotations are judged; execution timing, outcome, and higher-timeframe context are not visible.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "004-2026-03-26-22-00-audjpy-liquidity-sweep-41e35afb.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-03-26",
+          "time": "22:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "09683f6ff32dc95727be7bcc46e1dca53de79d714841c1a56807ebf3de4ece8f",
+      "filename": "008-2026-03-17-03-00-gbpusd-break-and-retest-ec9c93a3.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-03-17",
+      "time": "03:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "break and retest",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 35,
+      "summary": "The chart shows a strong rebound within a broader downtrend, but the visible entry appears above the likely broken level rather than at a clear retest. Break-and-retest support is weak.",
+      "visibleEvidence": [
+        "Broad prior price action is decisively bearish.",
+        "Price rallies sharply from the 1.3220 area and breaks nearby swing structure.",
+        "The marked long entry near 1.33396 follows the expansion move; no clear retest of that level is visible.",
+        "Subsequent candles retrace downward into the risk box."
+      ],
+      "concerns": [
+        "The relevant broken MRH/MRL and retest zone are not clearly aligned with the entry.",
+        "Entry looks late/extended rather than placed at the previous broken line.",
+        "The setup is countertrend against the dominant visible bearish structure."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessed; higher-timeframe context, execution timing, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "008-2026-03-17-03-00-gbpusd-break-and-retest-ec9c93a3.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-03-17",
+          "time": "03:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "053a6e2f2a51db24a180b948811c24774b82a28cfabe898b2b45a8e012efe300",
+      "filename": "009-2026-03-16-22-01-audjpy-break-and-retest-d0657f5e.png",
+      "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+      "date": "2026-03-16",
+      "time": "22:01",
+      "pair": "AUDJPY",
+      "sourceSetup": "break and retest",
+      "labelCheck": "plausible",
+      "technicalGrade": "Good",
+      "setupMatchConfidence": 82,
+      "summary": "The chart visibly supports a bullish break-and-retest: price breaks above the local ~112.30 MRH, retests that area, then continues higher.",
+      "visibleEvidence": [
+        "Prior bearish structure transitions into higher lows and strong bullish candles.",
+        "A clear bullish expansion breaks the prior local resistance near 112.30.",
+        "Subsequent candles retest/hold the broken area before advancing toward 112.58.",
+        "The displayed stop is below the retest structure, consistent with the setup type."
+      ],
+      "concerns": [
+        "No explicit entry marker is visible, so exact trigger timing cannot be confirmed.",
+        "The broader move is also a larger reversal from a downtrend; the chart alone cannot establish whether the intended setup was continuation or reversal."
+      ],
+      "visibilityLimits": "Only visible candles and annotations were assessed; execution timing, outcome, and unseen higher-timeframe context are unavailable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "009-2026-03-16-22-01-audjpy-break-and-retest-d0657f5e.png",
+          "archive": "journaly-live-trades-break-and-retest-images-2026-08-10.zip",
+          "date": "2026-03-16",
+          "time": "22:01",
+          "pair": "AUDJPY",
+          "sourceSetup": "break and retest"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "45576e1a30412cb5b8f4b4b43d10b06aa25bbdb2793ee3a4289d997c5202730f",
+      "filename": "021-2026-03-13-23-00-euraud-internal-reversal-2ef4e5cd.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-03-13",
+      "time": "23:00",
+      "pair": "EURAUD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 70,
+      "summary": "The chart supports a bullish reversal from a local low, with consolidation followed by higher highs and a strong upward expansion. However, it occurs after a pronounced bearish move, making the internal-reversal classification less clear than a broader reversal.",
+      "visibleEvidence": [
+        "Clear prior bearish trend and downside expansion.",
+        "Local base/consolidation near 1.613–1.618.",
+        "Bullish momentum shift with successive higher highs/lows.",
+        "Displayed risk/reward is approximately 2R."
+      ],
+      "concerns": [
+        "Entry appears after substantial upward movement rather than at the earliest internal break.",
+        "Stop is materially below the local structure, not visibly just a few pips beyond the relevant MRL.",
+        "No clearly marked trigger or exact MRH/MRL break is visible at entry."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart is assessed; unseen context, execution timing, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "021-2026-03-13-23-00-euraud-internal-reversal-2ef4e5cd.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-03-13",
+          "time": "23:00",
+          "pair": "EURAUD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "504a5d93d1d8cda8067a4f7e4304c527d98e482be98fd27a018cd2323a1cd920",
+      "filename": "022-2026-03-12-23-00-audjpy-internal-reversal-e831cb95.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-03-12",
+      "time": "23:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 55,
+      "summary": "The chart supports a bearish reversal idea after a strong bullish advance, but it looks more like a later confirmed reversal than an early Internal Reversal.",
+      "visibleEvidence": [
+        "Strong bullish prior price action into the 113.8–113.9 area.",
+        "Subsequent bearish candles break several nearby internal lows.",
+        "Short entry is shown near 113.537 after substantial downside movement."
+      ],
+      "concerns": [
+        "The stop near 114.056 is far wider than the Internal Reversal rule of roughly 2 pips beyond the relevant MRH.",
+        "The entry appears delayed after multiple bearish breaks, weakening the 'early' internal-reversal classification.",
+        "Relevant higher-timeframe context and exact trigger are not visible."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart and annotations can be assessed; execution timing, outcome, and unseen context cannot be inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "022-2026-03-12-23-00-audjpy-internal-reversal-e831cb95.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-03-12",
+          "time": "23:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "b4ec71b23729b8c395ff750ec7a52b7d3ffc512a936baa48a0495474d24dea02",
+      "filename": "005-2026-03-09-12-00-gbpusd-liquidity-sweep-2ec87ff6.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-03-09",
+      "time": "12:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 62,
+      "summary": "The chart plausibly shows a bullish liquidity sweep, but the swept liquidity level is not clearly defined.",
+      "visibleEvidence": [
+        "Price sells off into a local low near 1.3282 and then reverses sharply upward.",
+        "The long setup follows several bullish candles and has a visible stop below the recent low.",
+        "A nearby prior low around 1.332 appears to be taken before the reversal."
+      ],
+      "concerns": [
+        "The low does not clearly sweep the prominent earlier swing low near 1.326.",
+        "Entry appears after substantial bullish movement, reducing trigger clarity and locality.",
+        "The chart does not visibly establish whether the low was meaningful external liquidity or merely local noise."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is assessed; execution timing, outcome, and higher-timeframe context are unavailable.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "005-2026-03-09-12-00-gbpusd-liquidity-sweep-2ec87ff6.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-03-09",
+          "time": "12:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "7d2413f0287284c083f7fa2bcae8491a233bccf4c0cc97c32b71ee6ac54f9fa8",
+      "filename": "023-2026-03-05-09-00-audusd-internal-reversal-049109e0.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-03-05",
+      "time": "09:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 82,
+      "summary": "The visible chart supports a bearish Internal Reversal, though trigger timing is not fully clear.",
+      "visibleEvidence": [
+        "Prior bullish advance into a marked Most Recent High near 0.70891.",
+        "Strong bearish candle breaks the nearby internal low around 0.70625.",
+        "Stop is approximately 2 pips above the marked high, consistent with the Internal Reversal rule.",
+        "Risk/reward box targets roughly 2R below entry."
+      ],
+      "concerns": [
+        "The exact trigger candle and entry timing cannot be confirmed from the screenshot.",
+        "Only the displayed local context is available; broader liquidity conditions are not visible."
+      ],
+      "visibilityLimits": "Cannot verify execution timing, outcome, or unseen higher-timeframe price action.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "023-2026-03-05-09-00-audusd-internal-reversal-049109e0.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-03-05",
+          "time": "09:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "365fd0e88cea7666666f485b3eded5ca0705aaa1a8659eae63bf0d8bd35fe2ae",
+      "filename": "024-2026-02-19-12-00-audjpy-internal-reversal-74c5aee7.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-02-19",
+      "time": "12:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 30,
+      "summary": "The chart shows a strong bullish expansion into the marked entry area, but no clearly visible bearish momentum shift or confirmed internal structure break supporting an internal reversal short.",
+      "visibleEvidence": [
+        "Prior price action transitions into higher highs and higher lows.",
+        "A strong bullish impulse reaches the recent-high area near 109.75.",
+        "Some rejection is visible at the high, but the reversal trigger is not structurally clear.",
+        "The risk box appears positioned for a short trade."
+      ],
+      "concerns": [
+        "Entry appears counter to strong immediate bullish momentum.",
+        "No distinct MRH/MRL break or uniquely dominant bearish trigger is visible before entry.",
+        "The marked high may represent resistance, but rejection alone does not establish an internal reversal."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations were assessed; execution timing, unseen context, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "024-2026-02-19-12-00-audjpy-internal-reversal-74c5aee7.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-02-19",
+          "time": "12:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "8da51d7c37e3c9912ca342147110ab427f35213241c23af29bc027486c8711ce",
+      "filename": "025-2026-02-09-09-00-audjpy-internal-reversal-1be09eb9.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-02-09",
+      "time": "09:00",
+      "pair": "AUDJPY",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 62,
+      "summary": "The chart supports a bearish reversal idea after a sharp rally and rejection, but it does not cleanly support an Internal Reversal classification or execution quality.",
+      "visibleEvidence": [
+        "Strong bullish expansion culminates near 110.7, followed by rejection and sustained bearish momentum.",
+        "Short entry is shown around 110.189 after several bearish candles and internal structure breaks.",
+        "The visible stop near 110.840 is far beyond the nearby MRH, rather than approximately 2 pips beyond it as required for an Internal Reversal."
+      ],
+      "concerns": [
+        "Entry appears relatively late after the bearish move has already developed.",
+        "Stop placement visibly conflicts with the Internal Reversal rule.",
+        "Relevant local structure and trigger uniqueness are not clearly marked."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessed; execution timing, P/L, and unseen context cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "025-2026-02-09-09-00-audjpy-internal-reversal-1be09eb9.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-02-09",
+          "time": "09:00",
+          "pair": "AUDJPY",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "f8f09298d4f30a1565318f608340789064613fbff37d2f7b6058074721ddd454",
+      "filename": "006-2026-02-06-09-00-eurusd-liquidity-sweep-9db1c0fe.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-02-06",
+      "time": "09:00",
+      "pair": "EURUSD",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The visible chart plausibly supports a bullish liquidity sweep: price probes below nearby consolidation lows and rebounds into a long entry. Confirmation is modest, so the label is not fully conclusive.",
+      "visibleEvidence": [
+        "Recent candles sweep marginally below nearby Feb 5–6 lows near 1.1780.",
+        "Price rebounds from the lower liquidity/demand area before the long position is marked.",
+        "The projected target is above entry and the stop is below the swept low."
+      ],
+      "concerns": [
+        "The sweep and bullish reversal candle are relatively small, with limited momentum confirmation.",
+        "The broader visible price action remains bearish and range-bound.",
+        "Exact MRH/MRL boundaries and whether the wick cleanly took meaningful liquidity are somewhat ambiguous."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations can be judged; execution timing, higher-timeframe context, and eventual outcome are not visible.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "006-2026-02-06-09-00-eurusd-liquidity-sweep-9db1c0fe.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-02-06",
+          "time": "09:00",
+          "pair": "EURUSD",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "a0b1b7093c216e63fb5c1e6c770071b89fa8e6bedba63bfb1780f885fe103170",
+      "filename": "026-2026-02-06-03-00-gbpusd-internal-reversal-f87c0042.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-02-06",
+      "time": "03:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Bad",
+      "setupMatchConfidence": 86,
+      "summary": "The chart does not strongly support an Internal Reversal. Price remains in a clear bearish trend, and the marked long entry follows only a small consolidation without a visible decisive momentum shift or MRH break.",
+      "visibleEvidence": [
+        "Clear sequence of lower highs and lower lows into the entry area.",
+        "Strong bearish expansion immediately before the marked position.",
+        "No obvious clean break of a meaningful nearby MRH before the long entry.",
+        "Entry appears above the local consolidation, with the stop below the recent low and target nearby."
+      ],
+      "concerns": [
+        "The long is countertrend against dominant visible momentum.",
+        "Recent candles show weak bounce/consolidation rather than a strong reversal trigger.",
+        "The marked setup may be continuation risk rather than an internally confirmed reversal."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart is judged; unseen lower-timeframe structure, execution details, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "026-2026-02-06-03-00-gbpusd-internal-reversal-f87c0042.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-02-06",
+          "time": "03:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "38791b593a41007558926ddc27304831a08c6874eae8bc4b5d39a4770fc284e1",
+      "filename": "005-2026-02-05-00-00-nzdjpy-reversal-91ef72f4.png",
+      "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+      "date": "2026-02-05",
+      "time": "00:00",
+      "pair": "NZDJPY",
+      "sourceSetup": "reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 78,
+      "summary": "The chart visibly supports a bearish reversal after an extended uptrend, but the exact trigger and execution quality are only moderately clear.",
+      "visibleEvidence": [
+        "Strong prior bullish trend into a fresh high near 94.55–94.60.",
+        "Sharp bearish impulse from the high, breaking nearby bullish structure.",
+        "Short-position box is placed after the bearish displacement, with risk above the recent swing and target below."
+      ],
+      "concerns": [
+        "Entry appears during a rebound/consolidation rather than after a clearly unique bearish confirmation candle.",
+        "The visible chart does not establish whether the entry was exactly at a valid reversal trigger or retest.",
+        "Higher-timeframe context and execution timing are unavailable."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour candles and annotations are assessed; outcome, unseen candles, and trade management cannot be inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "005-2026-02-05-00-00-nzdjpy-reversal-91ef72f4.png",
+          "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+          "date": "2026-02-05",
+          "time": "00:00",
+          "pair": "NZDJPY",
+          "sourceSetup": "reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "2db6dc5664382d4d7092f271a0ad1e276a7620c6dc7df095130904d9fbafa4b7",
+      "filename": "007-2026-02-04-18-00-gbpusd-liquidity-sweep-67994ca9.png",
+      "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+      "date": "2026-02-04",
+      "time": "18:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "liquidity sweep",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The visible chart reasonably supports a bearish liquidity-sweep setup, though the exact swept liquidity and confirmation are not fully clear.",
+      "visibleEvidence": [
+        "Price pushes above nearby highs around 1.372–1.373, then reverses with a strong bearish candle.",
+        "The short entry is placed after the rejection near 1.3705.",
+        "The stop is positioned just above the apparent sweep high, consistent with the setup concept.",
+        "The preceding price action shows a broader decline into a choppy corrective rally."
+      ],
+      "concerns": [
+        "The swept level is not explicitly marked and could be ordinary resistance rather than a distinct liquidity pool.",
+        "Confirmation is somewhat local and modest; structural dominance is limited.",
+        "Only the screenshot is visible, so execution timing and management cannot be verified."
+      ],
+      "visibilityLimits": "No inference is made about P/L, actual fill timing, or unseen higher-timeframe context.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "007-2026-02-04-18-00-gbpusd-liquidity-sweep-67994ca9.png",
+          "archive": "journaly-live-trades-liquidity-sweep-images-2026-08-10.zip",
+          "date": "2026-02-04",
+          "time": "18:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "liquidity sweep"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "594cd40b95c4c90d4ca1fd69575ad6c1c9e490cb34b83b2b753262ec02a44374",
+      "filename": "006-2026-02-02-18-00-gbpusd-reversal-9fcf1ec7.png",
+      "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+      "date": "2026-02-02",
+      "time": "18:00",
+      "pair": "GBPUSD",
+      "sourceSetup": "reversal",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 72,
+      "summary": "The visible chart supports a reversal hypothesis, but confirmation is limited and the broader market remains strongly bearish.",
+      "visibleEvidence": [
+        "Clear prior downtrend with successive lower highs and lower lows.",
+        "Price appears to sweep/reject the recent low near 1.366 and then rally above nearby local structure.",
+        "The marked position is a long setup with a defined stop below the recent low and a target above entry."
+      ],
+      "concerns": [
+        "The reversal is countertrend and the bullish momentum is modest relative to the preceding selloff.",
+        "Recent candles near the entry show renewed bearish pressure, weakening trigger quality.",
+        "Exact MRH/MRL break, trigger candle, and execution timing are not clearly identifiable."
+      ],
+      "visibilityLimits": "Only the displayed 1-hour chart and trade box are available; higher-timeframe context, order timing, and management cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "006-2026-02-02-18-00-gbpusd-reversal-9fcf1ec7.png",
+          "archive": "journaly-live-trades-reversal-images-2026-08-10.zip",
+          "date": "2026-02-02",
+          "time": "18:00",
+          "pair": "GBPUSD",
+          "sourceSetup": "reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "a4c8a8ec35495590f9da9324f4a0e6fdf9d96862b27a8c3919edc86253237e04",
+      "filename": "004-2026-01-23-07-00-audusd-flag-2f084f43.png",
+      "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+      "date": "2026-01-23",
+      "time": "07:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "flag",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 82,
+      "summary": "The chart visibly supports a bullish flag/continuation idea: a strong upward impulse is followed by a tight, shallow consolidation near the highs and an upward break.",
+      "visibleEvidence": [
+        "Clear preceding bullish momentum and higher highs.",
+        "Small sideways-to-slightly-down consolidation near 0.6840–0.6849.",
+        "Price breaks toward the consolidation’s upper boundary."
+      ],
+      "concerns": [
+        "Flag boundaries are not explicitly drawn, so the pattern is somewhat subjective.",
+        "Entry appears close to the local high, offering limited visible room before resistance.",
+        "No unseen higher-timeframe or execution context can be validated."
+      ],
+      "visibilityLimits": "Assessment is limited to the displayed AUDUSD 1-hour candles and annotations; outcome and execution timing are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "004-2026-01-23-07-00-audusd-flag-2f084f43.png",
+          "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+          "date": "2026-01-23",
+          "time": "07:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "flag"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "519d5da42733a388502c3bf8f01b7e365f722efb0487012fd4b9a4f16e7c9fdd",
+      "filename": "027-2026-01-07-13-00-audusd-internal-reversal-c2414716.png",
+      "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+      "date": "2026-01-07",
+      "time": "13:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "internal reversal",
+      "labelCheck": "questionable",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 25,
+      "summary": "The chart shows a possible early short reversal, but the visible evidence more strongly shows a persistent bullish expansion. The source also identifies AUDUSD, while the chart header visibly shows Australian Dollar/Japanese Yen (AUDJPY).",
+      "visibleEvidence": [
+        "Price is in a clear rising sequence with multiple higher highs and higher lows.",
+        "A sharp bearish candle appears near the right edge after the latest high, providing some opposing momentum.",
+        "The displayed risk/reward box appears positioned for a short entry around 105.585, with risk above and target below."
+      ],
+      "concerns": [
+        "No clear internal MRH/MRL break or structurally dominant reversal is visible before the proposed entry.",
+        "The bearish response is limited relative to the preceding bullish impulse; it may be a pullback rather than an internal reversal.",
+        "The instrument mismatch materially weakens confidence in the archive label."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is assessed; execution timing, unseen context, P/L, and higher-timeframe conditions cannot be verified.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "027-2026-01-07-13-00-audusd-internal-reversal-c2414716.png",
+          "archive": "journaly-live-trades-internal-reversal-images-2026-08-10.zip",
+          "date": "2026-01-07",
+          "time": "13:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "internal reversal"
+        }
+      ],
+      "labelConflict": false
+    },
+    {
+      "sha256": "2969d0969ccdf4caf0feea8d9e2ec3fd7f1954b65ab894d5c2c5ea73bc460e78",
+      "filename": "005-2026-01-06-07-00-audusd-flag-ebb86db2.png",
+      "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+      "date": "2026-01-06",
+      "time": "07:00",
+      "pair": "AUDUSD",
+      "sourceSetup": "flag",
+      "labelCheck": "plausible",
+      "technicalGrade": "Mid",
+      "setupMatchConfidence": 65,
+      "summary": "The chart supports a bullish continuation idea after a strong upward impulse, followed by a short consolidation near the highs. However, the flag is shallow and minimally developed, so the label is plausible rather than clear-cut.",
+      "visibleEvidence": [
+        "Strong bullish expansion into Jan 6.",
+        "Several small, overlapping candles consolidating near the impulse high.",
+        "Price remains above the nearby prior structure, consistent with continuation."
+      ],
+      "concerns": [
+        "The consolidation is mostly sideways, with little clear downward flag slope or pullback.",
+        "No obvious retest or distinctive trigger is visible.",
+        "The displayed stop is substantially below the local flag structure, weakening setup-specific precision."
+      ],
+      "visibilityLimits": "Only the visible 1-hour chart is assessed; unseen candles, execution details, and outcome are not inferred.",
+      "model": "gpt-5.6-luna",
+      "sourceAliases": [
+        {
+          "filename": "005-2026-01-06-07-00-audusd-flag-ebb86db2.png",
+          "archive": "journaly-live-trades-flag-images-2026-08-10.zip",
+          "date": "2026-01-06",
+          "time": "07:00",
+          "pair": "AUDUSD",
+          "sourceSetup": "flag"
+        }
+      ],
+      "labelConflict": false
+    }
+  ]
+}

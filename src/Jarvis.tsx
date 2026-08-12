@@ -21,10 +21,13 @@ import {
   X,
 } from "lucide-react";
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { supabase } from "./supabaseClient";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
 const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
+const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
 const JARVIS_ORB_MARGIN = 8;
+const OWNER_USERNAME = "christiian.angelo.desamparado";
 
 type JarvisTrade = {
   id: string;
@@ -37,6 +40,7 @@ type JarvisTrade = {
   result: string;
   quality: "Good" | "Mid" | "Bad" | null;
   notes: string;
+  screenshot: string;
 };
 
 type JarvisForecast = {
@@ -73,6 +77,7 @@ type JarvisMessage = {
 
 type JarvisProps = {
   userId: string;
+  username: string;
   displayName: string;
   trades: JarvisTrade[];
   forecasts: JarvisForecast[];
@@ -80,6 +85,81 @@ type JarvisProps = {
 };
 
 type OrbPosition = { x: number; y: number };
+
+type JarvisMemoryUpdate = {
+  operation: "upsert" | "delete";
+  category: "identity" | "preference" | "trading_rule" | "risk_rule" | "mistake" | "goal" | "terminology" | "ui_preference";
+  key: string;
+  value: string;
+  confidence: number;
+};
+
+type JarvisMemoryState = {
+  preferredName: string | null;
+  preferences: {
+    familiarity: "low" | "medium" | "high";
+    humor: "low" | "medium" | "high";
+    empathy: "low" | "medium" | "high";
+    directness: "low" | "medium" | "high";
+    verbosity: "concise" | "balanced" | "detailed";
+    lightSlang: boolean;
+    mirrorLightSwearing: boolean;
+  };
+  memories: Array<JarvisMemoryUpdate & { updatedAt: string }>;
+};
+
+function normalizedUsername(username: string) {
+  return username.trim().toLowerCase().split("@")[0];
+}
+
+function defaultJarvisMemory(username: string): JarvisMemoryState {
+  const isOwnerProfile = normalizedUsername(username) === OWNER_USERNAME;
+  return {
+    preferredName: isOwnerProfile ? "Pot" : null,
+    preferences: {
+      familiarity: isOwnerProfile ? "high" : "medium",
+      humor: isOwnerProfile ? "medium" : "low",
+      empathy: "medium",
+      directness: isOwnerProfile ? "high" : "medium",
+      verbosity: isOwnerProfile ? "concise" : "balanced",
+      lightSlang: isOwnerProfile,
+      mirrorLightSwearing: isOwnerProfile,
+    },
+    memories: [],
+  };
+}
+
+function readJarvisMemory(userId: string, username: string): JarvisMemoryState {
+  const defaults = defaultJarvisMemory(username);
+  try {
+    const stored = JSON.parse(localStorage.getItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`) || "null");
+    if (!stored || typeof stored !== "object") return defaults;
+    return {
+      ...defaults,
+      ...stored,
+      preferredName: typeof stored.preferredName === "string" ? stored.preferredName : defaults.preferredName,
+      preferences: { ...defaults.preferences, ...(stored.preferences || {}) },
+      memories: Array.isArray(stored.memories) ? stored.memories.slice(-40) : [],
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdate[]): JarvisMemoryState {
+  let preferredName = state.preferredName;
+  let memories = [...state.memories];
+  updates.filter((update) => update && update.confidence >= 0.7).forEach((update) => {
+    const key = update.key.trim().slice(0, 80);
+    if (!key) return;
+    if (update.category === "identity" && key.toLowerCase().replaceAll("-", "_") === "preferred_name") {
+      preferredName = update.operation === "delete" ? null : update.value.trim().slice(0, 80) || null;
+    }
+    memories = memories.filter((memory) => !(memory.category === update.category && memory.key === key));
+    if (update.operation === "upsert") memories.push({ ...update, key, value: update.value.trim().slice(0, 800), updatedAt: new Date().toISOString() });
+  });
+  return { ...state, preferredName, memories: memories.slice(-40) };
+}
 
 function readOrbPosition(): OrbPosition | null {
   try {
@@ -266,17 +346,18 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   }
 
   return {
-    title: "Journaly intelligence ready",
-    text: "I can analyze your latest trade, surface recent execution mistakes, explain setup performance, read active forecasts, or check documented risk. Try a pair command too—like “Jarvis, check AJ.”",
+    title: "I'm with you",
+    text: "Tell me what you’re looking at or what’s bothering you about the trade. I can still work from your Journaly records while the full AI conversation is temporarily unavailable.",
   };
 }
 
-export default function Jarvis({ userId, displayName, trades, forecasts, session }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, forecasts, session }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<JarvisMessage[]>(() => readJarvisMessages(userId));
+  const [memory, setMemory] = useState<JarvisMemoryState>(() => readJarvisMemory(userId, username));
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -287,6 +368,7 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
   const activeForecasts = forecasts.filter((item) => item.status === "Waiting");
   const latestTrade = latestFirst(trades)[0];
   const qualityRate = reviewedTrades.length ? Math.round((goodTrades / reviewedTrades.length) * 100) : 0;
+  const preferredName = memory.preferredName || displayName || "trader";
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -324,6 +406,10 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
   useEffect(() => {
     localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(messages.slice(-30)));
   }, [messages, userId]);
+
+  useEffect(() => {
+    localStorage.setItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`, JSON.stringify(memory));
+  }, [memory, userId]);
 
   function startOrbDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return;
@@ -386,16 +472,32 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
     try {
       const orderedTrades = latestFirst(trades);
       const orderedForecasts = latestFirst(forecasts);
+      if (!supabase) throw new Error("Journaly authentication is unavailable.");
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData.session?.access_token;
+      if (!accessToken) throw new Error("Your Journaly session has expired.");
+      const requestedPair = getPairFromPrompt(cleanPrompt, orderedTrades.map((trade) => trade.pair));
+      const chartTrade = requestedPair
+        ? orderedTrades.find((trade) => trade.pair === requestedPair && trade.screenshot)
+        : orderedTrades.find((trade) => trade.screenshot);
+      const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
       const response = await fetch("/api/jarvis/chat", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           userId,
           question: cleanPrompt,
           history: recentHistory,
+          chartImage: wantsChartReview ? chartTrade?.screenshot || null : null,
           context: {
             generatedAt: new Date().toISOString(),
-            profile: { displayName },
+            profile: {
+              displayName,
+              username: normalizedUsername(username),
+              preferredName: memory.preferredName,
+              preferences: memory.preferences,
+              memories: memory.memories,
+            },
             marketSession: session,
             summary: {
               totalTrades: trades.length,
@@ -412,6 +514,7 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
               pnlR: trade.pnl,
               executionQuality: trade.quality,
               notes: trade.notes,
+              hasScreenshot: Boolean(trade.screenshot),
             })),
             forecasts: orderedForecasts.slice(0, 20).map((forecast) => ({
               date: forecast.date,
@@ -432,6 +535,9 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
       });
       const payload = await response.json();
       if (!response.ok || typeof payload?.answer !== "string") throw new Error(payload?.error || "Jarvis is unavailable.");
+      if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
+        setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
+      }
       setMessages((current) => [
         ...current,
         { id: crypto.randomUUID(), role: "jarvis", text: payload.answer },
@@ -513,6 +619,8 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>
+                <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
+                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} durable note{memory.memories.length === 1 ? "" : "s"} · user-isolated</small></p></div>
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
 
@@ -530,7 +638,7 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
                       <span className="jarvis-hero-center"><BrainCircuit size={32} /></span>
                     </div>
                     <span className="jarvis-kicker"><i /> Journaly connected</span>
-                    <h1>{greeting}, {displayName || "trader"}.</h1>
+                    <h1>{greeting}, {preferredName}.</h1>
                     <p>Talk to me naturally about trading. I know your strategy rules and Journaly history, whether you want a setup read, an honest review, or simply a second mind beside you.</p>
                     <div className="jarvis-command-grid">
                       {quickCommands.map(({ label, prompt: commandPrompt, icon: Icon }) => (
@@ -542,7 +650,7 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
                   <div className="jarvis-messages" aria-live="polite">
                     {messages.map((message) => (
                       <article className={`jarvis-message is-${message.role}`} key={message.id}>
-                        <div className="jarvis-message-avatar">{message.role === "jarvis" ? <BrainCircuit size={17} /> : displayName.slice(0, 1).toUpperCase()}</div>
+                        <div className="jarvis-message-avatar">{message.role === "jarvis" ? <BrainCircuit size={17} /> : preferredName.slice(0, 1).toUpperCase()}</div>
                         <div className="jarvis-message-body">
                           <span>{message.role === "jarvis" ? "JARVIS" : "YOU"}</span>
                           {message.title ? <h3>{message.title}</h3> : null}
@@ -599,7 +707,7 @@ export default function Jarvis({ userId, displayName, trades, forecasts, session
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.2</strong><small>Conversational · strategy-aware · read-only</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.3</strong><small>Conversational · visual · personal memory · read-only</small></div></div>
             </aside>
           </div>
         </section>
