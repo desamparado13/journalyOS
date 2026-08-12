@@ -1,0 +1,39 @@
+import worker from "./index.js";
+
+function webRequest(request) {
+  const protocol = request.headers["x-forwarded-proto"] || "https";
+  const host = request.headers.host || "journaly.invalid";
+  const headers = new Headers();
+  Object.entries(request.headers).forEach(([key, value]) => {
+    if (Array.isArray(value)) headers.set(key, value.join(", "));
+    else if (value != null) headers.set(key, String(value));
+  });
+  const init = { method: request.method || "GET", headers };
+  if (init.method !== "GET" && init.method !== "HEAD") {
+    init.body = typeof request.body === "string" ? request.body : JSON.stringify(request.body || {});
+  }
+  return new Request(`${protocol}://${host}${request.url}`, init);
+}
+
+function runtimeEnvironment() {
+  return {
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    OPENAI_JARVIS_MODEL: process.env.OPENAI_JARVIS_MODEL,
+    AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+    VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN,
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    JARVIS_AUTH_BYPASS_USER_ID: process.env.JARVIS_AUTH_BYPASS_USER_ID,
+    JARVIS_AUTH_BYPASS_EMAIL: process.env.JARVIS_AUTH_BYPASS_EMAIL,
+    ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+  };
+}
+
+export async function handleVercelJarvis(request, response) {
+  const result = await worker.fetch(webRequest(request), runtimeEnvironment());
+  response.status(result.status);
+  result.headers.forEach((value, key) => response.setHeader(key, value));
+  response.send(Buffer.from(await result.arrayBuffer()));
+}

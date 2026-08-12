@@ -7,6 +7,7 @@ const MAX_CHART_IMAGE_LENGTH = 8_000_000;
 const OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
+const VERCEL_GATEWAY_ENDPOINT = "https://ai-gateway.vercel.sh/v1/responses";
 const AI_TIMEOUT_MS = 45_000;
 const MAX_TOOL_ROUNDS = 3;
 
@@ -191,13 +192,37 @@ function recordAiFailure({ status = null, code = null, message = "", model = nul
   return category;
 }
 
-async function openAiRequest(apiKey, requestBody) {
+function aiConnection(env) {
+  const directKey = env.OPENAI_API_KEY;
+  if (directKey) {
+    return {
+      provider: "OpenAI",
+      apiKey: directKey,
+      endpoint: OPENAI_ENDPOINT,
+      model: env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0],
+      modelName: (model) => model,
+    };
+  }
+  const gatewayKey = env.AI_GATEWAY_API_KEY || env.VERCEL_OIDC_TOKEN;
+  if (gatewayKey) {
+    return {
+      provider: "Vercel AI Gateway",
+      apiKey: gatewayKey,
+      endpoint: VERCEL_GATEWAY_ENDPOINT,
+      model: env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0],
+      modelName: (model) => model.includes("/") ? model : `openai/${model}`,
+    };
+  }
+  return null;
+}
+
+async function openAiRequest(connection, requestBody) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
   try {
-    const response = await fetch(OPENAI_ENDPOINT, {
+    const response = await fetch(connection.endpoint, {
       method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      headers: { authorization: `Bearer ${connection.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
@@ -302,12 +327,17 @@ async function handleHealth(request, env) {
     return json({ error: "Jarvis authentication failed." }, 503);
   }
   if (authorization.error) return authorization.error;
-  const configuredModel = env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
+  const connection = aiConnection(env);
+  const configuredModel = connection?.model || env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
+  aiHealth.provider = connection?.provider || "OpenAI";
   aiHealth.configuredModel = configuredModel;
-  aiHealth.apiConfigured = Boolean(env.OPENAI_API_KEY);
-  if (new URL(request.url).searchParams.get("probe") === "1" && env.OPENAI_API_KEY) {
+  aiHealth.apiConfigured = Boolean(connection);
+  if (new URL(request.url).searchParams.get("probe") === "1" && connection) {
     try {
-      const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(configuredModel)}`, { headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` } });
+      const probeUrl = connection.provider === "OpenAI"
+        ? `https://api.openai.com/v1/models/${encodeURIComponent(configuredModel)}`
+        : "https://ai-gateway.vercel.sh/v1/models";
+      const response = await fetch(probeUrl, { headers: { authorization: `Bearer ${connection.apiKey}` } });
       aiHealth.apiReachable = response.ok;
       aiHealth.lastHttpStatus = response.status;
       if (!response.ok) recordAiFailure({ status: response.status, model: configuredModel });
@@ -320,11 +350,13 @@ async function handleHealth(request, env) {
 
 async function handleJarvis(request, env) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  const configuredModel = env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
+  const connection = aiConnection(env);
+  const configuredModel = connection?.model || env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
+  aiHealth.provider = connection?.provider || "OpenAI";
   aiHealth.configuredModel = configuredModel;
-  aiHealth.apiConfigured = Boolean(env.OPENAI_API_KEY);
-  if (!env.OPENAI_API_KEY) {
-    const category = recordAiFailure({ message: "OPENAI_API_KEY missing", model: configuredModel });
+  aiHealth.apiConfigured = Boolean(connection);
+  if (!connection) {
+    const category = recordAiFailure({ message: "No AI provider credentials are available", model: configuredModel });
     return json({ error: "Jarvis AI is not configured yet.", category }, 503);
   }
 
@@ -396,7 +428,7 @@ async function handleJarvis(request, env) {
     let toolCallsUsed = [];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
-      model,
+      model: connection.modelName(model),
       instructions: isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT,
       input: roundInput,
       max_output_tokens: 1100,
@@ -408,7 +440,7 @@ async function handleJarvis(request, env) {
       text: { format: { type: "json_schema", name: "jarvis_reply", strict: true, schema: RESPONSE_SCHEMA } },
       };
 
-      if (model.startsWith("gpt-5.6")) {
+      if (model.includes("gpt-5.6")) {
         requestBody.reasoning = { effort: "low", context: "current_turn" };
         requestBody.text.verbosity = "medium";
       }
@@ -416,7 +448,7 @@ async function handleJarvis(request, env) {
       let response;
       let payload;
       try {
-        ({ response, payload } = await openAiRequest(env.OPENAI_API_KEY, requestBody));
+        ({ response, payload } = await openAiRequest(connection, requestBody));
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
         lastCategory = recordAiFailure({ message: lastError, model });
@@ -453,7 +485,7 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
-      return json({ ...result, model, provider: "OpenAI", chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)] });
+      return json({ ...result, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)] });
     }
   }
 

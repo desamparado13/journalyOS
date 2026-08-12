@@ -84,6 +84,24 @@ const healthResponse = await worker.fetch(new Request("http://local/api/jarvis/h
 const health = await healthResponse.json();
 results.push({ test: "developer AI health", pass: healthResponse.ok && health.provider === "OpenAI" && health.apiConfigured === true && health.apiReachable === true && health.fallbackActive === false, status: healthResponse.status });
 
+process.env.OPENAI_API_KEY = apiKey;
+process.env.OPENAI_JARVIS_MODEL = "gpt-5.6-luna";
+process.env.JARVIS_AUTH_BYPASS_USER_ID = "local-smoke-test";
+process.env.JARVIS_AUTH_BYPASS_EMAIL = "christian.angelo.desamparado@gmail.com";
+const { handleVercelJarvis } = await import(`../server/vercel-adapter.js?test=${Date.now()}`);
+let vercelStatus = 0;
+let vercelBody = "";
+await handleVercelJarvis(
+  { method: "GET", url: "/api/jarvis/health?userId=local-smoke-test", headers: { host: "local.vercel.test", "x-forwarded-proto": "https" } },
+  {
+    status(value) { vercelStatus = value; return this; },
+    setHeader() {},
+    send(value) { vercelBody = Buffer.from(value).toString("utf8"); },
+  },
+);
+const vercelHealth = JSON.parse(vercelBody);
+results.push({ test: "Vercel Jarvis API route", pass: vercelStatus === 200 && vercelHealth.apiConfigured === true, status: vercelStatus });
+
 const outageRequest = new Request("http://local/api/jarvis/chat", {
   method: "POST",
   headers: { "content-type": "application/json" },
