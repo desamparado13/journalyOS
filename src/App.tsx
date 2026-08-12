@@ -144,7 +144,8 @@ const setups = [
   "EU timed entry",
 ] as const;
 const results = ["Win", "Loss", "Breakeven"] as const;
-const decisionStatuses = ["Taken", "Cancelled", "Missed", "Waiting"] as const;
+const decisionStatuses = ["Waiting", "Taken", "Invalidated", "Skipped"] as const;
+type PersistedForecastStatus = "Taken" | "Cancelled" | "Missed" | "Waiting";
 const decisionOutcomes = ["Unknown", "Won", "Lost", "Breakeven", "Avoided loss", "Cost opportunity"] as const;
 const cancellationReasons = [
   "None",
@@ -494,7 +495,7 @@ type TradeDecisionRow = {
   pair: string;
   setup: string;
   direction: Direction;
-  status: TradeDecisionStatus;
+  status: PersistedForecastStatus | TradeDecisionStatus;
   entry_plan: string | null;
   stop_loss: string | null;
   take_profit: string | null;
@@ -1865,6 +1866,18 @@ function toTrade(row: TradeRow): Trade {
   };
 }
 
+function normalizeForecastStatus(status: TradeDecisionRow["status"]): TradeDecisionStatus {
+  if (status === "Cancelled") return "Invalidated";
+  if (status === "Missed") return "Skipped";
+  return status;
+}
+
+function persistedForecastStatus(status: TradeDecisionStatus): PersistedForecastStatus {
+  if (status === "Invalidated") return "Cancelled";
+  if (status === "Skipped") return "Missed";
+  return status;
+}
+
 function toTradeDecision(row: TradeDecisionRow): TradeDecision {
   return {
     id: row.id,
@@ -1874,7 +1887,7 @@ function toTradeDecision(row: TradeDecisionRow): TradeDecision {
     pair: row.pair,
     setup: row.setup,
     direction: row.direction,
-    status: row.status,
+    status: normalizeForecastStatus(row.status),
     entryPlan: row.entry_plan || "",
     stopLoss: row.stop_loss || "",
     takeProfit: row.take_profit || "",
@@ -3876,17 +3889,17 @@ export default function App() {
           .eq("user_id", currentUser.id)
           .order("decision_date", { ascending: false })
           .order("decision_time", { ascending: false }),
-        "Discipline entries",
+        "Forecasts",
       );
 
       if (error) {
-        setSyncMessage(`Could not load discipline entries: ${error.message}`);
+        setSyncMessage(`Could not load forecasts: ${error.message}`);
         return;
       }
 
       setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
     } catch (error) {
-      setSyncMessage(error instanceof Error ? `Could not load discipline entries: ${error.message}` : "Could not load discipline entries.");
+      setSyncMessage(error instanceof Error ? `Could not load forecasts: ${error.message}` : "Could not load forecasts.");
     } finally {
       setIsSyncing(false);
     }
@@ -3938,7 +3951,7 @@ export default function App() {
     setPendingTradeLock({ ...tradeForm });
   }
 
-  async function handleDisciplineSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleForecastSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!currentUser || !supabase) return;
 
@@ -3958,9 +3971,14 @@ export default function App() {
       pair: decisionForm.pair,
       setup: decisionForm.setup,
       direction: decisionForm.direction,
-      status: "Cancelled" as TradeDecisionStatus,
+      status: persistedForecastStatus(decisionForm.status),
+      entry_plan: decisionForm.entryPlan.trim(),
+      stop_loss: decisionForm.stopLoss.trim(),
+      take_profit: decisionForm.takeProfit.trim(),
+      risk_percent: decisionForm.riskPercent.trim() ? Number(decisionForm.riskPercent) : null,
+      reason_to_take: decisionForm.reasonToTake.trim(),
       reason_cancelled: decisionForm.reasonCancelled.trim(),
-      outcome: (resultR > 0 ? "Cost opportunity" : resultR < 0 ? "Avoided loss" : "Breakeven") as TradeDecisionOutcome,
+      outcome: decisionForm.outcome,
       notes: decisionForm.notes.trim(),
       screenshot_url: preImage || existing?.screenshot || "",
       post_image_url: postImage || existing?.postImage || "",
@@ -3975,8 +3993,8 @@ export default function App() {
     setIsSyncing(false);
 
     if (error) {
-      setSyncMessage(`Could not save discipline entry: ${error.message}`);
-      showToast({ tone: "error", title: "Discipline entry failed", message: error.message });
+      setSyncMessage(`Could not save forecast: ${error.message}`);
+      showToast({ tone: "error", title: "Forecast failed", message: error.message });
       return;
     }
 
@@ -3987,12 +4005,36 @@ export default function App() {
     setDecisionForm(tradeDecisionDefaults());
     showToast({
       tone: "success",
-      title: existing ? "Discipline entry updated" : "Discipline entry saved",
-      message: `${saved.pair} skipped trade recorded at ${formatNumber(saved.resultR)}R.`,
+      title: existing ? "Forecast updated" : "Forecast saved",
+      message: `${saved.pair} is now ${saved.status.toLowerCase()}.`,
     });
   }
 
-  async function handleDisciplinePostImageChange(entry: TradeDecision, file: File) {
+  async function handleForecastStatusChange(entry: TradeDecision, status: TradeDecisionStatus) {
+    if (!supabase || entry.status === status) return;
+
+    setIsSyncing(true);
+    setSyncMessage("");
+    const { data, error } = await supabase
+      .from("trade_decisions")
+      .update({ status: persistedForecastStatus(status), updated_at: new Date().toISOString() })
+      .eq("id", entry.id)
+      .select(TRADE_DECISION_LIST_COLUMNS)
+      .single();
+    setIsSyncing(false);
+
+    if (error) {
+      setSyncMessage(`Could not update forecast: ${error.message}`);
+      showToast({ tone: "error", title: "Forecast update failed", message: error.message });
+      return;
+    }
+
+    const saved = toTradeDecision(data as TradeDecisionRow);
+    setTradeDecisions((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+    showToast({ tone: "success", title: `${saved.pair} updated`, message: `Forecast marked ${saved.status.toLowerCase()}.` });
+  }
+
+  async function handleForecastPostImageChange(entry: TradeDecision, file: File) {
     if (!supabase) return;
 
     setIsSyncing(true);
@@ -4025,7 +4067,7 @@ export default function App() {
     }
   }
 
-  function editDisciplineEntry(entry: TradeDecision) {
+  function editForecast(entry: TradeDecision) {
     setDecisionForm({
       ...tradeDecisionDefaults(),
       id: entry.id,
@@ -4034,20 +4076,27 @@ export default function App() {
       pair: entry.pair,
       setup: entry.setup,
       direction: entry.direction,
+      status: entry.status,
+      entryPlan: entry.entryPlan,
+      stopLoss: entry.stopLoss,
+      takeProfit: entry.takeProfit,
+      riskPercent: entry.riskPercent === null ? "" : String(entry.riskPercent),
+      reasonToTake: entry.reasonToTake,
       reasonCancelled: entry.reasonCancelled,
+      outcome: entry.outcome,
       notes: entry.notes,
       resultR: String(entry.resultR),
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function deleteDisciplineEntry(entry: TradeDecision) {
+  async function deleteForecast(entry: TradeDecision) {
     if (!supabase) return;
     setIsSyncing(true);
     const { error } = await supabase.from("trade_decisions").delete().eq("id", entry.id);
     setIsSyncing(false);
     if (error) {
-      setSyncMessage(`Could not delete discipline entry: ${error.message}`);
+      setSyncMessage(`Could not delete forecast: ${error.message}`);
       return;
     }
     setTradeDecisions((current) => current.filter((item) => item.id !== entry.id));
@@ -5079,7 +5128,7 @@ export default function App() {
                 <div className="journal-relation-panel">
                   <div className="journal-relation-copy">
                     <strong>Relate this entry</strong>
-                    <span>Optional · connect a pair, previous trade, Discipline entry, or any combination</span>
+                    <span>Optional · connect a pair, previous trade, forecast, or any combination</span>
                   </div>
                   <div className="journal-relation-fields">
                     <label>
@@ -5128,7 +5177,7 @@ export default function App() {
                       </select>
                     </label>
                     <label>
-                      <span>Discipline entry</span>
+                      <span>Forecast</span>
                       <select
                         value={journalForm.relatedDisciplineId}
                         onChange={(event) => {
@@ -5141,7 +5190,7 @@ export default function App() {
                           }));
                         }}
                       >
-                        <option value="">No linked Discipline entry</option>
+                        <option value="">No linked forecast</option>
                         {journalDisciplineOptions.map((entry) => (
                           <option key={entry.id} value={entry.id}>
                             {formatMonthDayYear(entry.date)} · {entry.pair} · {entry.status} · {entry.setup}
@@ -5151,7 +5200,7 @@ export default function App() {
                     </label>
                   </div>
                   {journalTradeOptions.length === 0 && journalDisciplineOptions.length === 0 ? (
-                    <p className="journal-relation-empty">No trade or Discipline entries match this pair yet. You can still save the pair by itself.</p>
+                    <p className="journal-relation-empty">No trades or forecasts match this pair yet. You can still save the pair by itself.</p>
                   ) : null}
                 </div>
 
@@ -5216,7 +5265,7 @@ export default function App() {
                             <div className="journal-entry-tags">
                               {entry.pair ? <span>{entry.pair}</span> : null}
                               {linkedTrade ? <span>{linkedTrade.direction} · {formatNumber(linkedTrade.pnl)}R</span> : null}
-                              {linkedDiscipline ? <span>Discipline · {linkedDiscipline.status}</span> : null}
+                              {linkedDiscipline ? <span>Forecast · {linkedDiscipline.status}</span> : null}
                             </div>
                           </div>
                           <div className="journal-entry-actions">
@@ -5248,14 +5297,14 @@ export default function App() {
                         ) : null}
                         {linkedDiscipline ? (
                           <button className="journal-trade-link" type="button" onClick={() => {
-                            editDisciplineEntry(linkedDiscipline);
+                            editForecast(linkedDiscipline);
                             setActiveView("discipline");
                           }}>
                             <ClipboardCheck size={15} />
-                            View linked {linkedDiscipline.pair} Discipline entry from {formatMonthDayYear(linkedDiscipline.date)}
+                            View linked {linkedDiscipline.pair} forecast from {formatMonthDayYear(linkedDiscipline.date)}
                           </button>
                         ) : entry.relatedDisciplineId ? (
-                          <span className="journal-missing-trade">The linked Discipline entry is no longer available.</span>
+                          <span className="journal-missing-trade">The linked forecast is no longer available.</span>
                         ) : null}
                         {entry.image ? (
                           <button
@@ -5313,7 +5362,7 @@ export default function App() {
                       </small>
                     </article>
                     <article>
-                      <span>Discipline review</span>
+                      <span>Forecast review</span>
                       <strong>{monthlyJournalAnalytics.disciplineEntries} entries</strong>
                       <small>
                         {monthlyJournalAnalytics.lossesAvoided} losses avoided · {monthlyJournalAnalytics.missedWinners} missed winners
@@ -6391,7 +6440,7 @@ export default function App() {
                       : activeView === "yearly-comparison"
                         ? "Yearly comparison"
                       : activeView === "discipline"
-                        ? "Discipline"
+                        ? "Forecast"
                       : "View trades"}
               </h2>
             </div>
@@ -6458,7 +6507,7 @@ export default function App() {
                 type="button"
                 onClick={() => setActiveView("discipline")}
               >
-                Discipline
+                Forecast
               </button>
             </div>
 
@@ -6640,15 +6689,16 @@ export default function App() {
             ) : null}
 
             {activeView === "discipline" ? (
-              <DisciplineLog
+              <ForecastLog
                 entries={tradeDecisions}
                 form={decisionForm}
                 isSyncing={isSyncing}
                 onFormChange={setDecisionForm}
-                onSubmit={handleDisciplineSubmit}
-                onEdit={editDisciplineEntry}
-                onDelete={deleteDisciplineEntry}
-                onPostImageChange={handleDisciplinePostImageChange}
+                onSubmit={handleForecastSubmit}
+                onEdit={editForecast}
+                onDelete={deleteForecast}
+                onStatusChange={handleForecastStatusChange}
+                onPostImageChange={handleForecastPostImageChange}
                 onOpenImage={(items, index) => openImageViewer(items, index)}
                 onClear={() => setDecisionForm(tradeDecisionDefaults())}
               />
@@ -7205,6 +7255,7 @@ export default function App() {
           session={marketSession}
           journalEntries={journalEntries}
           onTradeCreated={loadTrades}
+          onForecastChanged={loadTradeDecisions}
         />
       ) : null}
     </div>
@@ -7311,7 +7362,7 @@ function AICoachView({
     },
     {
       icon: <ShieldCheck size={20} />,
-      title: "Discipline Tracking",
+      title: "Forecast Tracking",
       body: `${stats.daysSinceLastTrade} since last trade. Current market state: ${marketSession.status}.`,
     },
     {
@@ -11688,7 +11739,7 @@ function summarizeTraderPreview(trades: Trade[]) {
   };
 }
 
-function DisciplineLog({
+function ForecastLog({
   entries,
   form,
   isSyncing,
@@ -11696,6 +11747,7 @@ function DisciplineLog({
   onSubmit,
   onEdit,
   onDelete,
+  onStatusChange,
   onPostImageChange,
   onOpenImage,
   onClear,
@@ -11707,59 +11759,91 @@ function DisciplineLog({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onEdit: (entry: TradeDecision) => void;
   onDelete: (entry: TradeDecision) => void;
+  onStatusChange: (entry: TradeDecision, status: TradeDecisionStatus) => Promise<void>;
   onPostImageChange: (entry: TradeDecision, file: File) => Promise<void>;
   onOpenImage: (items: ImageViewerItem[], index: number) => void;
   onClear: () => void;
 }) {
-  const [activeDisciplineTab, setActiveDisciplineTab] = useState<"add" | "records">("add");
-  const opportunityCost = entries.filter((entry) => entry.resultR > 0).reduce((sum, entry) => sum + entry.resultR, 0);
-  const lossesAvoided = Math.abs(entries.filter((entry) => entry.resultR < 0).reduce((sum, entry) => sum + entry.resultR, 0));
+  const [activeForecastTab, setActiveForecastTab] = useState<"add" | "records">("records");
+  const [monthFilter, setMonthFilter] = useState(() => new Date().toISOString().slice(0, 7));
+  const [statusFilter, setStatusFilter] = useState<"All" | TradeDecisionStatus>("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(40);
   const editingEntry = form.id ? entries.find((entry) => entry.id === form.id) : undefined;
+  const monthEntries = useMemo(() => entries.filter((entry) => entry.date.startsWith(monthFilter)), [entries, monthFilter]);
+  const filteredEntries = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return monthEntries.filter((entry) => {
+      if (statusFilter !== "All" && entry.status !== statusFilter) return false;
+      if (!query) return true;
+      return [entry.pair, entry.setup, entry.direction, entry.status, entry.entryPlan, entry.reasonToTake, entry.reasonCancelled, entry.notes]
+        .some((value) => value.toLowerCase().includes(query));
+    });
+  }, [monthEntries, searchQuery, statusFilter]);
+  const statusCounts = Object.fromEntries(decisionStatuses.map((status) => [status, monthEntries.filter((entry) => entry.status === status).length])) as Record<TradeDecisionStatus, number>;
+
+  function openForecastForm(entry?: TradeDecision) {
+    if (entry) onEdit(entry);
+    else onClear();
+    setActiveForecastTab("add");
+  }
 
   return (
     <section className="decision-log-view">
-      <div className="discipline-tabs" role="tablist" aria-label="Discipline sections">
+      <div className="forecast-hero">
+        <div>
+          <span className="forecast-kicker"><Target size={14} /> Pre-trade intelligence</span>
+          <h3>Forecast the idea. Update the outcome. Let Jarvis learn the pattern.</h3>
+          <p>Capture the setup before the move, then mark it Taken, Invalidated, or Skipped when the market decides.</p>
+        </div>
+        <button className="primary-action" type="button" onClick={() => openForecastForm()}><Plus size={17} />New forecast</button>
+      </div>
+
+      <div className="discipline-tabs" role="tablist" aria-label="Forecast sections">
         <button
-          className={activeDisciplineTab === "add" ? "is-active" : ""}
+          className={activeForecastTab === "records" ? "is-active" : ""}
           type="button"
           role="tab"
-          aria-selected={activeDisciplineTab === "add"}
-          onClick={() => setActiveDisciplineTab("add")}
-        >
-          <Plus size={17} />
-          Add entry
-        </button>
-        <button
-          className={activeDisciplineTab === "records" ? "is-active" : ""}
-          type="button"
-          role="tab"
-          aria-selected={activeDisciplineTab === "records"}
-          onClick={() => setActiveDisciplineTab("records")}
+          aria-selected={activeForecastTab === "records"}
+          onClick={() => setActiveForecastTab("records")}
         >
           <ListChecks size={17} />
-          Records
+          Forecasts
           <span>{entries.length}</span>
+        </button>
+        <button
+          className={activeForecastTab === "add" ? "is-active" : ""}
+          type="button"
+          role="tab"
+          aria-selected={activeForecastTab === "add"}
+          onClick={() => openForecastForm(editingEntry)}
+        >
+          <Plus size={17} />
+          {form.id ? "Edit forecast" : "New forecast"}
         </button>
       </div>
 
-      {activeDisciplineTab === "records" ? <div className="decision-insight-panel market-panel">
-        <div className="panel-header">
-          <span>Cost of discipline</span>
-          <strong>{entries.length} skipped trades</strong>
+      {activeForecastTab === "records" ? <>
+        <div className="forecast-stat-strip" aria-label="Forecast status summary">
+          {decisionStatuses.map((status) => (
+            <button className={`forecast-stat is-${status.toLowerCase()}`} type="button" key={status} onClick={() => setStatusFilter(statusFilter === status ? "All" : status)}>
+              <span>{status}</span><strong>{statusCounts[status]}</strong><small>{monthEntries.length ? `${Math.round((statusCounts[status] / monthEntries.length) * 100)}% of month` : "No records"}</small>
+            </button>
+          ))}
         </div>
-        <p>Record the trade you chose not to take, why you skipped it, and what the setup eventually returned.</p>
-        <div className="stat-grid analytics-grid discipline-stats">
-          <Stat label="Opportunity cost" value={`${formatNumber(opportunityCost)}R`} />
-          <Stat label="Losses avoided" value={`${formatNumber(lossesAvoided)}R`} />
-          <Stat label="Net skipped result" value={`${formatNumber(entries.reduce((sum, entry) => sum + entry.resultR, 0))}R`} />
+        <div className="forecast-toolbar">
+          <label><span>Month</span><input type="month" value={monthFilter} onChange={(event) => { setMonthFilter(event.target.value); setVisibleCount(40); }} /></label>
+          <label><span>Status</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as "All" | TradeDecisionStatus); setVisibleCount(40); }}><option value="All">All statuses</option>{decisionStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+          <label className="forecast-search"><span>Search</span><div><Search size={16} /><input type="search" value={searchQuery} placeholder="Pair, setup, or note" onChange={(event) => { setSearchQuery(event.target.value); setVisibleCount(40); }} /></div></label>
+          <div className="forecast-result-count"><strong>{filteredEntries.length}</strong><span>in {formatMonthLabel(monthFilter)}</span></div>
         </div>
-      </div> : null}
+      </> : null}
 
-      {activeDisciplineTab === "add" ? <form className="trade-form decision-form" onSubmit={onSubmit}>
+      {activeForecastTab === "add" ? <form className="trade-form decision-form forecast-form" onSubmit={onSubmit}>
         <section className="trade-form-section">
           <div className="trade-form-section-title">
-            <span>{form.id ? "Edit skipped trade" : "Log skipped trade"}</span>
-            <strong>I didn&apos;t take this trade because...</strong>
+            <span>{form.id ? "Edit forecast" : "New forecast"}</span>
+            <strong>Only the market facts are required. Every text field is optional.</strong>
           </div>
           <div className="trade-entry-grid">
             <label>
@@ -11773,31 +11857,28 @@ function DisciplineLog({
             <SelectField label="Pair" value={form.pair} options={pairs} onChange={(pair) => onFormChange({ ...form, pair })} />
             <SelectField label="Setup" value={form.setup} options={setups} onChange={(setup) => onFormChange({ ...form, setup })} />
             <SelectField label="Direction" value={form.direction} options={["Long", "Short"]} onChange={(direction) => onFormChange({ ...form, direction: direction as Direction })} />
+            <SelectField label="Status" value={form.status} options={decisionStatuses} onChange={(status) => onFormChange({ ...form, status: status as TradeDecisionStatus })} />
             <label>
-              <span>Result in R</span>
+              <span>Planned risk % <small>Optional</small></span>
               <input
                 type="text"
                 inputMode="decimal"
-                pattern="-?[0-9]*[.]?[0-9]*"
-                required
-                value={form.resultR}
-                placeholder="-1 or 2.5"
-                onChange={(event) => onFormChange({ ...form, resultR: event.target.value })}
+                pattern="[0-9]*[.]?[0-9]*"
+                value={form.riskPercent}
+                placeholder="1"
+                onChange={(event) => onFormChange({ ...form, riskPercent: event.target.value })}
               />
             </label>
             <label className="wide-field">
-              <span>I didn&apos;t take this trade because...</span>
-              <input
-                list="discipline-reasons"
-                required
-                value={form.reasonCancelled}
-                placeholder="Rule not met, news risk, hesitation..."
-                onChange={(event) => onFormChange({ ...form, reasonCancelled: event.target.value })}
-              />
-              <datalist id="discipline-reasons">
-                {cancellationReasons.filter((reason) => reason !== "None").map((reason) => <option key={reason} value={reason} />)}
-              </datalist>
+              <span>Entry plan <small>Optional</small></span>
+              <input value={form.entryPlan} placeholder="What has to happen before entry?" onChange={(event) => onFormChange({ ...form, entryPlan: event.target.value })} />
             </label>
+            <label><span>Stop loss <small>Optional</small></span><input value={form.stopLoss} placeholder="Price or structure" onChange={(event) => onFormChange({ ...form, stopLoss: event.target.value })} /></label>
+            <label><span>Take profit <small>Optional</small></span><input value={form.takeProfit} placeholder="Price or target" onChange={(event) => onFormChange({ ...form, takeProfit: event.target.value })} /></label>
+            <label className="wide-field"><span>Why this forecast? <small>Optional</small></span><input value={form.reasonToTake} placeholder="Visible evidence or thesis" onChange={(event) => onFormChange({ ...form, reasonToTake: event.target.value })} /></label>
+            <label className="wide-field"><span>Why invalidated or skipped? <small>Optional</small></span><input list="forecast-reasons" value={form.reasonCancelled} placeholder="Rule not met, structure failed, news risk..." onChange={(event) => onFormChange({ ...form, reasonCancelled: event.target.value })} /><datalist id="forecast-reasons">{cancellationReasons.filter((reason) => reason !== "None").map((reason) => <option key={reason} value={reason} />)}</datalist></label>
+            <SelectField label="Outcome" value={form.outcome} options={decisionOutcomes} onChange={(outcome) => onFormChange({ ...form, outcome: outcome as TradeDecisionOutcome })} />
+            <label><span>Result in R <small>Optional</small></span><input type="text" inputMode="decimal" pattern="-?[0-9]*[.]?[0-9]*" value={form.resultR} placeholder="0" onChange={(event) => onFormChange({ ...form, resultR: event.target.value })} /></label>
           </div>
         </section>
 
@@ -11821,43 +11902,42 @@ function DisciplineLog({
           <div className="form-actions">
             <button className="primary-action" type="submit" disabled={isSyncing}>
               <ShieldCheck size={18} />
-              {form.id ? "Update entry" : "Save discipline entry"}
+              {form.id ? "Update forecast" : "Save forecast"}
             </button>
             <button className="ghost-action" type="button" onClick={onClear}><RefreshCcw size={18} />Clear</button>
           </div>
         </section>
       </form> : null}
 
-      {activeDisciplineTab === "records" ? <div className="trade-list decision-list" aria-live="polite">
-        {isSyncing ? <DataLoadingRow label="Loading discipline entries" /> : null}
-        {!isSyncing && entries.length === 0 ? (
-          <div className="empty-state"><strong>No skipped trades logged yet</strong><p>Your next disciplined pass can become useful review data here.</p></div>
-        ) : entries.map((entry) => {
+      {activeForecastTab === "records" ? <div className="forecast-list" aria-live="polite">
+        {isSyncing ? <DataLoadingRow label="Updating forecasts" /> : null}
+        {!isSyncing && filteredEntries.length === 0 ? (
+          <div className="empty-state"><strong>No forecasts match this view</strong><p>Create an idea before the move or choose another month and status.</p><button className="primary-action" type="button" onClick={() => openForecastForm()}><Plus size={16} />New forecast</button></div>
+        ) : filteredEntries.slice(0, visibleCount).map((entry) => {
           const images: ImageViewerItem[] = [
             entry.screenshot ? { id: `${entry.id}-pre`, src: entry.screenshot, alt: `${entry.pair} pre-trade chart`, title: `${entry.pair} pre image`, meta: `${entry.setup} / ${formatOrdinalDate(entry.date)}` } : null,
             entry.postImage ? { id: `${entry.id}-post`, src: entry.postImage, alt: `${entry.pair} post-trade chart`, title: `${entry.pair} post image`, meta: `${formatNumber(entry.resultR)}R result` } : null,
           ].filter((item): item is ImageViewerItem => Boolean(item));
 
           return (
-            <article className={`decision-card ${entry.resultR < 0 ? "is-taken" : entry.resultR > 0 ? "is-missed" : "is-waiting"}`} key={entry.id}>
-              <div className="decision-card-main">
-                <header><span className="chip">{entry.pair}</span><span className="chip">{entry.direction}</span><span className="chip">{entry.setup}</span></header>
-                <div className="trade-card-title">
-                  <div><strong>{entry.pair}</strong><span>Skipped because: {entry.reasonCancelled}</span></div>
-                  <strong className={`decision-risk ${entry.resultR > 0 ? "negative-r" : entry.resultR < 0 ? "positive-r" : ""}`}>{formatNumber(entry.resultR)}R</strong>
+            <article className={`forecast-card is-${entry.status.toLowerCase()}`} key={entry.id}>
+              <div className="forecast-card-accent" />
+              <div className="forecast-card-main">
+                <header>
+                  <span className={`forecast-status is-${entry.status.toLowerCase()}`}>{entry.status}</span>
+                  <span>{formatOrdinalDate(entry.date)} · {formatTime12(entry.time)}</span>
+                  <div className="forecast-card-menu"><button type="button" onClick={() => openForecastForm(entry)}><Pencil size={14} />Edit</button><button className="danger" type="button" onClick={() => onDelete(entry)}><Trash2 size={14} /></button></div>
+                </header>
+                <div className="forecast-card-title"><div><strong>{entry.pair}</strong><span>{entry.direction} · {entry.setup}</span></div>{entry.riskPercent !== null ? <span className="forecast-risk">{formatNumber(entry.riskPercent)}% risk</span> : null}</div>
+                {entry.entryPlan || entry.reasonToTake || entry.reasonCancelled || entry.notes ? <p className="forecast-summary">{entry.entryPlan || entry.reasonToTake || entry.reasonCancelled || entry.notes}</p> : <p className="forecast-summary is-empty">No written thesis — Jarvis will use the recorded market facts and outcome.</p>}
+                <div className="forecast-status-actions" aria-label={`Update ${entry.pair} forecast status`}>
+                  {decisionStatuses.map((status) => <button className={`is-${status.toLowerCase()}`} type="button" key={status} aria-pressed={entry.status === status} disabled={isSyncing} onClick={() => void onStatusChange(entry, status)}>{status === "Waiting" ? <Clock3 size={14} /> : status === "Taken" ? <CheckCircle2 size={14} /> : status === "Invalidated" ? <CircleSlash2 size={14} /> : <ShieldCheck size={14} />}{status}</button>)}
                 </div>
-                <div className="trade-meta decision-meta">
-                  <Meta label="Date" value={formatOrdinalDate(entry.date)} />
-                  <Meta label="Time" value={formatTime12(entry.time)} />
-                  <Meta label="Outcome" value={entry.resultR > 0 ? "Missed winner" : entry.resultR < 0 ? "Loss avoided" : "Breakeven"} />
-                  <Meta label="Reason" value={entry.reasonCancelled} />
-                </div>
-                {entry.notes ? <p className="trade-notes">{entry.notes}</p> : null}
-                <div className="trade-actions">
-                  <button className="icon-button" type="button" onClick={() => { onEdit(entry); setActiveDisciplineTab("add"); }}><Pencil size={16} />Edit</button>
-                  <label className={`icon-button discipline-quick-upload${isSyncing ? " is-disabled" : ""}`} aria-disabled={isSyncing}>
-                    <ImagePlus size={16} />
-                    {entry.postImage ? "Replace post image" : "Add post image"}
+                <div className="forecast-card-footer">
+                  <span>{entry.outcome !== "Unknown" ? entry.outcome : "Outcome pending"}{entry.resultR !== 0 ? ` · ${formatNumber(entry.resultR)}R` : ""}</span>
+                  <label className={`forecast-image-action discipline-quick-upload${isSyncing ? " is-disabled" : ""}`} aria-disabled={isSyncing}>
+                    <ImagePlus size={14} />
+                    {entry.postImage ? "Replace outcome chart" : "Add outcome chart"}
                     <input
                       className="discipline-quick-upload-input"
                       type="file"
@@ -11870,16 +11950,13 @@ function DisciplineLog({
                       }}
                     />
                   </label>
-                  <button className="icon-button danger" type="button" onClick={() => onDelete(entry)}><Trash2 size={16} />Delete</button>
                 </div>
               </div>
-              <div className="decision-media-grid">
-                {entry.screenshot ? <button className="shot-button" type="button" title="Open full-size pre image" onClick={() => onOpenImage(images, 0)}><span>Pre</span><img className="trade-shot" src={entry.screenshot} alt={`${entry.pair} pre-trade chart`} /></button> : <div className="discipline-image-empty">Pre image</div>}
-                {entry.postImage ? <button className="shot-button" type="button" title="Open full-size post image" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><span>Post</span><img className="trade-shot" src={entry.postImage} alt={`${entry.pair} post-trade chart`} /></button> : <div className="discipline-image-empty">Post image</div>}
-              </div>
+              {entry.screenshot || entry.postImage ? <div className="forecast-thumbnails">{entry.screenshot ? <button type="button" onClick={() => onOpenImage(images, 0)}><img src={entry.screenshot} alt={`${entry.pair} forecast chart`} /><span>Forecast</span></button> : null}{entry.postImage ? <button type="button" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><img src={entry.postImage} alt={`${entry.pair} outcome chart`} /><span>Outcome</span></button> : null}</div> : null}
             </article>
           );
         })}
+        {filteredEntries.length > visibleCount ? <button className="forecast-load-more" type="button" onClick={() => setVisibleCount((count) => count + 40)}>Show 40 more <span>{filteredEntries.length - visibleCount} remaining</span></button> : null}
       </div> : null}
     </section>
   );

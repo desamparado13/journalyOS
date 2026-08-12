@@ -22,6 +22,16 @@ JOURNALY TRADE ACTIONS
 - Return tradeAction.intent=draft while required details are missing, with missingFields listing only pair, setup, or direction. Return intent=ready once those three fields are known.
 - Never claim a trade was saved. Journaly will show a confirmation card and only the authenticated client can insert it after explicit confirmation.
 - If the message is unrelated to creating a trade, return tradeAction as null.`;
+const JARVIS_FORECAST_INSTRUCTIONS = `
+JOURNALY FORECAST ACTIONS AND LEARNING
+- Forecasts are the user's pre-trade ideas. Treat the complete authenticated forecast history as first-class evidence alongside live trades and backtests.
+- Use get_forecasts whenever the user asks about past forecasts, forecast quality, recurring forecast patterns, or a specific idea that is not fully present in the current session summary.
+- Status labels are Waiting, Taken, Invalidated, and Skipped. Waiting means unresolved; Taken means the idea became a trade; Invalidated means the market thesis failed; Skipped means the user chose not to execute it.
+- You may prepare a forecast draft when the user asks to add or log one. Pair, setup, and direction are required; date and time default to now; entry plan, risk, thesis, notes, and all other text are optional.
+- You may prepare a status update when the user clearly asks to mark a forecast Taken, Invalidated, Skipped, or Waiting. Identify the exact forecast id from get_forecasts; if multiple records could match, ask which one instead of guessing.
+- Return forecastAction.intent=create or update_status only when the user is asking for a forecast write. Use ready=false while required details or an unambiguous forecast id are missing.
+- Never claim a forecast was saved or updated. Journaly shows a confirmation card, and only the authenticated client writes after explicit confirmation.
+- Learn from forecast outcomes conservatively: compare thesis, setup, direction, status, and documented outcome across records. Distinguish recurring evidence from one-off anecdotes and never invent missing text.`;
 const JARVIS_ANALYTICS_INSTRUCTIONS = `
 JOURNALY NUMERIC ACCURACY
 - Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
@@ -57,7 +67,7 @@ const aiHealth = {
 const JOURNALY_TOOLS = [
   { type: "function", name: "get_user_profile", description: "Get the authenticated user's Journaly profile. Use only when identity or preferences matter.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_user_memories", description: "Get durable memories stored for the authenticated user.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { category: { type: ["string", "null"] } }, required: ["category"] } },
-  { type: "function", name: "get_learning_records", description: "Get lessons retained from prior Jarvis chart reviews and insights. Use only when the user explicitly asks what Jarvis learned, remembers from prior cases, or sees as a recurring lesson; never use for ordinary pair or current-chart checks.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: ["string", "null"], enum: ["chart", "skipped_trade", "insight", null] }, limit: { type: "integer", minimum: 1, maximum: 40 } }, required: ["source", "limit"] } },
+  { type: "function", name: "get_learning_records", description: "Get lessons retained from prior Jarvis chart reviews, forecasts, and insights. Use only when the user explicitly asks what Jarvis learned, remembers from prior cases, or sees as a recurring lesson; never use for ordinary pair or current-chart checks.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: ["string", "null"], enum: ["chart", "forecast", "skipped_trade", "insight", null] }, limit: { type: "integer", minimum: 1, maximum: 40 } }, required: ["source", "limit"] } },
   { type: "function", name: "get_strategy_rules", description: "Get Pot's current PPA-first strategy rules. Use for setup or decision reasoning, not casual conversation.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] } }, required: ["setup"] } },
   { type: "function", name: "get_setup_examples", description: "Get independently audited historical chart examples matching a setup or pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] }, pair: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 8 } }, required: ["setup", "pair", "limit"] } },
   { type: "function", name: "get_trade", description: "Get one authenticated user's trade by id or the latest trade.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { id: { type: ["string", "null"] }, latest: { type: "boolean" } }, required: ["id", "latest"] } },
@@ -67,6 +77,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_backtest_visual_audit", description: "Get independent visual-audit findings from 137 backtest screenshots, optionally filtered by pair, setup, visible quality grade, PPA alignment, or recorded outcome. Use for questions about chart quality, recurring visual mistakes, whether labels were supported, or patterns across audited backtest images—not ordinary numeric performance questions.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, grade: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, ppaAlignment: { type: ["string", "null"], enum: ["aligned", "countertrend", "mixed", null] }, outcome: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 30 } }, required: ["pair", "setup", "grade", "ppaAlignment", "outcome", "limit"] } },
   { type: "function", name: "compare_live_vs_backtest", description: "Compare live-trade and backtest performance using separately calculated sample sizes, win rates, total R, and expectancy. Use when the user asks whether backtests translate to live execution.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "month"] } },
   { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
+  { type: "function", name: "get_forecasts", description: "Get the authenticated user's complete forecast history with optional pair, setup, status, and calendar-month filters. Use this to learn from forecast decisions and outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 500 } }, required: ["pair", "setup", "status", "month", "limit"] } },
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
@@ -85,7 +96,7 @@ const JOURNALY_TOOLS = [
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "chartAssessment"],
+  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "forecastAction", "chartAssessment"],
   properties: {
     answer: { type: "string", maxLength: 12000 },
     learningSummary: { type: ["string", "null"], maxLength: 1600 },
@@ -155,6 +166,27 @@ const RESPONSE_SCHEMA = {
         result: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] },
         notes: { type: ["string", "null"], maxLength: 3000 },
         missingFields: { type: "array", maxItems: 3, items: { type: "string", enum: ["pair", "setup", "direction"] } },
+      },
+    },
+    forecastAction: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["intent", "ready", "forecastId", "date", "time", "pair", "setup", "direction", "status", "entryPlan", "plannedRiskPercent", "reasonToTake", "notes", "missingFields"],
+      properties: {
+        intent: { type: "string", enum: ["create", "update_status"] },
+        ready: { type: "boolean" },
+        forecastId: { type: ["string", "null"], maxLength: 80 },
+        date: { type: ["string", "null"], maxLength: 10 },
+        time: { type: ["string", "null"], maxLength: 5 },
+        pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] },
+        setup: { type: ["string", "null"], enum: ["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry", null] },
+        direction: { type: ["string", "null"], enum: ["Long", "Short", null] },
+        status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] },
+        entryPlan: { type: ["string", "null"], maxLength: 2000 },
+        plannedRiskPercent: { type: ["number", "null"], minimum: 0 },
+        reasonToTake: { type: ["string", "null"], maxLength: 2000 },
+        notes: { type: ["string", "null"], maxLength: 3000 },
+        missingFields: { type: "array", maxItems: 4, items: { type: "string", enum: ["forecastId", "pair", "setup", "direction"] } },
       },
     },
   },
@@ -264,7 +296,7 @@ async function loadAuthenticatedJournalyData(request, env, userId) {
   ]);
   const mapTrade = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, executionQuality: row.trade_quality, notes: row.notes, mae: Number(row.mae || 0), stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, finalizedAt: row.finalized_at, sourceApp: row.source_app });
   const mapBacktest = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, notes: row.notes, stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, scaleIn: row.scale_in, sourceApp: row.source_app });
-  const mapDecision = (row) => ({ id: row.id, date: row.decision_date, time: String(row.decision_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, status: row.status, entryPlan: row.entry_plan, stopLoss: row.stop_loss, takeProfit: row.take_profit, plannedRiskPercent: row.risk_percent == null ? null : Number(row.risk_percent), reasonToTake: row.reason_to_take, reasonCancelled: row.reason_cancelled, outcome: row.outcome, notes: row.notes, resultR: Number(row.result_r || 0) });
+  const mapDecision = (row) => ({ id: row.id, date: row.decision_date, time: String(row.decision_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, status: row.status === "Cancelled" ? "Invalidated" : row.status === "Missed" ? "Skipped" : row.status, entryPlan: row.entry_plan, stopLoss: row.stop_loss, takeProfit: row.take_profit, plannedRiskPercent: row.risk_percent == null ? null : Number(row.risk_percent), reasonToTake: row.reason_to_take, reasonCancelled: row.reason_cancelled, outcome: row.outcome, notes: row.notes, resultR: Number(row.result_r || 0) });
   const unavailableSurfaces = Object.entries({ trades, backtests, tradeDecisions: decisions, journalEntries: journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications }).filter(([, value]) => !Array.isArray(value)).map(([name]) => name);
   return { trades: trades?.map(mapTrade) || null, backtests: backtests?.map(mapBacktest) || null, forecasts: decisions?.map(mapDecision) || null, journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications, unavailableSurfaces };
 }
@@ -427,12 +459,12 @@ function parseJarvisOutput(text) {
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.answer === "string") {
-      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
+      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, forecastAction: parsed.forecastAction && typeof parsed.forecastAction === "object" ? parsed.forecastAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
     }
   } catch {
     // Older fallback models may return plain text; keep the conversation available without storing memory.
   }
-  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, chartAssessment: null };
+  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, chartAssessment: null };
 }
 
 function errorCategory(status, code, message) {
@@ -842,8 +874,12 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_active_forecasts":
       return { forecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair))) };
+    case "get_forecasts": {
+      const filtered = forecasts.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup)) && (!args.status || forecast.status === args.status) && (!args.month || String(forecast.date || "").startsWith(args.month)));
+      return { forecasts: filtered.slice(0, args.limit), totalMatching: filtered.length, totalAvailable: forecasts.length, filter: args, dataCoverage: dateCoverage(forecasts) };
+    }
     case "get_skipped_trades": {
-      const skipped = forecasts.filter((forecast) => forecast.status === "Cancelled" || forecast.status === "Missed");
+      const skipped = forecasts.filter((forecast) => forecast.status === "Invalidated" || forecast.status === "Skipped");
       return { decisions: skipped.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup))).slice(0, args.limit) };
     }
     case "get_pair_state": {
@@ -868,7 +904,7 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_decision_statistics": {
       const filtered = forecasts.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(item.setup, args.setup)) && (!args.year || String(item.date || "").startsWith(`${args.year}-`)));
-      const byStatus = Object.fromEntries(["Waiting", "Taken", "Cancelled", "Missed"].map((status) => [status, filtered.filter((item) => item.status === status).length]));
+      const byStatus = Object.fromEntries(["Waiting", "Taken", "Invalidated", "Skipped"].map((status) => [status, filtered.filter((item) => item.status === status).length]));
       const byOutcome = Object.fromEntries(["Won", "Lost", "Breakeven", "Avoided loss", "Cost opportunity", "Unknown"].map((outcome) => [outcome, filtered.filter((item) => item.outcome === outcome).length]));
       return { label: "trade decision statistics", filter: args, total: filtered.length, totalResultR: Math.round(filtered.reduce((sum, item) => sum + Math.round(Number(item.resultR || 0) * 100), 0)) / 100, byStatus, byOutcome, dataCoverage: dateCoverage(forecasts) };
     }
@@ -1066,7 +1102,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,
