@@ -48,6 +48,18 @@
       "type": "continuation",
       "stop": "fixed 14 pips initial",
       "target": "structural trail / runner"
+    },
+    "Flag+": {
+      "type": "continuation",
+      "requirements": "Flag conditions plus visible higher-timeframe alignment and strong displacement",
+      "stop": "fixed 14 pips initial",
+      "target": "structural trail / runner"
+    },
+    "EU timed entry": {
+      "type": "session continuation",
+      "requirements": "Entry must be visibly inside the documented EU window, with clear session direction and a confirmed trigger",
+      "stop": "fixed 14 pips initial",
+      "target": "structural trail / runner"
     }
   }
 }

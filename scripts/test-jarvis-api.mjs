@@ -90,6 +90,11 @@ const duplicateResponse = await worker.fetch(makeWebhookRequest(), webhookEnv, {
 const duplicatePayload = await duplicateResponse.json();
 results.push({ test: "TradingView duplicate suppression", pass: duplicateResponse.status === 200 && duplicatePayload.duplicate === true && webhookCalls.length === 3, status: duplicateResponse.status });
 
+const reportEnv = { ...ownerEnv, JARVIS_REPORT_TRADES: context.trades.map((trade) => ({ ...trade, trade_date: trade.date, pnl_r: trade.pnlR, result: trade.outcome, trade_quality: trade.executionQuality })) };
+const weeklyReportResponse = await worker.fetch(new Request("http://local/api/jarvis/reports?period=week&anchor=2026-08-12&userId=local-smoke-test"), reportEnv);
+const weeklyReport = await weeklyReportResponse.json();
+results.push({ test: "deterministic weekly coaching report", pass: weeklyReportResponse.ok && weeklyReport.report?.key === "week:2026-08-03" && weeklyReport.report?.statistics?.sampleSize === 2 && weeklyReport.report?.statistics?.totalR === 1 && /fewer than 5|anecdotal/i.test(weeklyReport.report?.text || ""), status: weeklyReportResponse.status });
+
 const hi = await ask("hi jarvis");
 results.push({ test: "natural greeting and spend metering", pass: /\b(hey|hi|yo|good|what|pot)\b/i.test(hi.answer) && !/intelligence ready|i'm with you/i.test(hi.answer) && Number.isFinite(hi.usage?.costUsd) && hi.usage.costUsd > 0, tools: hi.toolsUsed, costUsd: hi.usage?.costUsd });
 
@@ -151,6 +156,14 @@ results.push({ test: "backtest-only analytics", pass: /backtest|historical/i.tes
 
 const liveVsBacktest = await ask("compare my live trades against my backtests for AUDJPY Internals");
 results.push({ test: "live versus backtest comparison", pass: /live/i.test(liveVsBacktest.answer) && /backtest/i.test(liveVsBacktest.answer) && (liveVsBacktest.toolsUsed || []).includes("compare_live_vs_backtest"), tools: liveVsBacktest.toolsUsed });
+
+const historicalPattern = await ask("Show me the exact losing AUDJPY Internal Reversal live trades this resembles historically.");
+results.push({ test: "deterministic historical pattern citations", pass: (historicalPattern.toolsUsed || []).includes("find_historical_patterns") && /t4|ID t4/i.test(historicalPattern.answer) && /1 exact matching record|1 exact matching/i.test(historicalPattern.answer) && /anecdotal/i.test(historicalPattern.answer), tools: historicalPattern.toolsUsed, answer: historicalPattern.answer });
+
+const chartGateRequest = new Request("http://local/api/jarvis/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "local-smoke-test", question: "Is this a valid Internal Reversal entry?", chartImage: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", context }) });
+const chartGateResponse = await worker.fetch(chartGateRequest, ownerEnv);
+const chartGate = await chartGateResponse.json();
+results.push({ test: "hard chart evidence gate", pass: chartGateResponse.ok && chartGate.chartReviewed === true && /Evidence-gated chart review/i.test(chartGate.answer) && /Evidence: (Partial|Insufficient)/i.test(chartGate.answer) && !/Decision: TAKE/i.test(chartGate.answer) && chartGate.chartAssessment?.decision !== "TAKE", answer: chartGate.answer });
 
 const visualAudit = await ask("what recurring visual quality problems did you find across my audited backtest charts?");
 results.push({ test: "audited backtest chart retrieval", pass: /137|PPA|countertrend|trigger|visual|chart/i.test(visualAudit.answer) && (visualAudit.toolsUsed || []).includes("get_backtest_visual_audit"), tools: visualAudit.toolsUsed });

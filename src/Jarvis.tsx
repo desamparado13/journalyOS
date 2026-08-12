@@ -29,6 +29,7 @@ const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
 const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
 const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
 const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
+const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -568,6 +569,34 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     });
     return () => { cancelled = true; };
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !supabase) return;
+    let cancelled = false;
+    supabase.auth.getSession().then(async ({ data }) => {
+      const token = data.session?.access_token;
+      if (!token || cancelled) return;
+      let seen: string[] = [];
+      try {
+        const stored = JSON.parse(localStorage.getItem(`${JARVIS_REPORT_SEEN_KEY_PREFIX}:${userId}`) || "[]");
+        if (Array.isArray(stored)) seen = stored.filter((item): item is string => typeof item === "string");
+      } catch {
+        seen = [];
+      }
+      const responses = await Promise.all(["week", "month"].map(async (period) => {
+        const response = await fetch(`/api/jarvis/reports?period=${period}`, { headers: { authorization: `Bearer ${token}` } }).catch(() => null);
+        if (!response?.ok) return null;
+        const payload = await response.json().catch(() => null);
+        return payload?.report && typeof payload.report.key === "string" && typeof payload.report.text === "string" ? payload.report : null;
+      }));
+      if (cancelled) return;
+      const fresh = responses.filter((report): report is { key: string; period: "week" | "month"; text: string } => Boolean(report) && !seen.includes(report.key));
+      if (!fresh.length) return;
+      setMessages((current) => [...current, ...fresh.map((report) => ({ id: crypto.randomUUID(), role: "jarvis" as const, title: report.period === "month" ? "Monthly coaching report" : "Weekly coaching report", text: report.text }))]);
+      localStorage.setItem(`${JARVIS_REPORT_SEEN_KEY_PREFIX}:${userId}`, JSON.stringify([...new Set([...seen, ...fresh.map((report) => report.key)])].slice(-30)));
+    });
+    return () => { cancelled = true; };
+  }, [isOpen, userId]);
 
   useEffect(() => {
     function keepOrbOnScreen() {

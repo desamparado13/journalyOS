@@ -28,6 +28,16 @@ JOURNALY NUMERIC ACCURACY
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - Treat tool statistics as authoritative. If a screenshot conflicts with tool data, state the conflict without inventing a reconciliation.`;
+const JARVIS_EVIDENCE_INSTRUCTIONS = `
+JARVIS CHART TRUST CONTRACT
+- When a chart image is attached, chartAssessment is mandatory. When there is no chart image, chartAssessment must be null.
+- Describe only evidence visible in the attached image. Never invent an entry marker, structure line, timeframe, session window, higher-timeframe context, or unseen candle.
+- Never mention historical resemblance or a historical edge in the prose answer. Journaly's deterministic matcher appends verified historical records after your analysis.
+- Without a current chart, every question about a resembling case, recurring pattern, or historical example must call find_historical_patterns. Never manufacture a resemblance from memory.
+- Use Clear only when every required setup component is visibly supported. Use Partial when the setup is plausible but at least one required component is unclear. Use Insufficient when the setup cannot be reliably identified.
+- Missing evidence is not negative evidence. Say what additional view or annotation would resolve it.
+- TAKE is forbidden when evidence is Partial or Insufficient. Prefer WATCH when the idea remains plausible and SKIP when visible evidence conflicts with the playbook.
+- For Flag+, higher-timeframe alignment must be visible. For EU timed entry, the session window must be visible. Do not infer either from the user's label.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -67,6 +77,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_daytrade_statistics", description: "Authoritative statistics for Journaly's day-trade strategy records. Keeps live and backtest data separate.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, entryType: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["source", "pair", "entryType", "year"] } },
   { type: "function", name: "get_journal_entries", description: "Read the authenticated user's personal journal and retained Jarvis learning entries, with optional pair/year filters.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "year", "limit"] } },
   { type: "function", name: "get_tradingview_state", description: "Read authenticated TradingView events, WATCH pair state, and Jarvis threshold notifications for a ticker/timeframe.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { ticker: { type: ["string", "null"] }, timeframe: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["ticker", "timeframe", "limit"] } },
+  { type: "function", name: "find_historical_patterns", description: "Deterministically retrieve exact authenticated Journaly records for any claim about similar, resembling, recurring, winning, losing, or historical trade patterns. Always cite returned IDs, dates, source, and sample size.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, outcome: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, required: ["source", "pair", "setup", "direction", "outcome", "quality", "limit"] } },
   { type: "function", name: "get_account_risk", description: "Get documented planned risk from active Journaly forecasts. This is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
 ];
@@ -74,10 +85,43 @@ const JOURNALY_TOOLS = [
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction"],
+  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "chartAssessment"],
   properties: {
     answer: { type: "string", maxLength: 12000 },
     learningSummary: { type: ["string", "null"], maxLength: 1600 },
+    chartAssessment: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["setupCandidate", "direction", "decision", "evidenceLevel", "visibleEvidence", "missingEvidence", "conflictingEvidence", "features"],
+      properties: {
+        setupCandidate: { type: ["string", "null"], enum: ["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry", null] },
+        direction: { type: ["string", "null"], enum: ["Long", "Short", null] },
+        decision: { type: "string", enum: ["TAKE", "SKIP", "WATCH", "ARMED", "INVALIDATED"] },
+        evidenceLevel: { type: "string", enum: ["Clear", "Partial", "Insufficient"] },
+        visibleEvidence: { type: "array", maxItems: 8, items: { type: "string", maxLength: 240 } },
+        missingEvidence: { type: "array", maxItems: 8, items: { type: "string", maxLength: 240 } },
+        conflictingEvidence: { type: "array", maxItems: 8, items: { type: "string", maxLength: 240 } },
+        features: {
+          type: "object",
+          additionalProperties: false,
+          required: ["ppaQuality", "structureVisible", "momentumShiftVisible", "liquidityContextVisible", "sweepVisible", "retestVisible", "trendVisible", "consolidationVisible", "triggerVisible", "entryVisible", "sessionTimingVisible", "higherTimeframeAlignmentVisible"],
+          properties: {
+            ppaQuality: { type: "string", enum: ["Strong", "Good", "Borderline", "Weak", "Unclear"] },
+            structureVisible: { type: "boolean" },
+            momentumShiftVisible: { type: "boolean" },
+            liquidityContextVisible: { type: "boolean" },
+            sweepVisible: { type: "boolean" },
+            retestVisible: { type: "boolean" },
+            trendVisible: { type: "boolean" },
+            consolidationVisible: { type: "boolean" },
+            triggerVisible: { type: "boolean" },
+            entryVisible: { type: "boolean" },
+            sessionTimingVisible: { type: "boolean" },
+            higherTimeframeAlignmentVisible: { type: "boolean" }
+          }
+        }
+      }
+    },
     memoryUpdates: {
       type: "array",
       maxItems: 4,
@@ -383,12 +427,12 @@ function parseJarvisOutput(text) {
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.answer === "string") {
-      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null };
+      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
     }
   } catch {
     // Older fallback models may return plain text; keep the conversation available without storing memory.
   }
-  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null };
+  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, chartAssessment: null };
 }
 
 function errorCategory(status, code, message) {
@@ -591,10 +635,140 @@ function verifiedStatisticsAnswer(result) {
   if (Object.hasOwn(result || {}, "documentedPlannedRiskPercent")) {
     return `Verified documented planned risk: ${Number(result.documentedPlannedRiskPercent || 0).toFixed(2)}% across ${result.activeForecastCount} active forecast${result.activeForecastCount === 1 ? "" : "s"}. This is Journaly planning data only; live broker risk is not connected.`;
   }
+  if (result?.historicalPattern) {
+    if (!result.totalMatching) return `No authenticated ${result.source} Journaly records match those filters. I will not claim that this is a historical pattern.`;
+    const stats = result.statistics;
+    const records = result.records.map((record) => `- ${record.date} · ${record.pair} ${record.setup} ${record.direction || ""} · ${record.outcome || "Unrecorded"} · ${record.pnlR > 0 ? "+" : ""}${record.pnlR.toFixed(2)}R · ID ${record.id}`).join("\n");
+    const warning = result.totalMatching < 5 ? "\n\nThis is anecdotal evidence, not a proven edge." : "";
+    return `Verified ${result.source} historical pattern: ${result.totalMatching} exact matching record${result.totalMatching === 1 ? "" : "s"} (${result.evidenceStrength} evidence), ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}.\n\nExact records${result.totalMatching > result.records.length ? ` (showing ${result.records.length})` : ""}:\n${records}${warning}`;
+  }
   const stats = result?.statistics;
   if (!stats) return null;
   const label = result.label || result.source || "Journaly records";
   return `Verified ${label}: ${stats.sampleSize} record${stats.sampleSize === 1 ? "" : "s"}, ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}, and ${stats.expectancyR == null ? "no expectancy" : `${stats.expectancyR.toFixed(2)}R expectancy`}. Breakdown: ${stats.wins} wins, ${stats.losses} losses, ${stats.breakEven} breakeven. Calculated deterministically from the authenticated database.`;
+}
+
+const SETUP_EVIDENCE_REQUIREMENTS = {
+  "REVERSAL": [["structureVisible", "relevant structure"], ["momentumShiftVisible", "momentum shift"], ["triggerVisible", "confirmation trigger"]],
+  "Internal reversal": [["structureVisible", "internal structure"], ["momentumShiftVisible", "opposing momentum"], ["triggerVisible", "internal trigger"]],
+  "Liquidity sweep": [["liquidityContextVisible", "liquidity context"], ["sweepVisible", "liquidity sweep"], ["triggerVisible", "confirmation trigger"]],
+  "Break and retest": [["trendVisible", "established direction"], ["structureVisible", "broken MRH/MRL"], ["retestVisible", "return to the broken level"], ["triggerVisible", "retest confirmation"]],
+  "Flag": [["trendVisible", "established momentum"], ["consolidationVisible", "controlled flag/pullback"], ["triggerVisible", "continuation trigger"]],
+  "Flag+": [["trendVisible", "established momentum"], ["consolidationVisible", "controlled flag/pullback"], ["triggerVisible", "continuation trigger"], ["higherTimeframeAlignmentVisible", "visible higher-timeframe alignment"]],
+  "EU timed entry": [["sessionTimingVisible", "visible EU session window"], ["trendVisible", "clear session direction"], ["triggerVisible", "confirmed trigger"]],
+};
+
+function enforceChartEvidenceGate(assessment) {
+  const safe = assessment && typeof assessment === "object" ? assessment : {};
+  const setup = Object.hasOwn(SETUP_EVIDENCE_REQUIREMENTS, safe.setupCandidate) ? safe.setupCandidate : null;
+  const features = safe.features && typeof safe.features === "object" ? safe.features : {};
+  const requirements = setup ? SETUP_EVIDENCE_REQUIREMENTS[setup] : [];
+  const gateMissing = requirements.filter(([key]) => features[key] !== true).map(([, label]) => label);
+  const suppliedMissing = Array.isArray(safe.missingEvidence) ? safe.missingEvidence.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()) : [];
+  const visibleEvidence = Array.isArray(safe.visibleEvidence) ? safe.visibleEvidence.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()).slice(0, 8) : [];
+  const conflictingEvidence = Array.isArray(safe.conflictingEvidence) ? safe.conflictingEvidence.filter((item) => typeof item === "string" && item.trim()).map((item) => item.trim()).slice(0, 8) : [];
+  const missingEvidence = [...new Set([...(setup ? [] : ["a reliably identifiable setup family"]), ...gateMissing, ...suppliedMissing])].slice(0, 8);
+  const supportedCount = requirements.length - gateMissing.length;
+  const ppaVisible = features.ppaQuality && features.ppaQuality !== "Unclear";
+  const allRequired = Boolean(setup) && requirements.length > 0 && gateMissing.length === 0 && visibleEvidence.length >= 2 && ppaVisible && conflictingEvidence.length === 0;
+  const partlySupported = Boolean(setup) && supportedCount >= Math.max(1, Math.ceil(requirements.length / 2)) && visibleEvidence.length > 0;
+  const evidenceLevel = allRequired ? "Clear" : partlySupported ? "Partial" : "Insufficient";
+  const proposedDecision = ["TAKE", "SKIP", "WATCH", "ARMED", "INVALIDATED"].includes(safe.decision) ? safe.decision : "WATCH";
+  const decision = evidenceLevel === "Clear" ? proposedDecision : ["SKIP", "INVALIDATED"].includes(proposedDecision) ? proposedDecision : "WATCH";
+  return { setupCandidate: setup, direction: ["Long", "Short"].includes(safe.direction) ? safe.direction : null, decision, evidenceLevel, visibleEvidence, missingEvidence, conflictingEvidence, features };
+}
+
+function deterministicHistoricalMatches(assessment, trades, activePair) {
+  if (!assessment?.setupCandidate) return { sampleSize: 0, evidenceStrength: "insufficient", records: [], statistics: setupStats([]) };
+  const setupMatches = trades.filter((trade) => matchesText(trade.setup, assessment.setupCandidate));
+  const ranked = setupMatches.map((trade) => {
+    const matchedOn = ["same setup"];
+    let score = 50;
+    if (activePair && normalizePair(trade.pair) === normalizePair(activePair)) { score += 30; matchedOn.push("same pair"); }
+    if (assessment.direction && String(trade.direction).toLowerCase() === assessment.direction.toLowerCase()) { score += 20; matchedOn.push("same direction"); }
+    return { id: trade.id, date: trade.date, pair: trade.pair, setup: trade.setup, direction: trade.direction, outcome: trade.outcome, pnlR: Number(trade.pnlR || 0), quality: trade.executionQuality || null, score, matchedOn };
+  }).sort((a, b) => b.score - a.score || String(b.date).localeCompare(String(a.date)) || String(a.id).localeCompare(String(b.id)));
+  const strongest = ranked.filter((record) => record.score === ranked[0]?.score);
+  const sample = strongest.length ? strongest : ranked;
+  const sampleSize = sample.length;
+  return {
+    sampleSize,
+    evidenceStrength: sampleSize >= 30 ? "stronger" : sampleSize >= 15 ? "moderate" : sampleSize >= 5 ? "early" : "anecdotal",
+    records: sample.slice(0, 5),
+    statistics: setupStats(sample),
+  };
+}
+
+function verifiedChartAnswer(assessment, matches) {
+  const setup = assessment.setupCandidate || "No setup confirmed";
+  const visible = assessment.visibleEvidence.length ? assessment.visibleEvidence.map((item) => `- ${item}`).join("\n") : "- No setup-defining evidence was reliable enough to verify.";
+  const missing = assessment.missingEvidence.length ? assessment.missingEvidence.map((item) => `- ${item}`).join("\n") : "- Nothing required by this setup's gate is currently missing.";
+  const conflicts = assessment.conflictingEvidence.length ? `\n\nConflicting evidence:\n${assessment.conflictingEvidence.map((item) => `- ${item}`).join("\n")}` : "";
+  let history = "No matching live Journaly trades were found, so I will not claim a historical pattern.";
+  if (matches.sampleSize) {
+    const stats = matches.statistics;
+    const citations = matches.records.map((record) => `- ${record.date} · ${record.pair} ${record.setup} ${record.direction || ""} · ${record.outcome || "Unrecorded"} · ${record.pnlR > 0 ? "+" : ""}${record.pnlR.toFixed(2)}R · ID ${record.id}`).join("\n");
+    history = `Deterministic historical match (${matches.evidenceStrength} evidence): ${matches.sampleSize} matching live trade${matches.sampleSize === 1 ? "" : "s"}, ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}. Closest records:\n${citations}`;
+    if (matches.sampleSize < 5) history += "\nThis sample is anecdotal and does not establish an edge.";
+  }
+  return `Evidence-gated chart review\n\nDecision: ${assessment.decision}\nEvidence: ${assessment.evidenceLevel}\nSetup: ${setup}${assessment.direction ? ` · ${assessment.direction}` : ""}\n\nWhat is visibly supported:\n${visible}\n\nWhat remains unclear:\n${missing}${conflicts}\n\n${history}\n\n${assessment.decision === "TAKE" ? "The chart passed the visible-evidence gate, but this is still decision support—not certainty." : "No entry is validated by Jarvis until the missing evidence is visible."}`;
+}
+
+function isoDateInManila(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
+function shiftIsoDate(date, days) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function completedPeriod(period, anchorDate) {
+  const anchor = new Date(`${anchorDate}T00:00:00Z`);
+  if (period === "month") {
+    const currentStart = `${anchorDate.slice(0, 7)}-01`;
+    const end = shiftIsoDate(currentStart, -1);
+    return { start: `${end.slice(0, 7)}-01`, end, key: `month:${end.slice(0, 7)}`, label: new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${end}T00:00:00Z`)) };
+  }
+  const day = anchor.getUTCDay() || 7;
+  const currentMonday = shiftIsoDate(anchorDate, 1 - day);
+  const start = shiftIsoDate(currentMonday, -7);
+  const end = shiftIsoDate(currentMonday, -1);
+  return { start, end, key: `week:${start}`, label: `${start} to ${end}` };
+}
+
+function tradesWithin(trades, start, end) {
+  return trades.filter((trade) => String(trade.date || "") >= start && String(trade.date || "") <= end);
+}
+
+function deterministicCoachingReport(trades, period, anchorDate) {
+  const range = completedPeriod(period, anchorDate);
+  const days = period === "month" ? Math.round((new Date(`${range.end}T00:00:00Z`) - new Date(`${range.start}T00:00:00Z`)) / 86400000) + 1 : 7;
+  const previousEnd = shiftIsoDate(range.start, -1);
+  const previousStart = shiftIsoDate(previousEnd, -(days - 1));
+  const currentTrades = tradesWithin(trades, range.start, range.end);
+  const previousTrades = tradesWithin(trades, previousStart, previousEnd);
+  const current = setupStats(currentTrades);
+  const previous = setupStats(previousTrades);
+  const setupRows = [...new Set(currentTrades.map((trade) => trade.setup).filter(Boolean))].map((setup) => ({ setup, stats: setupStats(currentTrades.filter((trade) => trade.setup === setup)) })).sort((a, b) => b.stats.expectancyR - a.stats.expectancyR || b.stats.sampleSize - a.stats.sampleSize || a.setup.localeCompare(b.setup));
+  const bestSetup = setupRows[0] || null;
+  const weakReviews = current.quality.Mid + current.quality.Bad;
+  const expectancyChange = current.expectancyR == null || previous.expectancyR == null ? null : Math.round((current.expectancyR - previous.expectancyR) * 100) / 100;
+  const lines = [
+    `Verified ${period === "month" ? "monthly" : "weekly"} coaching report · ${range.label}`,
+    `${current.sampleSize} live trade${current.sampleSize === 1 ? "" : "s"} · ${current.totalR > 0 ? "+" : ""}${current.totalR.toFixed(2)}R · ${current.winRate == null ? "no win rate" : `${current.winRate}% win rate`} · ${current.expectancyR == null ? "no expectancy" : `${current.expectancyR.toFixed(2)}R expectancy`}`,
+    `Execution reviews: ${current.quality.Good} Good, ${current.quality.Mid} Mid, ${current.quality.Bad} Bad${current.reviewed < current.sampleSize ? `; ${current.sampleSize - current.reviewed} unrated` : ""}.`,
+  ];
+  if (expectancyChange !== null) lines.push(`Expectancy changed ${expectancyChange > 0 ? "+" : ""}${expectancyChange.toFixed(2)}R versus the previous comparable period (${previous.sampleSize} trades).`);
+  else lines.push(`There is not enough data for a reliable previous-period expectancy comparison.`);
+  if (bestSetup) lines.push(`Best recorded setup in this period: ${bestSetup.setup}, ${bestSetup.stats.expectancyR.toFixed(2)}R expectancy across ${bestSetup.stats.sampleSize} trade${bestSetup.stats.sampleSize === 1 ? "" : "s"}.`);
+  if (current.sampleSize < 5) lines.push(`Evidence warning: fewer than 5 trades makes this period anecdotal; do not change the playbook from this report alone.`);
+  else if (weakReviews) lines.push(`Coaching focus: review the ${weakReviews} Mid/Bad execution${weakReviews === 1 ? "" : "s"} before changing strategy rules.`);
+  else lines.push(`Coaching focus: keep recording quality labels so process improvement remains measurable independently of outcome.`);
+  return { period, ...range, previousStart, previousEnd, statistics: current, previousStatistics: previous, setupRows, text: lines.join("\n\n"), calculation: "deterministic_authenticated_live_trades" };
 }
 
 function executeJournalyTool(name, args, data) {
@@ -713,6 +887,14 @@ function executeJournalyTool(name, args, data) {
       const matches = (item) => (!args.ticker || normalizePair(item.ticker) === normalizePair(args.ticker)) && (!args.timeframe || String(item.timeframe) === String(args.timeframe));
       return { events: tradingViewEvents.filter(matches).slice(0, args.limit), pairStates: pairStates.filter(matches), notifications: notifications.filter(matches).slice(0, args.limit) };
     }
+    case "find_historical_patterns": {
+      const surface = args.source === "live" ? "trades" : "backtests";
+      if ((data.unavailableSurfaces || []).includes(surface)) return { unavailable: `${args.source} historical records` };
+      const source = args.source === "live" ? trades : backtests;
+      const filtered = source.filter((record) => (!args.pair || normalizePair(record.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(record.setup, args.setup)) && (!args.direction || String(record.direction).toLowerCase() === args.direction.toLowerCase()) && (!args.outcome || String(record.outcome).toLowerCase() === args.outcome.toLowerCase()) && (!args.quality || record.executionQuality === args.quality));
+      const evidenceStrength = filtered.length >= 30 ? "stronger" : filtered.length >= 15 ? "moderate" : filtered.length >= 5 ? "early" : "anecdotal";
+      return { historicalPattern: true, source: args.source, filter: args, totalMatching: filtered.length, evidenceStrength, statistics: setupStats(filtered), records: filtered.slice(0, args.limit).map(({ id, date, pair, setup, direction, outcome, pnlR, executionQuality }) => ({ id, date, pair, setup, direction, outcome, pnlR: Number(pnlR || 0), quality: executionQuality || null })) };
+    }
     case "get_account_risk": {
       const active = forecasts.filter((forecast) => forecast.status === "Waiting");
       return { documentedPlannedRiskPercent: active.reduce((sum, item) => sum + Number(item.plannedRiskPercent || 0), 0), activeForecastCount: active.length, liveBrokerRiskConnected: false };
@@ -735,6 +917,22 @@ async function authorizeOwner(request, env, requestedUserId) {
     return { error: json({ error: "Jarvis is currently available only to its owner." }, 403) };
   }
   return { user };
+}
+
+async function handleCoachingReport(request, env) {
+  if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  const url = new URL(request.url);
+  const period = url.searchParams.get("period") === "month" ? "month" : "week";
+  const requestedUserId = env.JARVIS_AUTH_BYPASS_USER_ID ? url.searchParams.get("userId") : null;
+  const authorization = await authorizeOwner(request, env, requestedUserId);
+  if (authorization.error) return authorization.error;
+  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("anchor") || "") ? url.searchParams.get("anchor") : isoDateInManila();
+  let rows;
+  if (env.JARVIS_AUTH_BYPASS_USER_ID && Array.isArray(env.JARVIS_REPORT_TRADES)) rows = env.JARVIS_REPORT_TRADES;
+  else rows = await loadAuthenticatedRows(request, env, authorization.user.id, "trades", "id,trade_date,pair,setup,direction,pnl_r,result,trade_quality,notes", "trade_date.desc,id.desc");
+  if (!Array.isArray(rows)) return json({ error: "Journaly's live-trade records are unavailable. No coaching report was generated." }, 503);
+  const trades = rows.map((row) => ({ id: row.id, date: row.trade_date || row.date, pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r ?? row.pnlR ?? 0), outcome: row.result || row.outcome, executionQuality: row.trade_quality || row.executionQuality || null, notes: row.notes || "" }));
+  return json({ report: deterministicCoachingReport(trades, period, anchor) });
 }
 
 async function handleHealth(request, env) {
@@ -868,7 +1066,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,
@@ -914,7 +1112,7 @@ async function handleJarvis(request, env) {
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
-          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk"].includes(call.name)) verifiedStatResult = toolResult;
+          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
@@ -929,9 +1127,14 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
-      if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
+      let historicalMatches = null;
+      if (chartImage) {
+        result.chartAssessment = enforceChartEvidenceGate(result.chartAssessment);
+        historicalMatches = deterministicHistoricalMatches(result.chartAssessment, toolData.trades, toolData.sessionState?.activePair || null);
+        result.answer = verifiedChartAnswer(result.chartAssessment, historicalMatches);
+      } else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
+      return json({ ...result, historicalMatches, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
     }
   }
 
@@ -942,6 +1145,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/api/jarvis/chat") return handleJarvis(request, env);
+    if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
     if (url.pathname === "/api/jarvis/health") return handleHealth(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
 
