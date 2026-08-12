@@ -22,6 +22,7 @@ create table if not exists public.trades (
   pnl_r numeric not null default 0,
   result text not null check (result in ('Win', 'Loss', 'Breakeven')),
   notes text not null default '',
+  trade_quality text check (trade_quality is null or trade_quality in ('Good', 'Mid', 'Bad')),
   screenshot_url text not null default '',
   source_app text,
   legacy_id integer,
@@ -33,6 +34,18 @@ create table if not exists public.trades (
 
 alter table public.trades add column if not exists mae_pips numeric;
 alter table public.trades add column if not exists stop_loss_pips numeric;
+alter table public.trades add column if not exists trade_quality text;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'trades_trade_quality_check'
+  ) then
+    alter table public.trades
+      add constraint trades_trade_quality_check
+      check (trade_quality is null or trade_quality in ('Good', 'Mid', 'Bad'));
+  end if;
+end $$;
 alter table public.trades add column if not exists source_app text;
 alter table public.trades add column if not exists legacy_id integer;
 alter table public.trades add column if not exists duration_minutes integer;

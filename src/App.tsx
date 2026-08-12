@@ -70,7 +70,7 @@ const MONTHLY_JOURNAL_MARKER = "[[JOURNALY_MONTHLY:";
 const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
-  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,trade_quality,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
 const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
@@ -368,6 +368,8 @@ type SessionUser = {
   metadata: Record<string, any>;
 };
 
+type TradeQuality = "Good" | "Mid" | "Bad";
+
 type Trade = {
   id: string;
   userId: string;
@@ -380,6 +382,7 @@ type Trade = {
   pnl: number;
   result: Result;
   notes: string;
+  quality: TradeQuality | null;
   screenshot: string;
   sourceApp: string | null;
   legacyId: number | null;
@@ -466,6 +469,7 @@ type TradeRow = {
   pnl_r: number | string;
   result: Result;
   notes: string | null;
+  trade_quality: TradeQuality | null;
   screenshot_url: string | null;
   source_app: string | null;
   legacy_id: number | null;
@@ -1843,6 +1847,7 @@ function toTrade(row: TradeRow): Trade {
     pnl: Number(row.pnl_r || 0),
     result: row.result,
     notes: row.notes || "",
+    quality: row.trade_quality || null,
     screenshot: row.screenshot_url || "",
     sourceApp: row.source_app,
     legacyId: row.legacy_id,
@@ -2275,6 +2280,8 @@ export default function App() {
   const [resultFilter, setResultFilter] = useState<"All" | Result>("All");
   const [pairFilter, setPairFilter] = useState("All");
   const [setupFilter, setSetupFilter] = useState("All");
+  const [qualityFilter, setQualityFilter] = useState<"All" | TradeQuality | "Unrated">("All");
+  const [savingQualityTradeId, setSavingQualityTradeId] = useState("");
   const [imagePairFilter, setImagePairFilter] = useState("All");
   const [imageSetupFilter, setImageSetupFilter] = useState("All");
   const [imageResultFilter, setImageResultFilter] = useState<"All" | Result>("All");
@@ -2605,8 +2612,47 @@ export default function App() {
       .filter((trade) => resultFilter === "All" || trade.result === resultFilter)
       .filter((trade) => pairFilter === "All" || trade.pair === pairFilter)
       .filter((trade) => setupFilter === "All" || trade.setup === setupFilter)
+      .filter((trade) => qualityFilter === "All" || (qualityFilter === "Unrated" ? !trade.quality : trade.quality === qualityFilter))
       .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
-  }, [pairFilter, resultFilter, setupFilter, trades]);
+  }, [pairFilter, qualityFilter, resultFilter, setupFilter, trades]);
+
+  const tradeQualityAnalytics = useMemo(() => {
+    const ratings: TradeQuality[] = ["Good", "Mid", "Bad"];
+    const reviewed = trades.filter((trade) => trade.quality);
+    const rows = ratings.map((rating) => {
+      const ratedTrades = reviewed.filter((trade) => trade.quality === rating);
+      const wins = ratedTrades.filter((trade) => trade.pnl > 0);
+      const losses = ratedTrades.filter((trade) => trade.pnl < 0);
+      const totalR = ratedTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+      const grossWin = wins.reduce((sum, trade) => sum + trade.pnl, 0);
+      const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0));
+
+      return {
+        label: rating,
+        trades: ratedTrades.length,
+        totalR,
+        averageR: ratedTrades.length ? totalR / ratedTrades.length : 0,
+        winRate: ratedTrades.length ? Math.round((wins.length / ratedTrades.length) * 100) : 0,
+        profitFactor: grossLoss === 0 ? grossWin : grossWin / grossLoss,
+        averageMae: ratedTrades.length
+          ? ratedTrades.reduce((sum, trade) => sum + trade.mae, 0) / ratedTrades.length
+          : 0,
+      };
+    });
+    const good = rows[0];
+    const bad = rows[2];
+
+    return {
+      rows,
+      reviewed: reviewed.length,
+      coverage: trades.length ? Math.round((reviewed.length / trades.length) * 100) : 0,
+      goodRate: reviewed.length ? Math.round((good.trades / reviewed.length) * 100) : 0,
+      processOutcomeMismatches: reviewed.filter(
+        (trade) => (trade.quality === "Good" && trade.pnl < 0) || (trade.quality === "Bad" && trade.pnl > 0),
+      ).length,
+      qualityEdge: good.trades && bad.trades ? good.averageR - bad.averageR : null,
+    };
+  }, [trades]);
 
   const tradeImageItems = useMemo(() => {
     return trades
@@ -4149,6 +4195,34 @@ export default function App() {
       tone: "success",
       title: existing ? "Trade updated" : "Trade saved",
       message: `${savedTrade.pair} ${savedTrade.direction.toLowerCase()} is now in your journal.`,
+    });
+  }
+
+  async function updateTradeQuality(trade: Trade, quality: TradeQuality) {
+    if (!currentUser || !supabase || trade.quality === quality) return;
+
+    setSavingQualityTradeId(trade.id);
+    const { error } = await supabase
+      .from("trades")
+      .update({ trade_quality: quality, updated_at: new Date().toISOString() })
+      .eq("id", trade.id)
+      .eq("user_id", currentUser.id);
+    setSavingQualityTradeId("");
+
+    if (error) {
+      showToast({
+        tone: "error",
+        title: "Quality review not saved",
+        message: error.message,
+      });
+      return;
+    }
+
+    setTrades((current) => current.map((item) => (item.id === trade.id ? { ...item, quality } : item)));
+    showToast({
+      tone: "success",
+      title: `${quality} trade recorded`,
+      message: `${trade.pair} is now included in your quality analytics.`,
     });
   }
 
@@ -6517,11 +6591,19 @@ export default function App() {
                 options={["All", ...setups]}
                 onChange={setSetupFilter}
               />
+              <SelectField
+                label="Filter quality"
+                value={qualityFilter}
+                options={["All", "Good", "Mid", "Bad", "Unrated"]}
+                onChange={(value) => setQualityFilter(value as "All" | TradeQuality | "Unrated")}
+              />
               <button className="secondary-action toolbar-action" type="button" onClick={() => setActiveView("trade-images")}>
                 <ImagePlus size={18} />
                 Open images
               </button>
             </div>
+
+            <TradeQualitySummary data={tradeQualityAnalytics} />
 
             <div className="trade-list" aria-live="polite">
               {isSyncing ? <DataLoadingRow label="Loading trades" /> : null}
@@ -6541,6 +6623,8 @@ export default function App() {
                     onEdit={() => editTrade(trade)}
                     onDelete={() => setPendingDeleteTrade(trade)}
                     onViewImage={() => imageIndex >= 0 && openImageViewer(filteredTradeImageItems, imageIndex)}
+                    onQualityChange={(quality) => void updateTradeQuality(trade, quality)}
+                    isSavingQuality={savingQualityTradeId === trade.id}
                   />
                   );
                 })
@@ -6604,7 +6688,7 @@ export default function App() {
             ) : null}
 
             {activeView === "trade-performance" ? (
-              <PerformanceBreakdown data={performanceBreakdown} />
+              <PerformanceBreakdown data={performanceBreakdown} qualityData={tradeQualityAnalytics} />
             ) : null}
 
             {activeView === "yearly-comparison" ? (
@@ -9129,6 +9213,7 @@ function WeekEdge({
 
 function PerformanceBreakdown({
   data,
+  qualityData,
 }: {
   data: {
     bySetup: Array<PerformanceRow>;
@@ -9141,6 +9226,7 @@ function PerformanceBreakdown({
     worstPair?: PerformanceRow;
     lowMaeWinners?: PerformanceRow;
   };
+  qualityData: TradeQualityAnalytics;
 }) {
   return (
     <section className="performance-panel">
@@ -9156,6 +9242,7 @@ function PerformanceBreakdown({
       </div>
 
       <div className="performance-grid">
+        <PerformanceTable title="Execution quality" rows={qualityData.rows} />
         <PerformanceTable title="Setup performance" rows={data.bySetup} />
         <PerformanceTable title="Pair performance" rows={data.byPair} />
         <PerformanceTable title="Direction performance" rows={data.byDirection} />
@@ -11815,11 +11902,15 @@ function TradeCard({
   onEdit,
   onDelete,
   onViewImage,
+  onQualityChange,
+  isSavingQuality,
 }: {
   trade: Trade;
   onEdit: () => void;
   onDelete: () => void;
   onViewImage: () => void;
+  onQualityChange: (quality: TradeQuality) => void;
+  isSavingQuality: boolean;
 }) {
   return (
     <article className={`trade-card ${trade.pnl >= 0 ? "is-positive" : "is-negative"}`}>
@@ -11852,6 +11943,25 @@ function TradeCard({
         </div>
 
         {trade.notes ? <p className="trade-notes">{trade.notes}</p> : null}
+
+        <fieldset className="trade-quality-review" disabled={isSavingQuality}>
+          <legend>How was the trade quality?</legend>
+          <span>Rate your execution, not the result.</span>
+          <div className="trade-quality-options">
+            {(["Good", "Mid", "Bad"] as TradeQuality[]).map((quality) => (
+              <button
+                className={`quality-option is-${quality.toLowerCase()} ${trade.quality === quality ? "is-selected" : ""}`}
+                type="button"
+                aria-pressed={trade.quality === quality}
+                onClick={() => onQualityChange(quality)}
+                key={quality}
+              >
+                {quality}
+              </button>
+            ))}
+          </div>
+          {isSavingQuality ? <small>Saving review…</small> : null}
+        </fieldset>
 
         <div className="trade-actions">
           {trade.finalizedAt ? (
@@ -11947,6 +12057,47 @@ function BacktestCard({
         </div>
       </div>
     </article>
+  );
+}
+
+type TradeQualityAnalytics = {
+  rows: PerformanceRow[];
+  reviewed: number;
+  coverage: number;
+  goodRate: number;
+  processOutcomeMismatches: number;
+  qualityEdge: number | null;
+};
+
+function TradeQualitySummary({ data }: { data: TradeQualityAnalytics }) {
+  return (
+    <section className="quality-summary" aria-label="Post-trade quality analytics">
+      <div className="quality-summary-copy">
+        <div>
+          <p className="eyebrow">Process over outcome</p>
+          <h3>Post-trade quality</h3>
+        </div>
+        <p>Judge how well you executed the plan, independently from whether the trade won or lost.</p>
+      </div>
+      <div className="quality-summary-stats">
+        <Meta label="Reviewed" value={`${data.reviewed} · ${data.coverage}% coverage`} />
+        <Meta label="Good quality" value={`${data.goodRate}% of reviews`} />
+        <Meta
+          label="Good vs Bad edge"
+          value={data.qualityEdge === null ? "Need both ratings" : `${formatNumber(data.qualityEdge)}R avg gap`}
+        />
+        <Meta label="Process ≠ outcome" value={`${data.processOutcomeMismatches} trades`} />
+      </div>
+      <div className="quality-breakdown">
+        {data.rows.map((row) => (
+          <article className={`quality-breakdown-card is-${row.label.toLowerCase()}`} key={row.label}>
+            <strong>{row.label}</strong>
+            <span>{row.trades} trade{row.trades === 1 ? "" : "s"}</span>
+            <small>{formatNumber(row.averageR)}R avg · {row.winRate}% win rate</small>
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 
