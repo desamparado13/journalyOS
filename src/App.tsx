@@ -102,7 +102,7 @@ const learnVideos = [
 const landingFeatures = [
   "Smart trade journal with R tracking, equity curve, calendars, and image review",
   "Edge analytics across sessions, pairs, setups, time windows, and backtests",
-  "Dara AI coach, research lab, prop firm calculator, and protected lesson hub",
+  "Dara trading companion, research lab, prop firm calculator, and protected lesson hub",
 ] as const;
 
 const pricingPlans = [
@@ -330,7 +330,6 @@ type AppView =
   | "trade-performance"
   | "yearly-comparison"
   | "discipline"
-  | "ai-coach"
   | "backtest-comparison"
   | "backtesting-analytics"
   | "add-backtest"
@@ -356,7 +355,6 @@ const appViews: readonly AppView[] = [
   "trade-performance",
   "yearly-comparison",
   "discipline",
-  "ai-coach",
   "backtest-comparison",
   "backtesting-analytics",
   "add-backtest",
@@ -4703,7 +4701,7 @@ export default function App() {
             <p className="eyebrow">Journaly OS Trading Journal</p>
             <h1>Build, track, and protect your trading edge.</h1>
             <p>
-              A premium trading operating system for serious journaling, session analysis, AI coaching,
+              A premium trading operating system for serious journaling, session analysis,
               prop firm planning, research, and execution review.
             </p>
 
@@ -4956,14 +4954,6 @@ export default function App() {
           >
             <FlaskConical size={18} />
             Backtest
-          </button>
-          <button
-            className={activeView === "ai-coach" ? "is-active" : ""}
-            type="button"
-            onClick={() => setActiveView("ai-coach")}
-          >
-            <Brain size={18} />
-            AI Coach
           </button>
             </>
           ) : (
@@ -5778,18 +5768,6 @@ export default function App() {
               onRemoveTrader={(id) => updateTraderFriends(traderFriends.filter((friend) => friend.id !== id))}
             />
           </section>
-        ) : null}
-
-        {activeView === "ai-coach" ? (
-          <AICoachView
-            trades={trades}
-            backtests={backtests}
-            stats={stats}
-            tradeAnalytics={tradeAnalytics}
-            performance={performanceBreakdown}
-            monthlyHeatmap={monthlyHeatmap}
-            marketSession={marketSession}
-          />
         ) : null}
 
         {activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis" ? (
@@ -7257,7 +7235,7 @@ export default function App() {
         ) : null}
         </main>
       </div>
-      {tradingMode === "swing" ? <DaraMiniChatbar context={daraContext} onOpenCoach={() => setActiveView("ai-coach")} /> : null}
+      {tradingMode === "swing" ? <DaraMiniChatbar context={daraContext} /> : null}
     </div>
   );
 }
@@ -7627,7 +7605,7 @@ function AICoachView({
   );
 }
 
-function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: () => void }) {
+function DaraMiniChatbar({ context }: { context: any }) {
   const [windowState, setWindowState] = useState<DaraWindowState>(readDaraWindow);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
@@ -7799,7 +7777,7 @@ function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: 
             }
           : undefined
       }
-      aria-label="Dara mini coach"
+      aria-label="Dara trading companion"
     >
       {windowState.isOpen ? (
         <div className="dara-mini-panel" onPointerDown={startDrag}>
@@ -7837,13 +7815,10 @@ function DaraMiniChatbar({ context, onOpenCoach }: { context: any; onOpenCoach: 
               {isLoading ? "..." : "Ask"}
             </button>
           </div>
-          <button className="dara-mini-link" type="button" onClick={onOpenCoach}>
-            Open full AI Coach
-          </button>
           <span className="dara-resize-handle" aria-hidden="true" onPointerDown={startResize} />
         </div>
       ) : (
-        <button className="dara-mini-tab" type="button" onClick={openDara} aria-label="Open Dara mini coach">
+        <button className="dara-mini-tab" type="button" onClick={openDara} aria-label="Open Dara trading companion">
           <Brain size={18} />
           <span>Dara</span>
         </button>
@@ -8148,7 +8123,7 @@ function MissingConfigScreen({ missing }: { missing: string[] }) {
           <div className="config-steps">
             <p>In Vercel, open Project Settings, then Environment Variables.</p>
             <p>Add the Supabase URL and publishable key for Production, Preview, and Development.</p>
-            <p>Add OPENAI_API_KEY too if you want Dara and AI Coach to work after deploy.</p>
+            <p>Add OPENAI_API_KEY too if you want Dara to work after deploy.</p>
             <p>Redeploy the project after saving the variables.</p>
           </div>
         </article>

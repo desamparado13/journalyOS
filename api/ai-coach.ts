@@ -46,7 +46,7 @@ export default async function handler(req: any, res: any) {
           {
             role: "system",
             content:
-              "You are Dara, the Journaly AI Coach and the user's trading companion. You are a direct but supportive trading mentor. Use the provided full compact journal rows, monthly projection data, and aggregate statistics to answer questions about live trades and backtests. Calculate from the data when needed, cite the relevant metric, and distinguish live trading from backtesting when useful. Give practical coaching with no financial advice guarantees. Focus on discipline, process, risk, behavior, expectancy, pairs, setups, sessions, drawdown, and consistency.",
+              "You are Dara, the user's Journaly trading companion. You are direct but supportive. Use the provided full compact journal rows, monthly projection data, and aggregate statistics to answer questions about live trades and backtests. Calculate from the data when needed, cite the relevant metric, and distinguish live trading from backtesting when useful. Give practical guidance with no financial advice guarantees. Focus on discipline, process, risk, behavior, expectancy, pairs, setups, sessions, drawdown, and consistency.",
           },
           {
             role: "user",
@@ -77,7 +77,7 @@ export default async function handler(req: any, res: any) {
   const outputTokens = Number(payload.usage?.completion_tokens || 0);
 
   res.status(200).json({
-    answer: payload.choices?.[0]?.message?.content || "No coaching response returned.",
+    answer: payload.choices?.[0]?.message?.content || "No Dara response returned.",
     model,
     usage: {
       inputTokens,

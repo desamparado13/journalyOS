@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       {
-        name: "journaly-ai-coach-dev-api",
+        name: "journaly-dara-dev-api",
         configureServer(server) {
           server.middlewares.use("/api/ai-coach", async (req: any, res: any) => {
             if (req.method !== "POST") {
@@ -70,7 +70,7 @@ export default defineConfig(({ mode }) => {
                       {
                         role: "system",
                         content:
-                          "You are Dara, the Journaly AI Coach and the user's trading companion. You are a direct but supportive trading mentor. Use the provided full compact journal rows, monthly projection data, and aggregate statistics to answer questions about live trades and backtests. Calculate from the data when needed, cite the relevant metric, and distinguish live trading from backtesting when useful. Give practical coaching with no financial advice guarantees. Focus on discipline, process, risk, behavior, expectancy, pairs, setups, sessions, drawdown, and consistency.",
+                          "You are Dara, the user's Journaly trading companion. You are direct but supportive. Use the provided full compact journal rows, monthly projection data, and aggregate statistics to answer questions about live trades and backtests. Calculate from the data when needed, cite the relevant metric, and distinguish live trading from backtesting when useful. Give practical guidance with no financial advice guarantees. Focus on discipline, process, risk, behavior, expectancy, pairs, setups, sessions, drawdown, and consistency.",
                       },
                       {
                         role: "user",
@@ -105,7 +105,7 @@ export default defineConfig(({ mode }) => {
               res.setHeader("Content-Type", "application/json");
               res.end(
                 JSON.stringify({
-                  answer: payload.choices?.[0]?.message?.content || "No coaching response returned.",
+                  answer: payload.choices?.[0]?.message?.content || "No Dara response returned.",
                   model,
                   usage: {
                     inputTokens,
@@ -118,7 +118,7 @@ export default defineConfig(({ mode }) => {
             } catch (error) {
               res.statusCode = 500;
               res.setHeader("Content-Type", "application/json");
-              res.end(JSON.stringify({ error: error instanceof Error ? error.message : "AI Coach request failed." }));
+              res.end(JSON.stringify({ error: error instanceof Error ? error.message : "Dara request failed." }));
             }
           });
         },
