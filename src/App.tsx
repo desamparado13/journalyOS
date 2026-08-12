@@ -45,6 +45,7 @@ import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, 
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
+import Jarvis from "./Jarvis";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
@@ -7175,6 +7176,12 @@ export default function App() {
         ) : null}
         </main>
       </div>
+      <Jarvis
+        displayName={accountProfile.displayName || currentUser.email.split("@")[0]}
+        trades={trades}
+        forecasts={tradeDecisions}
+        session={marketSession}
+      />
     </div>
   );
 }
