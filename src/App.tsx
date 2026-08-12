@@ -57,7 +57,6 @@ const ANALYSIS_HISTORY_STORE = "drawings";
 const ACCOUNT_PROFILE_KEY = "journaly-os-account-profile";
 const AI_COACH_USAGE_KEY = "journaly-os-ai-coach-usage";
 const AI_COACH_HISTORY_KEY = "journaly-os-ai-coach-history";
-const DARA_GREETING_KEY = "journaly-os-dara-greeting-date";
 const DARA_WINDOW_KEY = "journaly-os-dara-window";
 const LEARN_NOTES_KEY = "journaly-os-learn-notes";
 const LEARN_RESUME_KEY = "journaly-os-learn-resume";
@@ -102,7 +101,7 @@ const learnVideos = [
 const landingFeatures = [
   "Smart trade journal with R tracking, equity curve, calendars, and image review",
   "Edge analytics across sessions, pairs, setups, time windows, and backtests",
-  "Dara trading companion, research lab, prop firm calculator, and protected lesson hub",
+  "Research lab, prop firm calculator, goals, and protected lesson hub",
 ] as const;
 
 const pricingPlans = [
@@ -2591,22 +2590,6 @@ export default function App() {
     return () => window.clearInterval(intervalId);
   }, []);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const now = new Date();
-    if (now.getHours() >= 12) return;
-
-    const today = now.toISOString().slice(0, 10);
-    if (localStorage.getItem(DARA_GREETING_KEY) === today) return;
-
-    localStorage.setItem(DARA_GREETING_KEY, today);
-    showToast({
-      tone: "info",
-      title: "Good morning, I'm Dara",
-      message: `I'm here with your journal today. ${marketSession.status}: ${marketSession.label}.`,
-    });
-  }, [currentUser, marketSession.label, marketSession.status]);
-
   const filteredTrades = useMemo(() => {
     return trades
       .filter((trade) => resultFilter === "All" || trade.result === resultFilter)
@@ -3191,49 +3174,6 @@ export default function App() {
       directionStreaks,
     };
   }, [backtestAnalyticsYearFilter, backtests]);
-
-  const daraEdgeSummary = useMemo(() => {
-    const live = buildSessionEdgeSummary(toJournalItems(trades, []));
-    const testing = buildSessionEdgeSummary(toJournalItems([], backtests));
-
-    return {
-      live: {
-        bestSession: live.bestSession,
-        weakestSession: live.weakestSession,
-        bestPair: live.bestPair,
-        weakestPair: live.weakestPair,
-        bestSetup: live.bestSetup,
-        weakestSetup: live.weakestSetup,
-        bestCombo: live.bestCombo,
-        weakestCombo: live.weakestCombo,
-      },
-      backtest: {
-        bestSession: testing.bestSession,
-        weakestSession: testing.weakestSession,
-        bestPair: testing.bestPair,
-        weakestPair: testing.weakestPair,
-        bestSetup: testing.bestSetup,
-        weakestSetup: testing.weakestSetup,
-        bestCombo: testing.bestCombo,
-        weakestCombo: testing.weakestCombo,
-      },
-    };
-  }, [backtests, trades]);
-
-  const daraContext = useMemo(
-    () =>
-      buildCoachContext({
-        trades,
-        backtests,
-        stats,
-        tradeAnalytics,
-        performance: performanceBreakdown,
-        monthlyHeatmap,
-        marketSession,
-        edgeSummary: daraEdgeSummary,
-      }),
-    [backtests, daraEdgeSummary, marketSession, monthlyHeatmap, performanceBreakdown, stats, tradeAnalytics, trades],
-  );
 
   function showToast(nextToast: ToastState) {
     setToast(nextToast);
@@ -7235,7 +7175,6 @@ export default function App() {
         ) : null}
         </main>
       </div>
-      {tradingMode === "swing" ? <DaraMiniChatbar context={daraContext} /> : null}
     </div>
   );
 }
@@ -8123,7 +8062,6 @@ function MissingConfigScreen({ missing }: { missing: string[] }) {
           <div className="config-steps">
             <p>In Vercel, open Project Settings, then Environment Variables.</p>
             <p>Add the Supabase URL and publishable key for Production, Preview, and Development.</p>
-            <p>Add OPENAI_API_KEY too if you want Dara to work after deploy.</p>
             <p>Redeploy the project after saving the variables.</p>
           </div>
         </article>
@@ -8443,8 +8381,8 @@ function SessionEdge({
           </div>
           <h3>Where your edge actually shows up</h3>
           <p>
-            Compare sessions, pairs, setups, and pair/setup combinations so Dara can help you lean into strengths and
-            avoid weak conditions.
+            Compare sessions, pairs, setups, and pair/setup combinations so you can lean into strengths and avoid weak
+            conditions.
           </p>
         </div>
 
