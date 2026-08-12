@@ -2618,43 +2618,7 @@ export default function App() {
       .sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
   }, [pairFilter, qualityFilter, resultFilter, setupFilter, trades]);
 
-  const tradeQualityAnalytics = useMemo(() => {
-    const ratings: TradeQuality[] = ["Good", "Mid", "Bad"];
-    const reviewed = trades.filter((trade) => trade.quality);
-    const rows = ratings.map((rating) => {
-      const ratedTrades = reviewed.filter((trade) => trade.quality === rating);
-      const wins = ratedTrades.filter((trade) => trade.pnl > 0);
-      const losses = ratedTrades.filter((trade) => trade.pnl < 0);
-      const totalR = ratedTrades.reduce((sum, trade) => sum + trade.pnl, 0);
-      const grossWin = wins.reduce((sum, trade) => sum + trade.pnl, 0);
-      const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0));
-
-      return {
-        label: rating,
-        trades: ratedTrades.length,
-        totalR,
-        averageR: ratedTrades.length ? totalR / ratedTrades.length : 0,
-        winRate: ratedTrades.length ? Math.round((wins.length / ratedTrades.length) * 100) : 0,
-        profitFactor: grossLoss === 0 ? grossWin : grossWin / grossLoss,
-        averageMae: ratedTrades.length
-          ? ratedTrades.reduce((sum, trade) => sum + trade.mae, 0) / ratedTrades.length
-          : 0,
-      };
-    });
-    const good = rows[0];
-    const bad = rows[2];
-
-    return {
-      rows,
-      reviewed: reviewed.length,
-      coverage: trades.length ? Math.round((reviewed.length / trades.length) * 100) : 0,
-      goodRate: reviewed.length ? Math.round((good.trades / reviewed.length) * 100) : 0,
-      processOutcomeMismatches: reviewed.filter(
-        (trade) => (trade.quality === "Good" && trade.pnl < 0) || (trade.quality === "Bad" && trade.pnl > 0),
-      ).length,
-      qualityEdge: good.trades && bad.trades ? good.averageR - bad.averageR : null,
-    };
-  }, [trades]);
+  const tradeQualityAnalytics = useMemo(() => calculateTradeQualityAnalytics(trades), [trades]);
 
   const tradeImageItems = useMemo(() => {
     return trades
@@ -2819,6 +2783,16 @@ export default function App() {
       equityPoints,
     };
   }, [tradeAnalyticsYearFilter, trades]);
+
+  const scopedTradeQualityAnalytics = useMemo(
+    () =>
+      calculateTradeQualityAnalytics(
+        tradeAnalyticsYearFilter === "All"
+          ? trades
+          : trades.filter((trade) => trade.date.startsWith(tradeAnalyticsYearFilter)),
+      ),
+    [tradeAnalyticsYearFilter, trades],
+  );
 
   const tradeCalendarMonthOptions = useMemo(() => {
     const months = Array.from(new Set(trades.map((trade) => trade.date.slice(0, 7)))).sort().reverse();
@@ -6587,6 +6561,10 @@ export default function App() {
                     <Stat label="Longest short streak" value={String(tradeAnalytics.directionStreaks.longestShort)} />
                   </div>
                 </section>
+                <TradeQualityAdvancedAnalytics
+                  data={scopedTradeQualityAnalytics}
+                  periodLabel={tradeAnalyticsYearFilter === "All" ? "All-time quality review" : `${tradeAnalyticsYearFilter} quality review`}
+                />
               </>
             ) : null}
 
@@ -12083,11 +12061,109 @@ function BacktestCard({
 type TradeQualityAnalytics = {
   rows: PerformanceRow[];
   reviewed: number;
+  unrated: number;
   coverage: number;
   goodRate: number;
   processOutcomeMismatches: number;
+  goodLosses: number;
+  badWins: number;
   qualityEdge: number | null;
+  bestQuality: PerformanceRow | null;
 };
+
+function calculateTradeQualityAnalytics(sourceTrades: Trade[]): TradeQualityAnalytics {
+  const ratings: TradeQuality[] = ["Good", "Mid", "Bad"];
+  const reviewed = sourceTrades.filter((trade) => trade.quality);
+  const rows = ratings.map((rating) => {
+    const ratedTrades = reviewed.filter((trade) => trade.quality === rating);
+    const wins = ratedTrades.filter((trade) => trade.pnl > 0);
+    const losses = ratedTrades.filter((trade) => trade.pnl < 0);
+    const totalR = ratedTrades.reduce((sum, trade) => sum + trade.pnl, 0);
+    const grossWin = wins.reduce((sum, trade) => sum + trade.pnl, 0);
+    const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0));
+
+    return {
+      label: rating,
+      trades: ratedTrades.length,
+      totalR,
+      averageR: ratedTrades.length ? totalR / ratedTrades.length : 0,
+      winRate: ratedTrades.length ? Math.round((wins.length / ratedTrades.length) * 100) : 0,
+      profitFactor: grossLoss === 0 ? grossWin : grossWin / grossLoss,
+      averageMae: ratedTrades.length
+        ? ratedTrades.reduce((sum, trade) => sum + trade.mae, 0) / ratedTrades.length
+        : 0,
+    };
+  });
+  const good = rows[0];
+  const bad = rows[2];
+  const ratedRows = rows.filter((row) => row.trades > 0);
+  const goodLosses = reviewed.filter((trade) => trade.quality === "Good" && trade.pnl < 0).length;
+  const badWins = reviewed.filter((trade) => trade.quality === "Bad" && trade.pnl > 0).length;
+
+  return {
+    rows,
+    reviewed: reviewed.length,
+    unrated: sourceTrades.length - reviewed.length,
+    coverage: sourceTrades.length ? Math.round((reviewed.length / sourceTrades.length) * 100) : 0,
+    goodRate: reviewed.length ? Math.round((good.trades / reviewed.length) * 100) : 0,
+    processOutcomeMismatches: goodLosses + badWins,
+    goodLosses,
+    badWins,
+    qualityEdge: good.trades && bad.trades ? good.averageR - bad.averageR : null,
+    bestQuality: ratedRows.length
+      ? [...ratedRows].sort((a, b) => b.averageR - a.averageR)[0]
+      : null,
+  };
+}
+
+function TradeQualityAdvancedAnalytics({ data, periodLabel }: { data: TradeQualityAnalytics; periodLabel: string }) {
+  return (
+    <section className="quality-advanced-panel" aria-label="Advanced execution-quality analytics">
+      <div className="panel-header">
+        <span>Execution quality analytics</span>
+        <strong>{periodLabel}</strong>
+      </div>
+
+      <div className="stat-grid analytics-grid quality-analytics-stats">
+        <Stat label="Review coverage" value={`${data.coverage}% · ${data.reviewed} reviewed`} />
+        <Stat label="Unrated trades" value={String(data.unrated)} />
+        <Stat label="Good execution rate" value={`${data.goodRate}%`} />
+        <Stat
+          label="Good vs Bad expectancy gap"
+          value={data.qualityEdge === null ? "Need both ratings" : `${formatNumber(data.qualityEdge)}R`}
+        />
+        <Stat
+          label="Best quality expectancy"
+          value={data.bestQuality ? `${data.bestQuality.label} · ${formatNumber(data.bestQuality.averageR)}R` : "-"}
+        />
+        <Stat label="Process/outcome mismatches" value={String(data.processOutcomeMismatches)} />
+      </div>
+
+      <div className="quality-advanced-grid">
+        <PerformanceTable title="Good / Mid / Bad comparison" rows={data.rows} />
+        <article className="performance-card quality-outcome-card">
+          <div className="panel-header">
+            <span>Process vs outcome</span>
+            <strong>{data.processOutcomeMismatches} mismatches</strong>
+          </div>
+          <p>A disciplined execution can lose, while a poor execution can still win. These are the trades worth reviewing first.</p>
+          <div className="quality-outcome-list">
+            <div className="is-good">
+              <span>Good trades that lost</span>
+              <strong>{data.goodLosses}</strong>
+              <small>Correct process, unfavorable outcome</small>
+            </div>
+            <div className="is-bad">
+              <span>Bad trades that won</span>
+              <strong>{data.badWins}</strong>
+              <small>Favorable outcome, risky process</small>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+}
 
 function TradeQualitySummary({ data }: { data: TradeQualityAnalytics }) {
   return (

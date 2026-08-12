@@ -7151,6 +7151,85 @@ textarea:focus {
   box-shadow: var(--shadow);
 }
 
+.quality-advanced-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  border: 1px solid color-mix(in srgb, var(--brand) 28%, var(--line));
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--brand) 14%, transparent), transparent 26rem),
+    var(--surface);
+  padding: 18px;
+  box-shadow: var(--shadow);
+}
+
+.quality-advanced-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.quality-advanced-grid .performance-card {
+  box-shadow: none;
+}
+
+.quality-outcome-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.quality-outcome-card > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.quality-outcome-list {
+  display: grid;
+  gap: 10px;
+}
+
+.quality-outcome-list > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--quality-color);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--quality-color) 7%, var(--surface-strong));
+  padding: 13px;
+}
+
+.quality-outcome-list .is-good {
+  --quality-color: #14b8a6;
+}
+
+.quality-outcome-list .is-bad {
+  --quality-color: #fb7185;
+}
+
+.quality-outcome-list span,
+.quality-outcome-list small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.quality-outcome-list strong {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--quality-color);
+  font-size: 1.55rem;
+}
+
+.quality-outcome-list small {
+  grid-column: 1;
+}
+
 .quality-summary-copy {
   display: flex;
   justify-content: space-between;
@@ -9014,6 +9093,7 @@ textarea:focus {
   .trade-meta,
   .analytics-grid,
   .quality-summary-stats,
+  .quality-advanced-grid,
   .performance-grid,
   .yearly-grid,
   .yearly-detail-grid,
@@ -9342,6 +9422,7 @@ textarea:focus {
   .analytics-grid,
   .quality-summary-stats,
   .quality-breakdown,
+  .quality-advanced-grid,
   .performance-grid,
   .yearly-grid,
   .yearly-detail-grid,
