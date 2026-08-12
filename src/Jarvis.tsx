@@ -28,6 +28,7 @@ const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
 const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
+const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
 
 type JarvisTrade = {
   id: string;
@@ -196,6 +197,11 @@ function readJarvisMessages(userId: string): JarvisMessage[] {
     if (!Array.isArray(saved)) return [];
     return saved
       .filter((message) => message && (message.role === "user" || message.role === "jarvis") && typeof message.text === "string")
+      .map((message) => ({
+        ...message,
+        text: message.text.replace(`\n\n${LEGACY_FALLBACK_NOTICE}`, "").replace(LEGACY_FALLBACK_NOTICE, "").trim(),
+      }))
+      .filter((message) => message.text.length > 0)
       .slice(-30);
   } catch {
     return [];
@@ -370,6 +376,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
@@ -429,6 +436,14 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   useEffect(() => {
     localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(messages.slice(-30)));
   }, [messages, userId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const frame = window.requestAnimationFrame(() => {
+      feedRef.current?.scrollTo({ top: feedRef.current.scrollHeight, behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen, messages, isThinking]);
 
   useEffect(() => {
     localStorage.setItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`, JSON.stringify(memory));
@@ -605,7 +620,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
         lastHttpStatus: failure.status || null,
         fallbackActive: failure.fallbackAllowed === true,
       }));
-      const fallback = buildJarvisResponse(cleanPrompt, trades, forecasts);
+      const fallback = failure.fallbackAllowed === true ? buildJarvisResponse(cleanPrompt, trades, forecasts) : null;
       setMessages((current) => [
         ...current,
         fallback ? {
@@ -705,7 +720,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
             </aside>
 
             <main className="jarvis-conversation">
-              <div className="jarvis-feed">
+              <div className="jarvis-feed" ref={feedRef}>
                 {messages.length === 0 ? (
                   <div className="jarvis-welcome">
                     <div className="jarvis-hero-core" aria-hidden="true">
