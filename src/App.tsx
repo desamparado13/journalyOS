@@ -9016,49 +9016,31 @@ function MonthlyQualityRing({ data, month }: { data: TradeQualityAnalytics; mont
     count: row.trades,
     percentage: total ? Math.round((row.trades / total) * 100) : 0,
   }));
-  let offset = 0;
 
   return (
     <section className="monthly-quality-ring" aria-label={`${formatMonthLabel(month)} trade quality distribution`} key={month}>
-      <div className="monthly-quality-chart">
-        <svg viewBox="0 0 42 42" role="img" aria-label={`${data.coverage}% of trades reviewed`}>
-          <circle className="monthly-quality-track" cx="21" cy="21" r="15.9155" pathLength="100" />
-          {segments.map((segment) => {
-            const dashOffset = -offset;
-            offset += segment.percentage;
-            return segment.percentage > 0 ? (
+      {segments.map((segment) => (
+        <article className={`monthly-quality-item is-${segment.label.toLowerCase()}`} key={segment.label}>
+          <div className="monthly-quality-chart">
+            <svg viewBox="0 0 42 42" role="img" aria-label={`${segment.label}: ${segment.percentage}%`}>
+              <circle className="monthly-quality-track" cx="21" cy="21" r="15.9155" pathLength="100" />
               <circle
-                className={`monthly-quality-segment is-${segment.label.toLowerCase()}`}
+                className="monthly-quality-segment"
                 cx="21"
                 cy="21"
                 r="15.9155"
                 pathLength="100"
                 strokeDasharray={`${segment.percentage} ${100 - segment.percentage}`}
-                strokeDashoffset={dashOffset}
-                key={segment.label}
               />
-            ) : null;
-          })}
-        </svg>
-        <div className="monthly-quality-center">
-          <strong>{data.coverage}%</strong>
-          <span>reviewed</span>
-        </div>
-      </div>
-      <div className="monthly-quality-copy">
-        <span>Monthly quality</span>
-        <div className="monthly-quality-legend">
-          {segments.map((segment) => (
-            <div className={`is-${segment.label.toLowerCase()}`} key={segment.label}>
-              <i aria-hidden="true" />
-              <span>{segment.label}</span>
+            </svg>
+            <div className="monthly-quality-center">
               <strong>{segment.percentage}%</strong>
-              <small>{segment.count}</small>
             </div>
-          ))}
-        </div>
-        {data.unrated > 0 ? <small>{data.unrated} unrated trade{data.unrated === 1 ? "" : "s"}</small> : null}
-      </div>
+          </div>
+          <span>{segment.label}</span>
+          <small>{segment.count} trade{segment.count === 1 ? "" : "s"}</small>
+        </article>
+      ))}
     </section>
   );
 }
