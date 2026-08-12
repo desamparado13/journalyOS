@@ -1308,7 +1308,7 @@ label span,
 .jarvis-launcher {
   position: fixed;
   z-index: 80;
-  left: 18px;
+  right: 18px;
   bottom: 24px;
   display: flex;
   align-items: center;
@@ -1323,8 +1323,16 @@ label span,
   color: #e8fbff;
   box-shadow: 0 14px 42px rgba(0, 0, 0, 0.35), 0 0 30px rgba(14, 165, 233, 0.12);
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
   backdrop-filter: blur(18px);
   transition: width 220ms ease, border-color 220ms ease, transform 220ms ease, box-shadow 220ms ease;
+}
+
+.jarvis-launcher.is-dragging {
+  cursor: grabbing;
+  transform: scale(1.03);
+  transition: box-shadow 120ms ease;
 }
 
 .jarvis-launcher:hover {
@@ -1667,7 +1675,7 @@ label span,
 }
 
 @media (max-width: 860px) {
-  .jarvis-launcher { left: 18px; bottom: 18px; }
+  .jarvis-launcher { right: 18px; bottom: 18px; }
   .jarvis-header { grid-template-columns: 1fr auto; padding-inline: 16px; }
   .jarvis-header-status { display: none; }
   .jarvis-layout { grid-template-columns: minmax(0, 1fr); }

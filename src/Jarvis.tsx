@@ -19,7 +19,10 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
-import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+
+const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
+const JARVIS_ORB_MARGIN = 8;
 
 type JarvisTrade = {
   id: string;
@@ -72,6 +75,26 @@ type JarvisProps = {
   forecasts: JarvisForecast[];
   session: JarvisSession;
 };
+
+type OrbPosition = { x: number; y: number };
+
+function readOrbPosition(): OrbPosition | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(JARVIS_ORB_POSITION_KEY) || "null") as Partial<OrbPosition> | null;
+    return saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)
+      ? { x: Number(saved.x), y: Number(saved.y) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function clampOrbPosition(position: OrbPosition, width: number, height: number): OrbPosition {
+  return {
+    x: Math.min(Math.max(JARVIS_ORB_MARGIN, position.x), Math.max(JARVIS_ORB_MARGIN, window.innerWidth - width - JARVIS_ORB_MARGIN)),
+    y: Math.min(Math.max(JARVIS_ORB_MARGIN, position.y), Math.max(JARVIS_ORB_MARGIN, window.innerHeight - height - JARVIS_ORB_MARGIN)),
+  };
+}
 
 const quickCommands = [
   { label: "Analyze latest trade", prompt: "Analyze my latest trade", icon: Crosshair },
@@ -235,10 +258,14 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
 
 export default function Jarvis({ displayName, trades, forecasts, session }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
+  const [isDraggingOrb, setIsDraggingOrb] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<JarvisMessage[]>([]);
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const launcherRef = useRef<HTMLButtonElement>(null);
+  const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
   const goodTrades = reviewedTrades.filter((trade) => trade.quality === "Good").length;
@@ -263,6 +290,68 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    function keepOrbOnScreen() {
+      const launcher = launcherRef.current;
+      if (!launcher) return;
+      setOrbPosition((current) => {
+        if (!current) return current;
+        const nextPosition = clampOrbPosition(current, launcher.offsetWidth, launcher.offsetHeight);
+        localStorage.setItem(JARVIS_ORB_POSITION_KEY, JSON.stringify(nextPosition));
+        return nextPosition;
+      });
+    }
+
+    window.addEventListener("resize", keepOrbOnScreen);
+    return () => window.removeEventListener("resize", keepOrbOnScreen);
+  }, []);
+
+  function startOrbDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    orbDrag.current = {
+      pointerId: event.pointerId,
+      offsetX: event.clientX - bounds.left,
+      offsetY: event.clientY - bounds.top,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setIsDraggingOrb(true);
+  }
+
+  function moveOrb(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (orbDrag.current.pointerId !== event.pointerId) return;
+    const launcher = event.currentTarget;
+    const nextPosition = clampOrbPosition(
+      { x: event.clientX - orbDrag.current.offsetX, y: event.clientY - orbDrag.current.offsetY },
+      launcher.offsetWidth,
+      launcher.offsetHeight,
+    );
+    if (Math.hypot(event.clientX - orbDrag.current.startX, event.clientY - orbDrag.current.startY) > 4) {
+      orbDrag.current.moved = true;
+    }
+    setOrbPosition(nextPosition);
+  }
+
+  function finishOrbDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (orbDrag.current.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    orbDrag.current.pointerId = -1;
+    setIsDraggingOrb(false);
+    if (orbDrag.current.moved) {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const finalPosition = clampOrbPosition(
+        { x: bounds.left, y: bounds.top },
+        event.currentTarget.offsetWidth,
+        event.currentTarget.offsetHeight,
+      );
+      setOrbPosition(finalPosition);
+      localStorage.setItem(JARVIS_ORB_POSITION_KEY, JSON.stringify(finalPosition));
+    }
+  }
+
   function askJarvis(nextPrompt: string) {
     const cleanPrompt = nextPrompt.trim();
     if (!cleanPrompt || isThinking) return;
@@ -286,7 +375,22 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
 
   return (
     <>
-      <button className="jarvis-launcher" type="button" aria-label="Open Jarvis" onClick={() => setIsOpen(true)}>
+      <button
+        ref={launcherRef}
+        className={`jarvis-launcher${isDraggingOrb ? " is-dragging" : ""}`}
+        style={orbPosition ? { left: orbPosition.x, top: orbPosition.y, right: "auto", bottom: "auto" } : undefined}
+        type="button"
+        aria-label="Open Jarvis. Drag to reposition."
+        title="Drag Jarvis anywhere or click to open"
+        onPointerDown={startOrbDrag}
+        onPointerMove={moveOrb}
+        onPointerUp={finishOrbDrag}
+        onPointerCancel={finishOrbDrag}
+        onClick={() => {
+          if (orbDrag.current.moved) return;
+          setIsOpen(true);
+        }}
+      >
         <span className="jarvis-launcher-radar" />
         <span className="jarvis-launcher-orbit" />
         <span className="jarvis-launcher-core"><span>J</span></span>
