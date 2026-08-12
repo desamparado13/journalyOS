@@ -1761,7 +1761,9 @@ label span,
 }
 
 .calendar-title-row h3 {
+  justify-content: center;
   min-width: 0;
+  text-align: center;
 }
 
 .current-month-badge,
