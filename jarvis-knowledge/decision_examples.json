@@ -1,0 +1,46 @@
+[
+  {
+    "id": "EX-001",
+    "setup": "Internal Reversal",
+    "pair": "AUDJPY",
+    "date": "2026-04-07",
+    "decision": "TAKE",
+    "label": "reference-quality",
+    "reason": "Internal trigger was clearly unique relative to local candles and is a strong reference example."
+  },
+  {
+    "id": "EX-002",
+    "setup": "Internal Reversal",
+    "pair": "AUDJPY",
+    "date": "2026-04-10",
+    "decision": "SKIP",
+    "label": "weak-trigger",
+    "reason": "Trigger was roughly the same size/character as the previous 3–4 candles, so it lacked meaningful local uniqueness."
+  },
+  {
+    "id": "EX-003",
+    "setup": "Internal Reversal",
+    "pair": "GBPUSD",
+    "date": "2026-04-01",
+    "decision": "TAKE",
+    "label": "structural-dominance-exception",
+    "reason": "PPA was good/decent. Even though nearby candles were large, the trigger engulfed/dominated the entire relevant previous break. Structural dominance compensated for weaker visual uniqueness."
+  },
+  {
+    "id": "EX-004",
+    "setup": "Internal Reversal",
+    "pair": "NZDJPY",
+    "date": "2026-08-11",
+    "decision": "INVALIDATED",
+    "label": "forecast-invalidated",
+    "reason": "Internal short was watched/armed, but no convincing bearish engulf or momentum shift developed."
+  },
+  {
+    "id": "EX-005",
+    "setup": "Break & Retest",
+    "pair": "AUDUSD",
+    "decision": "SKIP",
+    "label": "good-skip-big-winner",
+    "reason": "A skipped B&R later moved strongly. Outcome does not retroactively make the skip bad."
+  }
+]

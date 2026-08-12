@@ -1,0 +1,25 @@
+{
+  "setup_type": "Internal Reversal | Reversal | Liquidity Sweep | Break & Retest | Flag | None",
+  "decision": "TAKE | SKIP | WATCH | ARMED | INVALIDATED",
+  "ppa_quality": "Strong | Good | Borderline | Weak | Unclear",
+  "market_state": "Trend | Weakening | Liquidity Box | Expansion | Transition | Reversal State | Unclear",
+  "momentum_state": "Bullish | Bearish | Intact | Weakening | Shifted | Mixed | Unclear",
+  "line_break_context": {
+    "count": "integer or unknown",
+    "quality": "clean | minor | noisy | mixed | unknown",
+    "environment": "trend | liquidity_box | transition | unknown"
+  },
+  "trigger_quality": {
+    "rating": "A | B | C | None",
+    "locally_unique": "yes | no | unclear",
+    "structurally_dominant": "yes | no | unclear",
+    "wick_quality": "good | acceptable | poor | unclear"
+  },
+  "entry_quality": "Valid | Borderline | Invalid | Not Triggered",
+  "stop_rule": "text",
+  "management_rule": "text",
+  "confidence": "0-100",
+  "reasoning_summary": "short explanation",
+  "invalidation_condition": "what would invalidate current watch/armed state",
+  "missing_data": []
+}

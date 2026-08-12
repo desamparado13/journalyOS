@@ -13,6 +13,7 @@ import {
   Gauge,
   Mic,
   Radio,
+  RefreshCcw,
   ShieldCheck,
   Sparkles,
   Target,
@@ -22,6 +23,7 @@ import {
 import { CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
+const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
 const JARVIS_ORB_MARGIN = 8;
 
 type JarvisTrade = {
@@ -70,6 +72,7 @@ type JarvisMessage = {
 };
 
 type JarvisProps = {
+  userId: string;
   displayName: string;
   trades: JarvisTrade[];
   forecasts: JarvisForecast[];
@@ -94,6 +97,18 @@ function clampOrbPosition(position: OrbPosition, width: number, height: number):
     x: Math.min(Math.max(JARVIS_ORB_MARGIN, position.x), Math.max(JARVIS_ORB_MARGIN, window.innerWidth - width - JARVIS_ORB_MARGIN)),
     y: Math.min(Math.max(JARVIS_ORB_MARGIN, position.y), Math.max(JARVIS_ORB_MARGIN, window.innerHeight - height - JARVIS_ORB_MARGIN)),
   };
+}
+
+function readJarvisMessages(userId: string): JarvisMessage[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`) || "[]");
+    if (!Array.isArray(saved)) return [];
+    return saved
+      .filter((message) => message && (message.role === "user" || message.role === "jarvis") && typeof message.text === "string")
+      .slice(-30);
+  } catch {
+    return [];
+  }
 }
 
 const quickCommands = [
@@ -256,12 +271,12 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   };
 }
 
-export default function Jarvis({ displayName, trades, forecasts, session }: JarvisProps) {
+export default function Jarvis({ userId, displayName, trades, forecasts, session }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [messages, setMessages] = useState<JarvisMessage[]>([]);
+  const [messages, setMessages] = useState<JarvisMessage[]>(() => readJarvisMessages(userId));
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
@@ -305,6 +320,10 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
     window.addEventListener("resize", keepOrbOnScreen);
     return () => window.removeEventListener("resize", keepOrbOnScreen);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(messages.slice(-30)));
+  }, [messages, userId]);
 
   function startOrbDrag(event: ReactPointerEvent<HTMLButtonElement>) {
     if (event.button !== 0) return;
@@ -352,20 +371,85 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
     }
   }
 
-  function askJarvis(nextPrompt: string) {
+  async function askJarvis(nextPrompt: string) {
     const cleanPrompt = nextPrompt.trim();
     if (!cleanPrompt || isThinking) return;
+    const recentHistory = messages.slice(-14).map((message) => ({
+      role: message.role === "jarvis" ? "assistant" : "user",
+      content: [message.title, message.text].filter(Boolean).join("\n"),
+    }));
     const userMessage: JarvisMessage = { id: crypto.randomUUID(), role: "user", text: cleanPrompt };
     setMessages((current) => [...current, userMessage]);
     setPrompt("");
     setIsThinking(true);
-    window.setTimeout(() => {
+
+    try {
+      const orderedTrades = latestFirst(trades);
+      const orderedForecasts = latestFirst(forecasts);
+      const response = await fetch("/api/jarvis/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          userId,
+          question: cleanPrompt,
+          history: recentHistory,
+          context: {
+            generatedAt: new Date().toISOString(),
+            profile: { displayName },
+            marketSession: session,
+            summary: {
+              totalTrades: trades.length,
+              reviewedTrades: reviewedTrades.length,
+              goodExecutions: goodTrades,
+              activeForecasts: activeForecasts.length,
+            },
+            recentTrades: orderedTrades.slice(0, 30).map((trade) => ({
+              date: trade.date,
+              pair: trade.pair,
+              setup: trade.setup,
+              direction: trade.direction,
+              outcome: trade.result,
+              pnlR: trade.pnl,
+              executionQuality: trade.quality,
+              notes: trade.notes,
+            })),
+            forecasts: orderedForecasts.slice(0, 20).map((forecast) => ({
+              date: forecast.date,
+              pair: forecast.pair,
+              setup: forecast.setup,
+              direction: forecast.direction,
+              status: forecast.status,
+              entryPlan: forecast.entryPlan,
+              plannedRiskPercent: forecast.riskPercent,
+              reasonToTake: forecast.reasonToTake,
+              reasonCancelled: forecast.reasonCancelled,
+              outcome: forecast.outcome,
+              resultR: forecast.resultR,
+              notes: forecast.notes,
+            })),
+          },
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || typeof payload?.answer !== "string") throw new Error(payload?.error || "Jarvis is unavailable.");
       setMessages((current) => [
         ...current,
-        { id: crypto.randomUUID(), role: "jarvis", ...buildJarvisResponse(cleanPrompt, trades, forecasts) },
+        { id: crypto.randomUUID(), role: "jarvis", text: payload.answer },
       ]);
+    } catch {
+      const fallback = buildJarvisResponse(cleanPrompt, trades, forecasts);
+      setMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          role: "jarvis",
+          ...fallback,
+          text: `${fallback.text}\n\nAI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.`,
+        },
+      ]);
+    } finally {
       setIsThinking(false);
-    }, 520);
+    }
   }
 
   function submitPrompt(event: FormEvent) {
@@ -420,6 +504,7 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
                 <button type="button" onClick={() => askJarvis("What am I currently watching?")}><Target size={17} /> Forecasts <span>{activeForecasts.length}</span></button>
                 <button type="button" onClick={() => askJarvis("Show me my recent mistakes")}><Eye size={17} /> Review</button>
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
+                <button type="button" onClick={() => setMessages([])}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               <div className="jarvis-source-stack">
@@ -427,6 +512,7 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
                 <div><Check size={13} /><p><strong>Trade journal</strong><small>{trades.length} records indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
+                <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
 
@@ -445,7 +531,7 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
                     </div>
                     <span className="jarvis-kicker"><i /> Journaly connected</span>
                     <h1>{greeting}, {displayName || "trader"}.</h1>
-                    <p>I’m reading your Journaly data. Ask about a trade, a repeated execution mistake, a setup, an active forecast, or documented risk.</p>
+                    <p>Talk to me naturally about trading. I know your strategy rules and Journaly history, whether you want a setup read, an honest review, or simply a second mind beside you.</p>
                     <div className="jarvis-command-grid">
                       {quickCommands.map(({ label, prompt: commandPrompt, icon: Icon }) => (
                         <button type="button" key={label} onClick={() => askJarvis(commandPrompt)}><Icon size={18} /><span>{label}</span><ChevronRight size={15} /></button>
@@ -465,7 +551,7 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
                         </div>
                       </article>
                     ))}
-                    {isThinking ? <div className="jarvis-thinking"><span /><span /><span /><small>Analyzing Journaly</small></div> : null}
+                    {isThinking ? <div className="jarvis-thinking"><span /><span /><span /><small>Thinking with your strategy</small></div> : null}
                   </div>
                 )}
               </div>
@@ -513,7 +599,7 @@ export default function Jarvis({ displayName, trades, forecasts, session }: Jarv
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.1</strong><small>Knows Journaly · read-only intelligence</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.2</strong><small>Conversational · strategy-aware · read-only</small></div></div>
             </aside>
           </div>
         </section>

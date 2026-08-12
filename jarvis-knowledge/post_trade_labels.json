@@ -1,0 +1,19 @@
+{
+  "execution_quality": ["A", "B", "C", "Skip-quality"],
+  "classification": ["GOOD TRADE", "GOOD LOSS", "BORDERLINE", "EXECUTION MISTAKE", "RULE VIOLATION", "GOOD SKIP"],
+  "outcome": ["WIN", "LOSS", "BE"],
+  "mistake_tags": [
+    "bad_PPA",
+    "weak_trigger",
+    "too_wicky",
+    "entered_too_early",
+    "wrong_setup_family",
+    "inside_liquidity_noise",
+    "continuation_after_momentum_shift",
+    "chased_breakout",
+    "premature_trailing",
+    "bad_stop",
+    "management_error"
+  ],
+  "principle": "Execution quality and outcome must always be stored separately."
+}

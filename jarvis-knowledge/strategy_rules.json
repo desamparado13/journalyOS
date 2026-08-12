@@ -1,0 +1,53 @@
+{
+  "version": "0.1",
+  "reasoning_priority": [
+    "Prior Price Action",
+    "Market condition / liquidity context",
+    "MRH/MRL structure and line breaks",
+    "Momentum",
+    "Eligible setup",
+    "Trigger/confirmation",
+    "Entry",
+    "Stop",
+    "Management"
+  ],
+  "global_rules": {
+    "hindsight": "Outcome must never determine setup or execution quality.",
+    "three_breaks": "3+ meaningful line breaks are an attention threshold, not automatic reversal.",
+    "box_breaks": "Line breaks inside liquidity boxes may be noise and should be weighted less than clean post-expansion breaks.",
+    "momentum_shift": "Can come from one very strong opposing candle or several strong opposing candles; not only line breaks.",
+    "jpy_wicks": "Allow somewhat more wick tolerance on JPY pairs.",
+    "trigger_locality": "Judge uniqueness relative to relevant local PPA, especially roughly 3–7 nearby candles.",
+    "trigger_validity": "Visual uniqueness OR structural dominance can validate; ideally both."
+  },
+  "setups": {
+    "Internal Reversal": {
+      "type": "reversal",
+      "stage": "early",
+      "stop": "2 pips beyond relevant MRH/MRL",
+      "target": "fixed 2R"
+    },
+    "Reversal": {
+      "type": "reversal",
+      "stage": "later confirmation",
+      "stop": "fixed 14 pips initial",
+      "target": "structural trail / runner"
+    },
+    "Liquidity Sweep": {
+      "type": "reversal/liquidity",
+      "stop": "2 pips beyond relevant MRH/MRL",
+      "target": "fixed 2R"
+    },
+    "Break & Retest": {
+      "type": "continuation",
+      "stop": "fixed 14 pips initial",
+      "target": "structural trail / runner",
+      "entry": "previous broken MRH/MRL line"
+    },
+    "Flag": {
+      "type": "continuation",
+      "stop": "fixed 14 pips initial",
+      "target": "structural trail / runner"
+    }
+  }
+}
