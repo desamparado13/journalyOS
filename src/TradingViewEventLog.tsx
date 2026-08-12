@@ -33,7 +33,9 @@ export default function TradingViewEventLog({ userId, displayName }: { userId: s
   const [newToken, setNewToken] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const endpoint = `${window.location.origin}/api/jarvis/tradingview`;
+  const endpoint = window.location.hostname.endsWith(".chatgpt.site")
+    ? "https://journaly-os.vercel.app/api/jarvis/tradingview"
+    : `${window.location.origin}/api/jarvis/tradingview`;
 
   async function load() {
     if (!supabase) return;
