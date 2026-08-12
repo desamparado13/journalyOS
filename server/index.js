@@ -29,11 +29,13 @@ const aiHealth = {
 const JOURNALY_TOOLS = [
   { type: "function", name: "get_user_profile", description: "Get the authenticated user's Journaly profile. Use only when identity or preferences matter.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_user_memories", description: "Get durable memories stored for the authenticated user.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { category: { type: ["string", "null"] } }, required: ["category"] } },
+  { type: "function", name: "get_learning_records", description: "Get lessons retained from prior Jarvis chart reviews and insights. Use only when the user explicitly asks what Jarvis learned, remembers from prior cases, or sees as a recurring lesson; never use for ordinary pair or current-chart checks.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: ["string", "null"], enum: ["chart", "skipped_trade", "insight", null] }, limit: { type: "integer", minimum: 1, maximum: 40 } }, required: ["source", "limit"] } },
   { type: "function", name: "get_strategy_rules", description: "Get Pot's current PPA-first strategy rules. Use for setup or decision reasoning, not casual conversation.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] } }, required: ["setup"] } },
   { type: "function", name: "get_setup_examples", description: "Get independently audited historical chart examples matching a setup or pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: ["string", "null"] }, pair: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 8 } }, required: ["setup", "pair", "limit"] } },
   { type: "function", name: "get_trade", description: "Get one authenticated user's trade by id or the latest trade.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { id: { type: ["string", "null"] }, latest: { type: "boolean" } }, required: ["id", "latest"] } },
   { type: "function", name: "get_recent_trades", description: "Get real Journaly trades, optionally filtered by pair, setup, or calendar month (YYYY-MM).", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "setup", "month", "limit"] } },
   { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
+  { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
   { type: "function", name: "get_account_risk", description: "Get documented planned risk from active Journaly forecasts. This is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
@@ -43,9 +45,10 @@ const JOURNALY_TOOLS = [
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "memoryUpdates"],
+  required: ["answer", "memoryUpdates", "learningSummary"],
   properties: {
     answer: { type: "string", maxLength: 12000 },
+    learningSummary: { type: ["string", "null"], maxLength: 1600 },
     memoryUpdates: {
       type: "array",
       maxItems: 4,
@@ -163,12 +166,12 @@ function parseJarvisOutput(text) {
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.answer === "string") {
-      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [] };
+      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null };
     }
   } catch {
     // Older fallback models may return plain text; keep the conversation available without storing memory.
   }
-  return { answer: text.trim(), memoryUpdates: [] };
+  return { answer: text.trim(), memoryUpdates: [], learningSummary: null };
 }
 
 function errorCategory(status, code, message) {
@@ -301,6 +304,8 @@ function executeJournalyTool(name, args, data) {
       return data.profile;
     case "get_user_memories":
       return { memories: (data.memories || []).filter((memory) => !args.category || memory.category === args.category) };
+    case "get_learning_records":
+      return { records: (data.learningRecords || []).filter((record) => !args.source || record.source === args.source).slice(0, args.limit) };
     case "get_strategy_rules": {
       const rules = Array.isArray(JARVIS_STRATEGY_RULES) ? JARVIS_STRATEGY_RULES : JARVIS_STRATEGY_RULES?.rules || JARVIS_STRATEGY_RULES;
       return { strategyVersion: "v0.3", setup: args.setup, rules };
@@ -315,6 +320,10 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_active_forecasts":
       return { forecasts: forecasts.filter((forecast) => forecast.status === "Waiting" && (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair))) };
+    case "get_skipped_trades": {
+      const skipped = forecasts.filter((forecast) => forecast.status === "Cancelled" || forecast.status === "Missed");
+      return { decisions: skipped.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup))).slice(0, args.limit) };
+    }
     case "get_pair_state": {
       const pair = normalizePair(args.pair);
       const pairTrades = trades.filter((trade) => normalizePair(trade.pair) === pair);
@@ -427,6 +436,7 @@ async function handleJarvis(request, env) {
     memories: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
     trades: Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : [],
     forecasts: Array.isArray(journalData?.forecasts) ? journalData.forecasts : [],
+    learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
     sessionState: journalData?.sessionState || {},
   };
   const compactContext = {
@@ -437,6 +447,7 @@ async function handleJarvis(request, env) {
     sessionState: journalData.sessionState,
     availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
+    learnedCaseCount: toolData.learningRecords.length,
   };
   const chartImage = validChartImage(body?.chartImage);
   const currentContent = [

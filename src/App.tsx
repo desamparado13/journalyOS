@@ -45,7 +45,7 @@ import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, 
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
-import Jarvis from "./Jarvis";
+import Jarvis, { JARVIS_LEARNING_PREFIX } from "./Jarvis";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
@@ -2339,7 +2339,7 @@ export default function App() {
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const dailyJournalEntries = useMemo(
-    () => journalEntries.filter((entry) => entry.kind === "daily"),
+    () => journalEntries.filter((entry) => entry.kind === "daily" && !entry.content.startsWith(JARVIS_LEARNING_PREFIX)),
     [journalEntries],
   );
   const monthlyJournalEntries = useMemo(
@@ -7186,6 +7186,7 @@ export default function App() {
           trades={trades}
           forecasts={tradeDecisions}
           session={marketSession}
+          journalEntries={journalEntries}
         />
       ) : null}
     </div>

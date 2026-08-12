@@ -22,7 +22,7 @@ const context = {
     memories: [{ category: "risk_rule", key: "risk_per_trade", value: "0.5%", confidence: 1 }],
   },
   marketSession: { label: "New York", status: "Open" },
-  summary: { totalTrades: 4, reviewedTrades: 4, goodExecutions: 2, activeForecasts: 1 },
+  summary: { totalTrades: 4, reviewedTrades: 4, goodExecutions: 2, activeForecasts: 1, learnedCases: 1 },
   sessionState: { activePair: "AUDJPY", activeSetup: "Internal Reversal", lastChartAvailable: true, lastJarvisDecision: "WATCH" },
   trades: [
     { id: "t4", date: "2026-08-10", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", outcome: "Loss", pnlR: -1, executionQuality: "Good", notes: "Valid trigger; stopped normally." },
@@ -30,7 +30,11 @@ const context = {
     { id: "t2", date: "2026-08-04", pair: "EURUSD", setup: "Internal Reversal", direction: "Buy", outcome: "Loss", pnlR: -1, executionQuality: "Mid", notes: "Trigger was not unique." },
     { id: "t1", date: "2026-07-28", pair: "GBPUSD", setup: "Flag", direction: "Buy", outcome: "Win", pnlR: 2, executionQuality: "Bad", notes: "Anticipatory entry." },
   ],
-  forecasts: [{ id: "f1", date: "2026-08-12", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", status: "Waiting", plannedRiskPercent: 0.5, entryPlan: "Wait for a strong bullish engulf." }],
+  forecasts: [
+    { id: "f1", date: "2026-08-12", pair: "AUDJPY", setup: "Internal Reversal", direction: "Buy", status: "Waiting", plannedRiskPercent: 0.5, entryPlan: "Wait for a strong bullish engulf." },
+    { id: "f0", date: "2026-08-08", pair: "EURUSD", setup: "Liquidity sweep", direction: "Sell", status: "Cancelled", reasonCancelled: "PPA stayed bullish", outcome: "Avoided loss", resultR: -1 },
+  ],
+  learningRecords: [{ date: "2026-08-09", source: "chart", prompt: "Review this liquidity sweep", summary: "Visible sweep was present, but bearish PPA confirmation was missing; the case remained a skip rather than a valid short." }],
 };
 
 async function ask(question, history = []) {
@@ -71,6 +75,9 @@ results.push({ test: "conversation continuity", pass: /engulf|trigger|confirm|in
 
 const stats = await ask("how have my Internals performed this month?");
 results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).includes("get_setup_statistics") && /3|33\.3|0R|internal/i.test(stats.answer), tools: stats.toolsUsed });
+
+const learning = await ask("what have you learned from my saved charts and skipped trades?");
+results.push({ test: "persistent learning retrieval", pass: /skip|chart|sweep|PPA|lesson|pattern/i.test(learning.answer) && (learning.toolsUsed || []).some((tool) => tool === "get_learning_records" || tool === "get_skipped_trades"), tools: learning.toolsUsed });
 
 const blockedRequest = new Request("http://local/api/jarvis/chat", {
   method: "POST",

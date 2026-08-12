@@ -34,6 +34,7 @@ const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
 const JARVIS_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 const JARVIS_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+export const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
 
 type JarvisTrade = {
   id: string;
@@ -111,6 +112,15 @@ type JarvisProps = {
   trades: JarvisTrade[];
   forecasts: JarvisForecast[];
   session: JarvisSession;
+  journalEntries: Array<{ id: string; date: string; content: string; advice: string }>;
+};
+
+type JarvisLearningRecord = {
+  id: string;
+  date: string;
+  source: "chart" | "skipped_trade" | "insight";
+  prompt: string;
+  summary: string;
 };
 
 type OrbPosition = { x: number; y: number };
@@ -188,6 +198,23 @@ function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdat
     if (update.operation === "upsert") memories.push({ ...update, key, value: update.value.trim().slice(0, 800), updatedAt: new Date().toISOString() });
   });
   return { ...state, preferredName, memories: memories.slice(-40) };
+}
+
+function decodeLearningRecord(entry: JarvisProps["journalEntries"][number]): JarvisLearningRecord | null {
+  if (!entry.content.startsWith(JARVIS_LEARNING_PREFIX)) return null;
+  try {
+    const metadata = JSON.parse(entry.content.slice(JARVIS_LEARNING_PREFIX.length).trim());
+    if (!metadata || typeof metadata.prompt !== "string" || typeof entry.advice !== "string" || !entry.advice.trim()) return null;
+    return {
+      id: entry.id,
+      date: entry.date,
+      source: ["chart", "skipped_trade", "insight"].includes(metadata.source) ? metadata.source : "insight",
+      prompt: metadata.prompt.slice(0, 1200),
+      summary: entry.advice.trim().slice(0, 1600),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function readOrbPosition(): OrbPosition | null {
@@ -415,7 +442,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   return null;
 }
 
-export default function Jarvis({ userId, username, displayName, trades, forecasts, session }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, forecasts, session, journalEntries }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
@@ -426,6 +453,8 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
   const [attachedImage, setAttachedImage] = useState<{ dataUrl: string; name: string } | null>(null);
   const [attachmentError, setAttachmentError] = useState("");
+  const [sessionLearningRecords, setSessionLearningRecords] = useState<JarvisLearningRecord[]>([]);
+  const [learningSyncState, setLearningSyncState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -439,6 +468,12 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
   const latestTrade = latestFirst(trades)[0];
   const qualityRate = reviewedTrades.length ? Math.round((goodTrades / reviewedTrades.length) * 100) : 0;
   const preferredName = memory.preferredName || displayName || "trader";
+  const learningRecords = useMemo(() => {
+    const records = [...journalEntries.map(decodeLearningRecord).filter((record): record is JarvisLearningRecord => Boolean(record)), ...sessionLearningRecords];
+    return Array.from(new Map(records.map((record) => [record.id, record])).values())
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 80);
+  }, [journalEntries, sessionLearningRecords]);
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -583,10 +618,41 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
     inputRef.current?.focus();
   }
 
+  async function persistLearningRecord(promptText: string, summary: string, source: JarvisLearningRecord["source"]) {
+    if (!supabase || !summary.trim()) return;
+    setLearningSyncState("saving");
+    const date = new Date().toISOString().slice(0, 10);
+    const metadata = `${JARVIS_LEARNING_PREFIX}\n${JSON.stringify({ source, prompt: promptText.slice(0, 1200) })}`;
+    const { data, error } = await supabase
+      .from("journal_entries")
+      .insert({
+        user_id: userId,
+        entry_date: date,
+        content: metadata,
+        advice: summary.trim().slice(0, 1600),
+        image_url: "",
+        pair: null,
+        related_trade_id: null,
+        related_discipline_id: null,
+        updated_at: new Date().toISOString(),
+      })
+      .select("id,entry_date,content,advice")
+      .single();
+    if (error || !data) {
+      setLearningSyncState("error");
+      return;
+    }
+    const record = decodeLearningRecord({ id: data.id, date: data.entry_date, content: data.content, advice: data.advice || "" });
+    if (record) setSessionLearningRecords((current) => [...current, record]);
+    setLearningSyncState("saved");
+  }
+
   async function askJarvis(nextPrompt: string) {
     const imageForRequest = attachedImage;
     const cleanPrompt = nextPrompt.trim() || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
+    const learningSource: JarvisLearningRecord["source"] = imageForRequest ? "chart" : /\bskip(?:ped|ping)?\b/i.test(cleanPrompt) ? "skipped_trade" : "insight";
+    const shouldArchiveLearning = Boolean(imageForRequest) || /\b(remember|learn from|lesson|insight|note that|my rule|from now on|key takeaway|teach|i (?:notice|noticed|find|found)|skip(?:ped|ping)? trade)\b/i.test(cleanPrompt);
     const recentHistory = messages.slice(-14).map((message) => ({
       role: message.role === "jarvis" ? "assistant" : "user",
       content: [message.title, message.text].filter(Boolean).join("\n"),
@@ -635,6 +701,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               reviewedTrades: reviewedTrades.length,
               goodExecutions: goodTrades,
               activeForecasts: activeForecasts.length,
+              learnedCases: learningRecords.length,
             },
             sessionState: {
               activePair: chartTrade?.pair || requestedPair || null,
@@ -657,7 +724,7 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               notes: trade.notes,
               hasScreenshot: Boolean(trade.screenshot),
             })),
-            forecasts: orderedForecasts.slice(0, 20).map((forecast) => ({
+            forecasts: orderedForecasts.slice(0, 200).map((forecast) => ({
               date: forecast.date,
               pair: forecast.pair,
               setup: forecast.setup,
@@ -670,6 +737,12 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
               outcome: forecast.outcome,
               resultR: forecast.resultR,
               notes: forecast.notes,
+            })),
+            learningRecords: learningRecords.map((record) => ({
+              date: record.date,
+              source: record.source,
+              prompt: record.prompt,
+              summary: record.summary,
             })),
           },
         }),
@@ -694,6 +767,9 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
       }));
       if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
+      }
+      if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
+        void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
       if (Number.isFinite(payload?.usage?.costUsd)) {
         const requestCost = Math.max(0, Number(payload.usage.costUsd));
@@ -818,7 +894,8 @@ export default function Jarvis({ userId, username, displayName, trades, forecast
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>
                 <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
-                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} durable note{memory.memories.length === 1 ? "" : "s"} · user-isolated</small></p></div>
+                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} rule{memory.memories.length === 1 ? "" : "s"} · {learningRecords.length} learned case{learningRecords.length === 1 ? "" : "s"}</small></p></div>
+                <div><BookOpenCheck size={13} /><p><strong>Learning archive</strong><small>{learningSyncState === "saving" ? "Saving latest insight…" : learningSyncState === "error" ? "Latest insight stayed in chat" : "Summaries synced · images stay lightweight"}</small></p></div>
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
 
