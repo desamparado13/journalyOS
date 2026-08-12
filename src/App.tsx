@@ -46,7 +46,7 @@ import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, 
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
-import Jarvis, { JARVIS_LEARNING_PREFIX } from "./Jarvis";
+import Jarvis, { JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_LEARNING_PREFIX } from "./Jarvis";
 import TradingViewEventLog from "./TradingViewEventLog";
 import logoUrl from "../assets/logo.svg";
 
@@ -410,6 +410,14 @@ type TradeDecision = {
   resultR: number;
   createdAt: string;
   updatedAt: string;
+};
+type ForecastReviewSyncState = "reviewing" | "reviewed" | "error";
+type ForecastReviewRecord = {
+  forecastId: string;
+  reviewedAt: string;
+  confidence: "Low" | "Medium" | "High";
+  eligibleForAggregate: boolean;
+  learningCandidate: string;
 };
 type PersonalJournalEntry = {
   id: string;
@@ -2266,6 +2274,7 @@ export default function App() {
   const [tradeAdviceIndex, setTradeAdviceIndex] = useState(0);
   const [isTradeAdviceLibraryOpen, setIsTradeAdviceLibraryOpen] = useState(false);
   const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
+  const [forecastReviewSync, setForecastReviewSync] = useState<Record<string, ForecastReviewSyncState>>({});
   const [decisionForm, setDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
   const [isSavingBacktest, setIsSavingBacktest] = useState(false);
@@ -2319,6 +2328,7 @@ export default function App() {
   const [sessionNow, setSessionNow] = useState(() => new Date());
   const lastLoadedUserId = useRef<string | null>(null);
   const journalLoadedUserId = useRef<string | null>(null);
+  const forecastReviewAttempted = useRef(new Set<string>());
   const pairAdviceLoadedUserId = useRef<string | null>(null);
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
@@ -2332,9 +2342,32 @@ export default function App() {
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const dailyJournalEntries = useMemo(
-    () => journalEntries.filter((entry) => entry.kind === "daily" && !entry.content.startsWith(JARVIS_LEARNING_PREFIX)),
+    () => journalEntries.filter((entry) => entry.kind === "daily" && !entry.content.startsWith(JARVIS_LEARNING_PREFIX) && !entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX)),
     [journalEntries],
   );
+  const forecastReviews = useMemo(() => {
+    const records = new Map<string, ForecastReviewRecord>();
+    journalEntries.forEach((entry) => {
+      if (!entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX)) return;
+      try {
+        const parsed = JSON.parse(entry.content.slice(JARVIS_FORECAST_REVIEW_PREFIX.length).trim()) as Partial<ForecastReviewRecord>;
+        if (parsed.forecastId) records.set(parsed.forecastId, parsed as ForecastReviewRecord);
+      } catch {
+        // Ignore malformed internal evidence records instead of exposing them in Forecast.
+      }
+    });
+    return records;
+  }, [journalEntries]);
+  useEffect(() => {
+    if (!currentUser || journalLoadedUserId.current !== currentUser.id) return;
+    const missing = tradeDecisions
+      .filter((entry) => entry.status !== "Waiting" && !forecastReviews.has(entry.id) && !forecastReviewAttempted.current.has(entry.id))
+      .slice(0, 2);
+    missing.forEach((entry) => {
+      forecastReviewAttempted.current.add(entry.id);
+      void triggerForecastReview(entry.id, { quiet: true });
+    });
+  }, [currentUser, forecastReviews, tradeDecisions]);
   const monthlyJournalEntries = useMemo(
     () => journalEntries.filter((entry) => entry.kind === "monthly"),
     [journalEntries],
@@ -3554,11 +3587,13 @@ export default function App() {
     }
   }
 
-  async function loadJournalEntries() {
+  async function loadJournalEntries(options: { silent?: boolean } = {}) {
     if (!currentUser || !supabase) return;
 
-    setIsSyncing(true);
-    setSyncMessage("");
+    if (!options.silent) {
+      setIsSyncing(true);
+      setSyncMessage("");
+    }
 
     try {
       const { data, error } = await withLoadTimeout(
@@ -3583,9 +3618,9 @@ export default function App() {
       void hydrateJournalEntryImages(loadedEntries.map((entry) => entry.id));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load journal entries.";
-      setSyncMessage(`Could not load journal entries: ${message}`);
+      if (!options.silent) setSyncMessage(`Could not load journal entries: ${message}`);
     } finally {
-      setIsSyncing(false);
+      if (!options.silent) setIsSyncing(false);
     }
   }
 
@@ -3927,6 +3962,33 @@ export default function App() {
     setPendingTradeLock({ ...tradeForm });
   }
 
+  async function triggerForecastReview(forecastId: string, options: { quiet?: boolean } = {}) {
+    if (!currentUser || !supabase) return;
+    setForecastReviewSync((current) => ({ ...current, [forecastId]: "reviewing" }));
+    try {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (!accessToken) throw new Error("Your Journaly session has expired.");
+      const response = await fetch("/api/jarvis/forecast-review", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId: currentUser.id, forecastId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || "Jarvis could not review this forecast.");
+      await loadJournalEntries({ silent: true });
+      setForecastReviewSync((current) => ({ ...current, [forecastId]: payload?.reviewed ? "reviewed" : "reviewed" }));
+    } catch (error) {
+      setForecastReviewSync((current) => ({ ...current, [forecastId]: "error" }));
+      if (!options.quiet) showToast({ tone: "error", title: "Jarvis review pending", message: error instanceof Error ? error.message : "The forecast was saved, but its automatic review needs a retry." });
+    }
+  }
+
+  async function handleJarvisForecastChanged(forecast?: { id: string; status: TradeDecisionStatus }) {
+    await loadTradeDecisions();
+    if (forecast?.id) void triggerForecastReview(forecast.id);
+  }
+
   async function handleForecastSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!currentUser || !supabase) return;
@@ -3978,6 +4040,7 @@ export default function App() {
       title: existing ? "Forecast updated" : "Forecast saved",
       message: `${saved.pair} is now ${saved.status.toLowerCase()}.`,
     });
+    void triggerForecastReview(saved.id);
   }
 
   async function handleForecastStatusChange(entry: TradeDecision, status: TradeDecisionStatus) {
@@ -4002,6 +4065,7 @@ export default function App() {
     const saved = toTradeDecision(data as TradeDecisionRow);
     setTradeDecisions((current) => current.map((item) => (item.id === saved.id ? saved : item)));
     showToast({ tone: "success", title: `${saved.pair} updated`, message: `Forecast marked ${saved.status.toLowerCase()}.` });
+    void triggerForecastReview(saved.id);
   }
 
   async function handleForecastPostImageChange(entry: TradeDecision, file: File) {
@@ -6655,6 +6719,8 @@ export default function App() {
             {activeView === "discipline" ? (
               <ForecastLog
                 entries={tradeDecisions}
+                reviews={forecastReviews}
+                reviewSync={forecastReviewSync}
                 form={decisionForm}
                 isSyncing={isSyncing}
                 onFormChange={setDecisionForm}
@@ -6662,6 +6728,7 @@ export default function App() {
                 onEdit={editForecast}
                 onDelete={deleteForecast}
                 onStatusChange={handleForecastStatusChange}
+                onReview={triggerForecastReview}
                 onPostImageChange={handleForecastPostImageChange}
                 onOpenImage={(items, index) => openImageViewer(items, index)}
                 onClear={() => setDecisionForm(tradeDecisionDefaults())}
@@ -7219,7 +7286,7 @@ export default function App() {
           session={marketSession}
           journalEntries={journalEntries}
           onTradeCreated={loadTrades}
-          onForecastChanged={loadTradeDecisions}
+          onForecastChanged={handleJarvisForecastChanged}
         />
       ) : null}
     </div>
@@ -11705,6 +11772,8 @@ function summarizeTraderPreview(trades: Trade[]) {
 
 function ForecastLog({
   entries,
+  reviews,
+  reviewSync,
   form,
   isSyncing,
   onFormChange,
@@ -11712,11 +11781,14 @@ function ForecastLog({
   onEdit,
   onDelete,
   onStatusChange,
+  onReview,
   onPostImageChange,
   onOpenImage,
   onClear,
 }: {
   entries: TradeDecision[];
+  reviews: Map<string, ForecastReviewRecord>;
+  reviewSync: Record<string, ForecastReviewSyncState>;
   form: TradeDecisionFormState;
   isSyncing: boolean;
   onFormChange: (form: TradeDecisionFormState) => void;
@@ -11724,6 +11796,7 @@ function ForecastLog({
   onEdit: (entry: TradeDecision) => void;
   onDelete: (entry: TradeDecision) => void;
   onStatusChange: (entry: TradeDecision, status: TradeDecisionStatus) => Promise<void>;
+  onReview: (forecastId: string) => Promise<void>;
   onPostImageChange: (entry: TradeDecision, file: File) => Promise<void>;
   onOpenImage: (items: ImageViewerItem[], index: number) => void;
   onClear: () => void;
@@ -11859,6 +11932,8 @@ function ForecastLog({
         {!isSyncing && filteredEntries.length === 0 ? (
           <div className="empty-state"><strong>No forecasts match this view</strong><p>Create an idea before the move or choose another month and status.</p><button className="primary-action" type="button" onClick={() => openForecastForm()}><Plus size={16} />New forecast</button></div>
         ) : filteredEntries.slice(0, visibleCount).map((entry) => {
+          const review = reviews.get(entry.id);
+          const reviewState = reviewSync[entry.id];
           const images: ImageViewerItem[] = [
             entry.screenshot ? { id: `${entry.id}-pre`, src: entry.screenshot, alt: `${entry.pair} pre-trade chart`, title: `${entry.pair} pre image`, meta: `${entry.setup} / ${formatOrdinalDate(entry.date)}` } : null,
             entry.postImage ? { id: `${entry.id}-post`, src: entry.postImage, alt: `${entry.pair} post-trade chart`, title: `${entry.pair} post image`, meta: `${formatNumber(entry.resultR)}R result` } : null,
@@ -11875,6 +11950,15 @@ function ForecastLog({
                 </header>
                 <div className="forecast-card-title"><div><strong>{entry.pair}</strong><span>{entry.direction} · {entry.setup}</span></div></div>
                 {entry.notes || entry.entryPlan || entry.reasonToTake || entry.reasonCancelled ? <p className="forecast-summary">{entry.notes || entry.entryPlan || entry.reasonToTake || entry.reasonCancelled}</p> : <p className="forecast-summary is-empty">No forecast entry yet.</p>}
+                {entry.status === "Waiting" ? (
+                  <div className="forecast-review-state is-observation"><Brain size={14} /><span><strong>Observation only</strong>Jarvis waits for a resolved status before learning.</span></div>
+                ) : reviewState === "reviewing" ? (
+                  <div className="forecast-review-state is-reviewing"><RefreshCcw size={14} /><span><strong>Jarvis is reviewing</strong>Separating thesis, outcome, and execution evidence.</span></div>
+                ) : review ? (
+                  <div className="forecast-review-state is-reviewed" title={review.learningCandidate}><CheckCircle2 size={14} /><span><strong>Jarvis reviewed · {review.confidence} confidence</strong>{review.eligibleForAggregate ? "Eligible for aggregate learning" : "Saved as evidence, excluded from aggregate learning"}</span></div>
+                ) : (
+                  <button className={`forecast-review-state is-pending${reviewState === "error" ? " is-error" : ""}`} type="button" onClick={() => void onReview(entry.id)}><TriangleAlert size={14} /><span><strong>{reviewState === "error" ? "Review needs retry" : "Review pending"}</strong>Tap to let Jarvis process this resolved forecast.</span></button>
+                )}
                 <div className="forecast-status-actions" aria-label={`Update ${entry.pair} forecast status`}>
                   {decisionStatuses.map((status) => <button className={`is-${status.toLowerCase()}`} type="button" key={status} aria-pressed={entry.status === status} disabled={isSyncing} onClick={() => void onStatusChange(entry, status)}>{status === "Waiting" ? <Clock3 size={14} /> : status === "Taken" ? <CheckCircle2 size={14} /> : status === "Invalidated" ? <CircleSlash2 size={14} /> : <ShieldCheck size={14} />}{status}</button>)}
                 </div>

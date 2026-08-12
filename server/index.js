@@ -10,6 +10,7 @@ const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
 const VERCEL_GATEWAY_ENDPOINT = "https://ai-gateway.vercel.sh/v1/responses";
 const AI_TIMEOUT_MS = 45_000;
 const MAX_TOOL_ROUNDS = 3;
+const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
 const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
 JOURNALY TRADE ACTIONS
 - You may prepare a new Journaly live-trade draft when the user clearly says they are taking, entering, logging, or adding a trade.
@@ -37,6 +38,7 @@ JOURNALY NUMERIC ACCURACY
 - Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
+- For forecast-review counts, directional accuracy, execution counts, or learned patterns, always call get_forecast_learning. Copy its numerators, denominators, percentages, and evidence stage exactly; interpret them but never recalculate them.
 - Treat tool statistics as authoritative. If a screenshot conflicts with tool data, state the conflict without inventing a reconciliation.`;
 const JARVIS_EVIDENCE_INSTRUCTIONS = `
 JARVIS CHART TRUST CONTRACT
@@ -78,6 +80,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "compare_live_vs_backtest", description: "Compare live-trade and backtest performance using separately calculated sample sizes, win rates, total R, and expectancy. Use when the user asks whether backtests translate to live execution.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "month"] } },
   { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
   { type: "function", name: "get_forecasts", description: "Get the authenticated user's complete forecast history with optional pair, setup, status, and calendar-month filters. Use this to learn from forecast decisions and outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 500 } }, required: ["pair", "setup", "status", "month", "limit"] } },
+  { type: "function", name: "get_forecast_learning", description: "Get durable automatic reviews and deterministic aggregate patterns from resolved forecasts. This is the only authority for numeric forecast-learning claims. Waiting forecasts are excluded and insights never alter strategy rules.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 200 } }, required: ["pair", "setup", "month", "limit"] } },
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
@@ -309,6 +312,189 @@ function supabaseConnection(env) {
   const url = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
   const key = env.SUPABASE_PUBLISHABLE_KEY || env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   return url && key ? { url: String(url).replace(/\/$/, ""), key, fetch: env.SUPABASE_FETCH || fetch } : null;
+}
+
+const FORECAST_REVIEW_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["thesis", "whatHappened", "executionAssessment", "directionOutcome", "entryCriteriaOutcome", "learningCandidate", "confidence", "eligibleForAggregate", "evidenceNotes"],
+  properties: {
+    thesis: { type: "string", maxLength: 900 },
+    whatHappened: { type: "string", maxLength: 900 },
+    executionAssessment: { type: "string", enum: ["Correct take", "Correct skip", "Missed opportunity", "Invalidated thesis", "Insufficient evidence"] },
+    directionOutcome: { type: "string", enum: ["Correct", "Incorrect", "Unclear"] },
+    entryCriteriaOutcome: { type: "string", enum: ["Completed", "Not completed", "Unclear"] },
+    learningCandidate: { type: "string", maxLength: 1000 },
+    confidence: { type: "string", enum: ["Low", "Medium", "High"] },
+    eligibleForAggregate: { type: "boolean" },
+    evidenceNotes: { type: "array", maxItems: 6, items: { type: "string", maxLength: 260 } },
+  },
+};
+
+function decodeForecastReview(row) {
+  const content = String(row?.content || "");
+  if (!content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX)) return null;
+  try {
+    const review = JSON.parse(content.slice(JARVIS_FORECAST_REVIEW_PREFIX.length).trim());
+    return review?.forecastId ? { ...review, journalEntryId: row.id } : null;
+  } catch {
+    return null;
+  }
+}
+
+function fallbackForecastReview(forecast) {
+  const outcome = String(forecast.outcome || "Unknown");
+  const directionOutcome = outcome === "Won" ? "Correct" : outcome === "Lost" ? "Incorrect" : "Unclear";
+  const entryCriteriaOutcome = forecast.status === "Taken" ? "Completed" : "Unclear";
+  const executionAssessment = forecast.status === "Invalidated"
+    ? "Invalidated thesis"
+    : forecast.status === "Skipped"
+      ? "Insufficient evidence"
+      : forecast.status === "Taken"
+        ? "Correct take"
+        : "Insufficient evidence";
+  return {
+    thesis: String(forecast.notes || "No written thesis was provided.").slice(0, 900),
+    whatHappened: outcome === "Unknown" ? `The forecast was resolved as ${forecast.status}, but no outcome was documented.` : `The forecast was resolved as ${forecast.status} with outcome ${outcome}.`,
+    executionAssessment,
+    directionOutcome,
+    entryCriteriaOutcome,
+    learningCandidate: "Keep this as evidence, but do not change the playbook until the written record and aggregate sample support a stable pattern.",
+    confidence: directionOutcome === "Unclear" ? "Low" : "Medium",
+    eligibleForAggregate: directionOutcome !== "Unclear" || executionAssessment !== "Insufficient evidence",
+    evidenceNotes: ["Generated conservatively from structured forecast fields because an AI interpretation was unavailable."],
+  };
+}
+
+async function generateForecastReview(env, userId, forecast) {
+  const connection = aiConnection(env);
+  if (!connection) return { core: fallbackForecastReview(forecast), model: null, method: "deterministic_fallback" };
+  const prompt = `Review this resolved trading forecast as evidence. The user's single notes field may contain the thesis, entry plan, later outcome, and invalidation reasoning. Use only documented facts. Do not infer absent chart evidence. A Skipped forecast is a correct skip when entry criteria did not complete; do not call it a missed trade merely because direction later proved correct. Mark eligibleForAggregate=false when the record is too ambiguous to support any pattern. Never create or modify a strategy rule.\n\nFORECAST\n${JSON.stringify({ id: forecast.id, date: forecast.date, time: forecast.time, pair: forecast.pair, setup: forecast.setup, direction: forecast.direction, status: forecast.status, outcome: forecast.outcome, resultR: forecast.resultR, notes: forecast.notes })}`;
+  const models = Array.from(new Set([connection.model, ...FALLBACK_MODELS]));
+  for (const model of models) {
+    const requestBody = {
+      model: connection.modelName(model),
+      instructions: "You are Jarvis's conservative forecast evidence reviewer. Separate directional accuracy from entry completion and execution quality. Return only the required structured review.",
+      input: [{ role: "user", content: prompt }],
+      max_output_tokens: 900,
+      store: false,
+      safety_identifier: await safetyIdentifier(userId),
+      text: { format: { type: "json_schema", name: "forecast_review", strict: true, schema: FORECAST_REVIEW_SCHEMA } },
+    };
+    if (model.includes("gpt-5.6")) {
+      requestBody.reasoning = { effort: "low" };
+      requestBody.text.verbosity = "medium";
+    }
+    try {
+      const { response, payload } = await openAiRequest(connection, requestBody);
+      if (!response.ok) continue;
+      const parsed = JSON.parse(extractResponseText(payload));
+      return { core: parsed, model, method: "ai_structured_review" };
+    } catch {
+      // Try the next configured model before falling back to deterministic evidence.
+    }
+  }
+  return { core: fallbackForecastReview(forecast), model: null, method: "deterministic_fallback" };
+}
+
+async function writeAuthenticatedJournalRow(request, env, userId, existingId, payload) {
+  const token = bearerToken(request);
+  const connection = supabaseConnection(env);
+  if (!token || !connection) throw new Error("Forecast review storage is unavailable.");
+  const url = existingId
+    ? `${connection.url}/rest/v1/journal_entries?id=eq.${encodeURIComponent(existingId)}&user_id=eq.${encodeURIComponent(userId)}`
+    : `${connection.url}/rest/v1/journal_entries`;
+  const response = await connection.fetch(url, {
+    method: existingId ? "PATCH" : "POST",
+    headers: { apikey: connection.key, authorization: `Bearer ${token}`, "content-type": "application/json", prefer: "return=representation" },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(result?.message || "Forecast review could not be stored.");
+  return Array.isArray(result) ? result[0] : result;
+}
+
+async function deleteAuthenticatedJournalRow(request, env, userId, id) {
+  const token = bearerToken(request);
+  const connection = supabaseConnection(env);
+  if (!token || !connection) throw new Error("Forecast review storage is unavailable.");
+  const response = await connection.fetch(`${connection.url}/rest/v1/journal_entries?id=eq.${encodeURIComponent(id)}&user_id=eq.${encodeURIComponent(userId)}`, {
+    method: "DELETE",
+    headers: { apikey: connection.key, authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Forecast review could not be removed.");
+}
+
+async function handleForecastReview(request, env) {
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid request body." }, 400); }
+  const forecastId = String(body?.forecastId || "").trim();
+  if (!forecastId) return json({ error: "A forecast id is required." }, 400);
+  let user;
+  try { user = await authenticateUser(request, env, body?.userId); } catch { return json({ error: "Jarvis authentication failed." }, 503); }
+  if (!user || (body?.userId && body.userId !== user.id)) return json({ error: "Unauthorized" }, 401);
+
+  const [rows, journals] = await Promise.all([
+    loadAuthenticatedRows(request, env, user.id, "trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,outcome,notes,result_r,updated_at", "decision_date.desc,id.desc"),
+    loadAuthenticatedRows(request, env, user.id, "journal_entries", "id,entry_date,content,advice,pair,related_discipline_id,created_at,updated_at", "created_at.desc,id.desc"),
+  ]);
+  if (!Array.isArray(rows) || !Array.isArray(journals)) return json({ error: "Forecast evidence is unavailable." }, 503);
+  const row = rows.find((item) => item.id === forecastId);
+  if (!row) return json({ error: "Forecast not found." }, 404);
+  const forecast = {
+    id: row.id,
+    date: row.decision_date,
+    time: String(row.decision_time || "").slice(0, 5),
+    pair: row.pair,
+    setup: row.setup,
+    direction: row.direction,
+    status: row.status === "Cancelled" ? "Invalidated" : row.status === "Missed" ? "Skipped" : row.status,
+    outcome: row.outcome || "Unknown",
+    notes: row.notes || "",
+    resultR: Number(row.result_r || 0),
+    updatedAt: row.updated_at,
+  };
+  const existingRow = journals.find((item) => item.related_discipline_id === forecastId && String(item.content || "").startsWith(JARVIS_FORECAST_REVIEW_PREFIX));
+  const existingReview = decodeForecastReview(existingRow);
+  if (forecast.status === "Waiting") {
+    if (existingRow) await deleteAuthenticatedJournalRow(request, env, user.id, existingRow.id);
+    return json({ ok: true, reviewed: false, removed: Boolean(existingRow), reason: "waiting_is_observation" });
+  }
+  if (!["Taken", "Invalidated", "Skipped"].includes(forecast.status)) return json({ error: "Forecast status cannot be reviewed." }, 409);
+  if (!body?.force && existingReview?.sourceForecastUpdatedAt === forecast.updatedAt) return json({ ok: true, reviewed: true, cached: true, review: existingReview });
+
+  const generated = await generateForecastReview(env, user.id, forecast);
+  const reviewedAt = new Date().toISOString();
+  const review = {
+    version: 1,
+    forecastId: forecast.id,
+    forecastDate: forecast.date,
+    pair: forecast.pair,
+    setup: forecast.setup,
+    direction: forecast.direction,
+    status: forecast.status,
+    outcome: forecast.outcome,
+    resultR: forecast.resultR,
+    reviewedAt,
+    sourceForecastUpdatedAt: forecast.updatedAt,
+    method: generated.method,
+    model: generated.model,
+    ...generated.core,
+    strategyRuleChangeAllowed: false,
+  };
+  const stored = await writeAuthenticatedJournalRow(request, env, user.id, existingRow?.id || null, {
+    user_id: user.id,
+    entry_date: forecast.date,
+    content: `${JARVIS_FORECAST_REVIEW_PREFIX}\n${JSON.stringify(review)}`,
+    advice: review.learningCandidate,
+    image_url: "",
+    pair: forecast.pair,
+    related_trade_id: null,
+    related_discipline_id: forecast.id,
+    updated_at: reviewedAt,
+  });
+  return json({ ok: true, reviewed: true, cached: false, review: { ...review, journalEntryId: stored?.id || existingRow?.id || null } });
 }
 
 function finiteNumber(value) {
@@ -645,8 +831,72 @@ function deterministicStats(records, valueKey = "pnlR") {
   return setupStats(normalized);
 }
 
+function forecastEvidenceStage(sampleSize, knownDirection, consistencyPercent) {
+  if (sampleSize < 5) return "Candidate";
+  if (sampleSize >= 30 && knownDirection >= 25 && consistencyPercent !== null && consistencyPercent >= 75) return "Strong";
+  if (sampleSize >= 12 && knownDirection >= 10 && consistencyPercent !== null && consistencyPercent >= 65) return "Supported";
+  return "Emerging";
+}
+
+function aggregateForecastReviews(reviews, label) {
+  const eligible = reviews.filter((review) => review.eligibleForAggregate === true);
+  const directionKnown = eligible.filter((review) => review.directionOutcome === "Correct" || review.directionOutcome === "Incorrect");
+  const directionCorrect = directionKnown.filter((review) => review.directionOutcome === "Correct").length;
+  const directionIncorrect = directionKnown.length - directionCorrect;
+  const directionalAccuracyPercent = directionKnown.length ? Math.round((directionCorrect / directionKnown.length) * 1000) / 10 : null;
+  const consistencyPercent = directionKnown.length ? Math.round((Math.max(directionCorrect, directionIncorrect) / directionKnown.length) * 1000) / 10 : null;
+  const entryKnown = eligible.filter((review) => review.entryCriteriaOutcome === "Completed" || review.entryCriteriaOutcome === "Not completed");
+  const entryCompleted = entryKnown.filter((review) => review.entryCriteriaOutcome === "Completed").length;
+  const executionAssessments = Object.fromEntries(["Correct take", "Correct skip", "Missed opportunity", "Invalidated thesis", "Insufficient evidence"].map((value) => [value, eligible.filter((review) => review.executionAssessment === value).length]));
+  return {
+    label,
+    sampleSize: eligible.length,
+    totalReviews: reviews.length,
+    direction: { correct: directionCorrect, incorrect: directionIncorrect, known: directionKnown.length, unclear: eligible.length - directionKnown.length, accuracyPercent: directionalAccuracyPercent, fraction: `${directionCorrect}/${directionKnown.length}` },
+    entryCriteria: { completed: entryCompleted, notCompleted: entryKnown.length - entryCompleted, known: entryKnown.length, unclear: eligible.length - entryKnown.length, completionPercent: entryKnown.length ? Math.round((entryCompleted / entryKnown.length) * 1000) / 10 : null, fraction: `${entryCompleted}/${entryKnown.length}` },
+    executionAssessments,
+    consistencyPercent,
+    evidenceStage: forecastEvidenceStage(eligible.length, directionKnown.length, consistencyPercent),
+    strategyRuleChangeAllowed: false,
+  };
+}
+
+function forecastLearningResult(journals, forecasts, args) {
+  const allReviews = journals.map(decodeForecastReview).filter(Boolean);
+  const reviews = allReviews.filter((review) => (!args.pair || normalizePair(review.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(review.setup, args.setup)) && (!args.month || String(review.forecastDate || "").startsWith(args.month)));
+  const resolved = forecasts.filter((forecast) => forecast.status !== "Waiting" && (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup)) && (!args.month || String(forecast.date || "").startsWith(args.month)));
+  const buildGroups = (keyFn) => [...new Set(reviews.map(keyFn).filter(Boolean))]
+    .map((key) => aggregateForecastReviews(reviews.filter((review) => keyFn(review) === key), key))
+    .sort((a, b) => b.sampleSize - a.sampleSize || a.label.localeCompare(b.label));
+  return {
+    source: "automatic_resolved_forecast_reviews",
+    calculation: "deterministic_authenticated_records",
+    filter: args,
+    coverage: { resolvedForecasts: resolved.length, reviewedForecasts: reviews.length, unreviewedResolvedForecasts: Math.max(0, resolved.length - reviews.length), waitingForecastsExcluded: true },
+    overall: aggregateForecastReviews(reviews, "All matching forecasts"),
+    patterns: {
+      bySetup: buildGroups((review) => review.setup),
+      byPair: buildGroups((review) => review.pair),
+      byPairAndSetup: buildGroups((review) => `${review.pair} · ${review.setup}`),
+    },
+    reviews: reviews.slice(0, args.limit),
+    lifecycle: {
+      Candidate: "1-4 eligible reviews",
+      Emerging: "5+ eligible reviews without enough consistent known-direction evidence for Supported",
+      Supported: "12+ eligible reviews, 10+ known directional outcomes, and at least 65% consistency",
+      Strong: "30+ eligible reviews, 25+ known directional outcomes, and at least 75% consistency",
+    },
+    guardrail: "An insight may describe an observed pattern, but it never creates or changes a strategy rule automatically.",
+  };
+}
+
 function verifiedStatisticsAnswer(result) {
   if (result?.unavailable) return `I could not verify ${result.unavailable} from the authenticated database, so I will not report a numeric result. Refresh Journaly or retry after the data connection recovers.`;
+  if (result?.source === "automatic_resolved_forecast_reviews") {
+    const overall = result.overall;
+    const patternLines = result.patterns.bySetup.slice(0, 5).map((pattern) => `- ${pattern.label}: ${pattern.sampleSize} eligible review${pattern.sampleSize === 1 ? "" : "s"}, direction ${pattern.direction.fraction}${pattern.direction.accuracyPercent === null ? " (not enough known outcomes)" : ` (${pattern.direction.accuracyPercent}%)`}, ${pattern.evidenceStage}`);
+    return `Verified forecast learning: ${result.coverage.reviewedForecasts}/${result.coverage.resolvedForecasts} resolved forecasts have automatic reviews; Waiting forecasts are excluded. Across ${overall.sampleSize} aggregate-eligible reviews, directional accuracy is ${overall.direction.fraction}${overall.direction.accuracyPercent === null ? " with no reliable percentage yet" : ` (${overall.direction.accuracyPercent}%)`}. Evidence stage: ${overall.evidenceStage}.\n\nSetup patterns:\n${patternLines.length ? patternLines.join("\n") : "- No eligible setup pattern yet."}\n\nThese figures were calculated deterministically from the stored reviews. They are evidence for an insight, not permission to change a strategy rule.`;
+  }
   if (result?.inventory) {
     const lines = Object.entries(result.inventory).map(([name, value]) => `${name}: ${value.count} record${value.count === 1 ? "" : "s"}${value.oldestDate ? ` (${value.oldestDate} to ${value.newestDate})` : ""}`);
     const unavailable = result.unavailableSurfaces?.length ? `\nUnavailable and not treated as zero: ${result.unavailableSurfaces.join(", ")}.` : "";
@@ -818,7 +1068,7 @@ function executeJournalyTool(name, args, data) {
     case "get_user_memories":
       return { memories: (data.memories || []).filter((memory) => !args.category || memory.category === args.category) };
     case "get_learning_records":
-      return { records: (data.learningRecords || []).filter((record) => !args.source || record.source === args.source).slice(0, args.limit) };
+      return { records: [...(data.learningRecords || []), ...journals.map(decodeForecastReview).filter(Boolean).map((review) => ({ id: review.journalEntryId, date: review.forecastDate, source: "forecast", prompt: `${review.pair} ${review.setup} ${review.status}`, summary: review.learningCandidate }))].filter((record) => !args.source || record.source === args.source).slice(0, args.limit) };
     case "get_strategy_rules": {
       const rules = Array.isArray(JARVIS_STRATEGY_RULES) ? JARVIS_STRATEGY_RULES : JARVIS_STRATEGY_RULES?.rules || JARVIS_STRATEGY_RULES;
       return { strategyVersion: "v0.3", setup: args.setup, rules };
@@ -875,6 +1125,9 @@ function executeJournalyTool(name, args, data) {
       const filtered = forecasts.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup)) && (!args.status || forecast.status === args.status) && (!args.month || String(forecast.date || "").startsWith(args.month)));
       return { forecasts: filtered.slice(0, args.limit), totalMatching: filtered.length, totalAvailable: forecasts.length, filter: args, dataCoverage: dateCoverage(forecasts) };
     }
+    case "get_forecast_learning":
+      if ((data.unavailableSurfaces || []).includes("journalEntries")) return { unavailable: "forecast reviews" };
+      return forecastLearningResult(journals, forecasts, args);
     case "get_skipped_trades": {
       const skipped = forecasts.filter((forecast) => forecast.status === "Invalidated" || forecast.status === "Skipped");
       return { decisions: skipped.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup))).slice(0, args.limit) };
@@ -1147,7 +1400,7 @@ async function handleJarvis(request, env) {
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
-          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns"].includes(call.name)) verifiedStatResult = toolResult;
+          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
@@ -1180,6 +1433,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/api/jarvis/chat") return handleJarvis(request, env);
+    if (url.pathname === "/api/jarvis/forecast-review") return handleForecastReview(request, env);
     if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
     if (url.pathname === "/api/jarvis/health") return handleHealth(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);

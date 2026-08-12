@@ -38,6 +38,7 @@ const JARVIS_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 const JARVIS_TRADE_PAIRS = new Set(["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD"]);
 const JARVIS_TRADE_SETUPS = new Set(["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry"]);
 export const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
+export const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
 
 type JarvisTrade = {
   id: string;
@@ -165,7 +166,7 @@ type JarvisProps = {
   session: JarvisSession;
   journalEntries: Array<{ id: string; date: string; content: string; advice: string }>;
   onTradeCreated: () => void | Promise<void>;
-  onForecastChanged: () => void | Promise<void>;
+  onForecastChanged: (forecast?: { id: string; status: NonNullable<JarvisForecastAction["status"]> }) => void | Promise<void>;
 };
 
 type JarvisLearningRecord = {
@@ -863,14 +864,14 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
             notes: draft.notes?.trim() || "",
             updated_at: now.toISOString(),
           });
-      const { error } = await query;
+      const { data, error } = await query.select("id,status").single();
       if (error) {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Forecast not updated", text: `Journaly could not save that forecast action: ${error.message}` }]);
         return;
       }
       const actionLabel = draft.intent === "create" ? "Forecast added" : "Forecast updated";
       setForecastDraft(null);
-      await onForecastChanged();
+      await onForecastChanged(data?.id ? { id: data.id, status: draft.status } : undefined);
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: actionLabel, text: draft.intent === "create" ? `${draft.pair} ${draft.direction?.toLowerCase()} is now waiting in Forecasts.` : `The ${draft.pair || "selected"} forecast is now marked ${draft.status}.` }]);
     } catch (error) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Forecast not updated", text: error instanceof Error ? error.message : "Journaly could not save that forecast action." }]);

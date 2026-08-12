@@ -8089,6 +8089,30 @@ textarea:focus {
 .forecast-card-title span { color: var(--muted); font-size: 0.75rem; }
 .forecast-summary { overflow: hidden; margin: 9px 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
 .forecast-summary.is-empty { opacity: 0.62; font-style: italic; }
+.forecast-review-state {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  margin-top: 11px;
+  border: 1px solid color-mix(in srgb, var(--review-color) 24%, var(--line));
+  border-radius: 9px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--review-color) 6%, var(--surface-strong));
+  color: var(--review-color);
+  text-align: left;
+}
+.forecast-review-state > svg { flex: 0 0 auto; }
+.forecast-review-state > span { display: grid; gap: 1px; min-width: 0; color: var(--muted); font-size: 0.65rem; line-height: 1.35; }
+.forecast-review-state strong { color: var(--review-color); font-size: 0.67rem; }
+.forecast-review-state.is-observation { --review-color: #38bdf8; }
+.forecast-review-state.is-reviewing { --review-color: #f59e0b; }
+.forecast-review-state.is-reviewing > svg { animation: forecast-review-spin 1.2s linear infinite; }
+.forecast-review-state.is-reviewed { --review-color: #22c55e; }
+.forecast-review-state.is-pending { --review-color: #f59e0b; cursor: pointer; }
+.forecast-review-state.is-error { --review-color: #ef4444; }
+.forecast-review-state.is-pending:hover { border-color: var(--review-color); }
+@keyframes forecast-review-spin { to { transform: rotate(360deg); } }
 .forecast-status-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .forecast-status-actions button { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 7px; padding: 0 9px; background: transparent; color: var(--muted); font-size: 0.66rem; font-weight: 850; cursor: pointer; }
 .forecast-status-actions button[aria-pressed="true"] { border-color: var(--forecast-color); background: color-mix(in srgb, var(--forecast-color) 12%, transparent); color: var(--forecast-color); }
