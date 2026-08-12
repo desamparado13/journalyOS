@@ -933,7 +933,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   </p>
                 </div>
                 <div><Check size={13} /><p><strong>Trade journal</strong><small>{trades.length} records indexed</small></p></div>
-                <div><Check size={13} /><p><strong>Backtest journal</strong><small>{backtests.length} records indexed</small></p></div>
+                <div><Check size={13} /><p><strong>Backtest journal</strong><small>{backtests.length} records indexed · 137 charts audited</small></p></div>
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>

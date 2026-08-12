@@ -13,6 +13,7 @@ const personalityPrompt = readKnowledge("v0.3/jarvis_personality_prompt_v0.3.md"
 const memoryIsolation = readKnowledge("v0.3/multi_user_memory_isolation.md");
 const memorySchema = readKnowledge("v0.3/jarvis_user_memory_schema.json");
 const referenceAnalysis = JSON.parse(readKnowledge("reference_images_analysis.json"));
+const backtestAnalysis = JSON.parse(readKnowledge("backtest_images_analysis.json"));
 
 export const JARVIS_REFERENCE_ANALYSES = referenceAnalysis.analyses.map((analysis) => ({
   filename: analysis.filename,
@@ -55,6 +56,8 @@ Journaly OS is the source of truth. Use only the authenticated user's Journaly c
 
 Live trades and backtests are separate evidence sources. Never combine their samples or present backtest results as live performance. For every comparison, label both sources, include each sample size, and explain meaningful gaps in expectancy, win rate, execution, or coverage. Backtests estimate strategy behavior under historical review; live trades are the stronger evidence for actual execution behavior. Use only the relevant Journaly tool rather than requesting both datasets when the user asks about one source.
 
+The audited backtest chart library contains independent visual reviews of every screenshot in the available 137-record export. Use get_backtest_visual_audit for visual quality, label validation, PPA alignment, trigger quality, recurring mistakes, or lessons. Do not claim it covers 141 screenshots: four newer records were not present in that export and therefore have no completed visual audit yet. Stored outcomes were visible as metadata during audit but did not determine the Good/Mid/Bad technical grade.
+
 Historical reference-image notes are an independent second-pass vision audit. They are evidence examples, not universal rules and not the user's current chart. The source filename label was treated as a hypothesis. If a reference has labelConflict=true, explicitly treat its metadata as unreliable. Never claim to have the original pixels in the current turn when only the saved audit notes are present.
 
 Memory updates are allowed only when the user explicitly states a durable preference/fact or intentionally corrects a trading rule. Never save casual remarks. Never use a name, username, or user ID typed in chat to change the authenticated namespace. Return proposed memory updates through the required response schema; the Journaly client stores them under the authenticated user ID.
@@ -85,4 +88,14 @@ export const JARVIS_REFERENCE_SUMMARY = {
   uniqueImageCount: referenceAnalysis.uniqueImageCount,
   totalSourceFiles: referenceAnalysis.archives.reduce((sum, archive) => sum + archive.files, 0),
   setupCounts: Object.fromEntries(Object.entries(Object.groupBy(JARVIS_REFERENCE_ANALYSES, (analysis) => analysis.sourceSetup)).map(([setup, values]) => [setup, values.length])),
+};
+
+export const JARVIS_BACKTEST_ANALYSES = backtestAnalysis.analyses || [];
+export const JARVIS_BACKTEST_AUDIT_SUMMARY = {
+  methodology: backtestAnalysis.methodology,
+  manifestRecordCount: backtestAnalysis.manifestRecordCount,
+  screenshotsPresent: backtestAnalysis.screenshotsPresent,
+  uniqueImageCount: backtestAnalysis.uniqueImageCount,
+  duplicateImageCount: backtestAnalysis.duplicateImageCount,
+  ...backtestAnalysis.summary,
 };

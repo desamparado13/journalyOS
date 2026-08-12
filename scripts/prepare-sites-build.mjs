@@ -3,7 +3,7 @@ import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 await mkdir("dist/server", { recursive: true });
 await mkdir("dist/.openai", { recursive: true });
 
-const [systemPrompt, strategyRules, decisionExamples, postTradeLabels, outputSchema, personalityPromptV03, memoryIsolation, memorySchema, referenceAnalysisText] = await Promise.all([
+const [systemPrompt, strategyRules, decisionExamples, postTradeLabels, outputSchema, personalityPromptV03, memoryIsolation, memorySchema, referenceAnalysisText, backtestAnalysisText] = await Promise.all([
   readFile("jarvis-knowledge/jarvis_system_prompt.md", "utf8"),
   readFile("jarvis-knowledge/strategy_rules.json", "utf8"),
   readFile("jarvis-knowledge/decision_examples.json", "utf8"),
@@ -13,9 +13,11 @@ const [systemPrompt, strategyRules, decisionExamples, postTradeLabels, outputSch
   readFile("jarvis-knowledge/v0.3/multi_user_memory_isolation.md", "utf8"),
   readFile("jarvis-knowledge/v0.3/jarvis_user_memory_schema.json", "utf8"),
   readFile("jarvis-knowledge/reference_images_analysis.json", "utf8"),
+  readFile("jarvis-knowledge/backtest_images_analysis.json", "utf8"),
 ]);
 
 const referenceAnalysis = JSON.parse(referenceAnalysisText);
+const backtestAnalysis = JSON.parse(backtestAnalysisText);
 const referenceAnalyses = referenceAnalysis.analyses.map((analysis) => ({
   filename: analysis.filename,
   date: analysis.date,
@@ -57,6 +59,8 @@ Journaly OS is the source of truth. Use only the authenticated user's Journaly c
 
 Live trades and backtests are separate evidence sources. Never combine their samples or present backtest results as live performance. For every comparison, label both sources, include each sample size, and explain meaningful gaps in expectancy, win rate, execution, or coverage. Backtests estimate strategy behavior under historical review; live trades are the stronger evidence for actual execution behavior. Use only the relevant Journaly tool rather than requesting both datasets when the user asks about one source.
 
+The audited backtest chart library contains independent visual reviews of every screenshot in the available 137-record export. Use get_backtest_visual_audit for visual quality, label validation, PPA alignment, trigger quality, recurring mistakes, or lessons. Do not claim it covers 141 screenshots: four newer records were not present in that export and therefore have no completed visual audit yet. Stored outcomes were visible as metadata during audit but did not determine the Good/Mid/Bad technical grade.
+
 Historical reference-image notes are an independent second-pass vision audit. They are evidence examples, not universal rules and not the user's current chart. The source filename label was treated as a hypothesis. If a reference has labelConflict=true, explicitly treat its metadata as unreliable. Never claim to have the original pixels in the current turn when only the saved audit notes are present.
 
 Memory updates are allowed only when the user explicitly states a durable preference/fact or intentionally corrects a trading rule. Never save casual remarks. Never use a name, username, or user ID typed in chat to change the authenticated namespace. Return proposed memory updates through the required response schema; the Journaly client stores them under the authenticated user ID.
@@ -87,12 +91,14 @@ await writeFile("dist/server/jarvis-knowledge.js", [
   `export const JARVIS_SYSTEM_PROMPT = ${JSON.stringify(completePrompt)};`,
   `export const JARVIS_OWNER_KNOWLEDGE = ${JSON.stringify(ownerKnowledge)};`,
   `export const JARVIS_REFERENCE_ANALYSES = ${JSON.stringify(referenceAnalyses)};`,
+  `export const JARVIS_BACKTEST_ANALYSES = ${JSON.stringify(backtestAnalysis.analyses)};`,
   `export const JARVIS_STRATEGY_RULES = ${strategyRules.trim()};`,
   `export const JARVIS_REFERENCE_SUMMARY = ${JSON.stringify({
     uniqueImageCount: referenceAnalysis.uniqueImageCount,
     totalSourceFiles: referenceAnalysis.archives.reduce((sum, archive) => sum + archive.files, 0),
     setupCounts: Object.fromEntries(Object.entries(Object.groupBy(referenceAnalyses, (analysis) => analysis.sourceSetup)).map(([setup, values]) => [setup, values.length])),
   })};`,
+  `export const JARVIS_BACKTEST_AUDIT_SUMMARY = ${JSON.stringify({ methodology: backtestAnalysis.methodology, manifestRecordCount: backtestAnalysis.manifestRecordCount, screenshotsPresent: backtestAnalysis.screenshotsPresent, uniqueImageCount: backtestAnalysis.uniqueImageCount, duplicateImageCount: backtestAnalysis.duplicateImageCount, ...backtestAnalysis.summary })};`,
   "",
 ].join("\n"));
 

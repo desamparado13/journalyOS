@@ -91,6 +91,9 @@ results.push({ test: "backtest-only analytics", pass: /backtest|historical/i.tes
 const liveVsBacktest = await ask("compare my live trades against my backtests for AUDJPY Internals");
 results.push({ test: "live versus backtest comparison", pass: /live/i.test(liveVsBacktest.answer) && /backtest/i.test(liveVsBacktest.answer) && (liveVsBacktest.toolsUsed || []).includes("compare_live_vs_backtest"), tools: liveVsBacktest.toolsUsed });
 
+const visualAudit = await ask("what recurring visual quality problems did you find across my audited backtest charts?");
+results.push({ test: "audited backtest chart retrieval", pass: /137|PPA|countertrend|trigger|visual|chart/i.test(visualAudit.answer) && (visualAudit.toolsUsed || []).includes("get_backtest_visual_audit"), tools: visualAudit.toolsUsed });
+
 const blockedRequest = new Request("http://local/api/jarvis/chat", {
   method: "POST",
   headers: { "content-type": "application/json" },

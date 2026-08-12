@@ -1,4 +1,4 @@
-import { JARVIS_OWNER_KNOWLEDGE, JARVIS_REFERENCE_ANALYSES, JARVIS_REFERENCE_SUMMARY, JARVIS_STRATEGY_RULES, JARVIS_SYSTEM_PROMPT } from "./jarvis-knowledge.js";
+import { JARVIS_BACKTEST_ANALYSES, JARVIS_BACKTEST_AUDIT_SUMMARY, JARVIS_OWNER_KNOWLEDGE, JARVIS_REFERENCE_ANALYSES, JARVIS_REFERENCE_SUMMARY, JARVIS_STRATEGY_RULES, JARVIS_SYSTEM_PROMPT } from "./jarvis-knowledge.js";
 
 const FALLBACK_MODELS = ["gpt-5.6-luna", "gpt-4.1-mini"];
 const MAX_QUESTION_LENGTH = 6000;
@@ -36,6 +36,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_recent_trades", description: "Get real Journaly trades, optionally filtered by pair, setup, or calendar month (YYYY-MM).", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "setup", "month", "limit"] } },
   { type: "function", name: "get_recent_backtests", description: "Get backtest records only, with pair/setup/month filters. Results are historical tests and must never be described as live trades.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 100 } }, required: ["pair", "setup", "month", "limit"] } },
   { type: "function", name: "get_backtest_statistics", description: "Calculate backtest-only win rate, R, expectancy, and sample size for an optional pair, setup, and month. Always label the output as backtest evidence.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "month"] } },
+  { type: "function", name: "get_backtest_visual_audit", description: "Get independent visual-audit findings from 137 backtest screenshots, optionally filtered by pair, setup, visible quality grade, PPA alignment, or recorded outcome. Use for questions about chart quality, recurring visual mistakes, whether labels were supported, or patterns across audited backtest images—not ordinary numeric performance questions.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, grade: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, ppaAlignment: { type: ["string", "null"], enum: ["aligned", "countertrend", "mixed", null] }, outcome: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 30 } }, required: ["pair", "setup", "grade", "ppaAlignment", "outcome", "limit"] } },
   { type: "function", name: "compare_live_vs_backtest", description: "Compare live-trade and backtest performance using separately calculated sample sizes, win rates, total R, and expectancy. Use when the user asks whether backtests translate to live execution.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "month"] } },
   { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
@@ -331,6 +332,21 @@ function executeJournalyTool(name, args, data) {
       const filtered = filterRecords(backtests);
       return { source: "backtest", pair: args.pair, setup: args.setup, month: args.month, statistics: setupStats(filtered), dataCoverage: { recordsAvailable: backtests.length, oldestDate: backtests.at(-1)?.date || null, newestDate: backtests[0]?.date || null } };
     }
+    case "get_backtest_visual_audit": {
+      const filtered = JARVIS_BACKTEST_ANALYSES.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(item.setup, args.setup)) && (!args.grade || item.technicalGrade === args.grade) && (!args.ppaAlignment || item.ppaAlignment === args.ppaAlignment) && (!args.outcome || matchesText(item.result, args.outcome)));
+      return {
+        source: "independent_backtest_visual_audit",
+        methodology: JARVIS_BACKTEST_AUDIT_SUMMARY.methodology,
+        libraryCoverage: JARVIS_BACKTEST_AUDIT_SUMMARY,
+        totalMatching: filtered.length,
+        aggregate: {
+          grades: Object.fromEntries(["Good", "Mid", "Bad", "Unclear"].map((grade) => [grade, filtered.filter((item) => item.technicalGrade === grade).length])),
+          ppaAlignment: Object.fromEntries(["aligned", "countertrend", "mixed", "unclear"].map((alignment) => [alignment, filtered.filter((item) => item.ppaAlignment === alignment).length])),
+          triggerQuality: Object.fromEntries(["clear", "partial", "weak", "unclear"].map((quality) => [quality, filtered.filter((item) => item.triggerQuality === quality).length])),
+        },
+        examples: filtered.slice(0, args.limit).map(({ id, date, pair, setup, direction, result, pnlR, labelCheck, technicalGrade, setupMatchConfidence, ppaAlignment, triggerQuality, summary, visibleEvidence, concerns, visibilityLimits, reusableLesson, patternTags }) => ({ id, date, pair, setup, direction, recordedOutcome: result, recordedR: pnlR, labelCheck, technicalGrade, setupMatchConfidence, ppaAlignment, triggerQuality, summary, visibleEvidence, concerns, visibilityLimits, reusableLesson, patternTags })),
+      };
+    }
     case "compare_live_vs_backtest": {
       const liveFiltered = filterRecords(trades);
       const backtestFiltered = filterRecords(backtests);
@@ -477,6 +493,7 @@ async function handleJarvis(request, env) {
     sessionState: journalData.sessionState,
     availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
+    auditedBacktestChartLibrary: JARVIS_BACKTEST_AUDIT_SUMMARY,
     learnedCaseCount: toolData.learningRecords.length,
     dataCoverage: { liveTrades: toolData.trades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length },
   };
