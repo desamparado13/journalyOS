@@ -27,10 +27,22 @@ const request = new Request("http://local/api/jarvis/chat", {
 const response = await worker.fetch(request, {
   OPENAI_API_KEY: apiKey,
   JARVIS_AUTH_BYPASS_USER_ID: "local-smoke-test",
-  JARVIS_AUTH_BYPASS_EMAIL: "christiian.angelo.desamparado@journaly.invalid",
+  JARVIS_AUTH_BYPASS_EMAIL: "christian.angelo.desamparado@gmail.com",
   ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
 });
 const payload = await response.json();
+
+const blockedRequest = new Request("http://local/api/jarvis/chat", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ userId: "other-user", question: "Open Jarvis for me." }),
+});
+const blockedResponse = await worker.fetch(blockedRequest, {
+  OPENAI_API_KEY: apiKey,
+  JARVIS_AUTH_BYPASS_USER_ID: "other-user",
+  JARVIS_AUTH_BYPASS_EMAIL: "another.user@example.com",
+  ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
+});
 
 console.log(JSON.stringify({
   status: response.status,
@@ -38,7 +50,8 @@ console.log(JSON.stringify({
   answerReceived: typeof payload.answer === "string" && payload.answer.length > 0,
   memoryUpdateReceived: Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.some((update) => update.category === "risk_rule"),
   referenceAuditsUsed: payload.referenceAuditsUsed || 0,
+  nonOwnerStatus: blockedResponse.status,
   errorCategory: payload.error ? "api_error" : null,
 }));
 
-if (!response.ok || !payload.answer || !Array.isArray(payload.memoryUpdates) || !payload.memoryUpdates.some((update) => update.category === "risk_rule") || payload.referenceAuditsUsed < 1) process.exitCode = 1;
+if (!response.ok || !payload.answer || !Array.isArray(payload.memoryUpdates) || !payload.memoryUpdates.some((update) => update.category === "risk_rule") || payload.referenceAuditsUsed < 1 || blockedResponse.status !== 403) process.exitCode = 1;

@@ -9,7 +9,7 @@ Adds:
 - emotional/reaction style
 - per-user preferred names
 - current user preferred name: Pot
-- username: christiian.angelo.desamparado
+- username: christian.angelo.desamparado
 - multi-user memory isolation
 - memory schemas
 - privacy requirements
@@ -17,6 +17,6 @@ Adds:
 
 Critical:
 "Pot" is NOT a global Jarvis name.
-It belongs only to the authenticated Journaly user profile for christiian.angelo.desamparado.
+It belongs only to the authenticated Journaly user profile for christian.angelo.desamparado.
 
 All identity, strategy, and memory data must be scoped to authenticated_user_id.

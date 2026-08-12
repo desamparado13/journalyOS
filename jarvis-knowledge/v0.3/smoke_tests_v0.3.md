@@ -2,7 +2,7 @@
 
 ## Test 1 - Current user name
 Logged in:
-username = christiian.angelo.desamparado
+username = christian.angelo.desamparado
 preferred_name = Pot
 
 User: hi jarvis

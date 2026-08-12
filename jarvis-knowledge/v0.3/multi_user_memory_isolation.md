@@ -65,7 +65,7 @@ AND key='preferred_name';
 ## Current user bootstrap
 
 For account:
-username: christiian.angelo.desamparado
+username: christian.angelo.desamparado
 preferred_name: Pot
 
 Create/update only that user's profile.

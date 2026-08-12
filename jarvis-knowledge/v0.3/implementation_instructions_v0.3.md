@@ -18,7 +18,7 @@ Load at chat start:
 
 For the current user:
 preferred_name = "Pot"
-username = "christiian.angelo.desamparado"
+username = "christian.angelo.desamparado"
 
 ## 2. Inject user profile into the model context
 
@@ -26,7 +26,7 @@ Example:
 
 CURRENT USER
 Preferred name: Pot
-Username: christiian.angelo.desamparado
+Username: christian.angelo.desamparado
 
 PERSONALITY
 Familiarity: high

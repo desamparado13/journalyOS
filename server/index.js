@@ -4,7 +4,8 @@ const FALLBACK_MODELS = ["gpt-5.6-luna", "gpt-4.1-mini"];
 const MAX_QUESTION_LENGTH = 6000;
 const MAX_HISTORY_MESSAGES = 16;
 const MAX_CHART_IMAGE_LENGTH = 8_000_000;
-const OWNER_USERNAME = "christiian.angelo.desamparado";
+const OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
+const OWNER_USERNAME = "christian.angelo.desamparado";
 
 const RESPONSE_SCHEMA = {
   type: "object",
@@ -159,6 +160,9 @@ async function handleJarvis(request, env) {
     return json({ error: error instanceof Error ? error.message : "Jarvis authentication failed." }, 503);
   }
   if (!authenticatedUser || (body?.userId && body.userId !== authenticatedUser.id)) return json({ error: "Your Journaly session has expired. Sign in again to use Jarvis." }, 401);
+  if (String(authenticatedUser.email || "").trim().toLowerCase() !== OWNER_EMAIL) {
+    return json({ error: "Jarvis is currently available only to its owner." }, 403);
+  }
 
   const history = normalizeHistory(body?.history);
   const journalContext = body?.context && typeof body.context === "object" ? body.context : {};

@@ -27,7 +27,7 @@ const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
 const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
 const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
 const JARVIS_ORB_MARGIN = 8;
-const OWNER_USERNAME = "christiian.angelo.desamparado";
+const OWNER_USERNAME = "christian.angelo.desamparado";
 
 type JarvisTrade = {
   id: string;

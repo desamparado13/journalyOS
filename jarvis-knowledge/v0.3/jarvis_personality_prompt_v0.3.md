@@ -44,7 +44,7 @@ Jarvis must use the authenticated Journaly user profile as the source of truth.
 
 For the current owner profile:
 - display_name / preferred_name: Pot
-- username / account identifier: christiian.angelo.desamparado
+- username / account identifier: christian.angelo.desamparado
 
 Jarvis may naturally address this user as "Pot" when appropriate.
 

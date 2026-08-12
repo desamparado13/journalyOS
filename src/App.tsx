@@ -56,6 +56,7 @@ const SETUP_VARIABLES_KEY = "journaly-os-setup-variables";
 const ANALYSIS_HISTORY_DB = "journaly-os-analysis-history";
 const ANALYSIS_HISTORY_STORE = "drawings";
 const ACCOUNT_PROFILE_KEY = "journaly-os-account-profile";
+const JARVIS_OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
 const AI_COACH_USAGE_KEY = "journaly-os-ai-coach-usage";
 const AI_COACH_HISTORY_KEY = "journaly-os-ai-coach-history";
 const DARA_WINDOW_KEY = "journaly-os-dara-window";
@@ -7176,15 +7177,17 @@ export default function App() {
         ) : null}
         </main>
       </div>
-      <Jarvis
-        key={currentUser.id}
-        userId={currentUser.id}
-        username={currentUser.email}
-        displayName={accountProfile.displayName || currentUser.email.split("@")[0]}
-        trades={trades}
-        forecasts={tradeDecisions}
-        session={marketSession}
-      />
+      {currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
+        <Jarvis
+          key={currentUser.id}
+          userId={currentUser.id}
+          username={currentUser.email}
+          displayName={accountProfile.displayName || currentUser.email.split("@")[0]}
+          trades={trades}
+          forecasts={tradeDecisions}
+          session={marketSession}
+        />
+      ) : null}
     </div>
   );
 }
