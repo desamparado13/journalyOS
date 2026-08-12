@@ -71,6 +71,8 @@ const IMPORT_BATCH_SIZE = 8;
 const AI_COACH_BUDGET = 5;
 const TRADE_LIST_COLUMNS =
   "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,trade_quality,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
+const LEGACY_TRADE_LIST_COLUMNS =
+  "id,user_id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,source_app,legacy_id,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at";
 const TRADE_SCREENSHOT_COLUMNS = "id,screenshot_url";
 const TRADE_DECISION_LIST_COLUMNS =
   "id,user_id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,screenshot_url,post_image_url,result_r,created_at,updated_at";
@@ -3545,7 +3547,7 @@ export default function App() {
     setSyncMessage("");
 
     try {
-      const { data, error } = await withLoadTimeout(
+      const primary = await withLoadTimeout(
         supabase
           .from("trades")
           .select(TRADE_LIST_COLUMNS)
@@ -3555,6 +3557,24 @@ export default function App() {
         "Journal data",
         15000,
       );
+      let data: unknown[] | null = primary.data as unknown[] | null;
+      let error = primary.error;
+
+      if (error && /trade_quality/i.test(error.message)) {
+        const fallback = await withLoadTimeout(
+          supabase
+            .from("trades")
+            .select(LEGACY_TRADE_LIST_COLUMNS)
+            .eq("user_id", currentUser.id)
+            .order("trade_date", { ascending: false })
+            .order("trade_time", { ascending: false }),
+          "Journal data",
+          15000,
+        );
+        data = fallback.data as unknown[] | null;
+        error = fallback.error;
+        if (!error) setSyncMessage("Trades loaded. Enable the post-trade quality database field to save reviews.");
+      }
 
       if (error) throw error;
 
