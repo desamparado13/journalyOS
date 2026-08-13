@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleDot,
   CircleDollarSign,
+  Clock,
   Command,
   Crosshair,
   Eye,
@@ -382,6 +383,15 @@ function summarizeTrades(source: JarvisTrade[]) {
 
 function latestFirst<T extends { date: string; time?: string }>(source: T[]) {
   return [...source].sort((a, b) => `${b.date} ${b.time || ""}`.localeCompare(`${a.date} ${a.time || ""}`));
+}
+
+function selectRequestedChart<T extends { id: string; date: string; pair: string; setup: string; screenshot: string }>(records: T[], prompt: string, requestedPair?: string) {
+  const requestedDate = prompt.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
+  const requestedSetup = [...JARVIS_TRADE_SETUPS].find((setup) => prompt.toLowerCase().includes(setup.toLowerCase()));
+  const exactId = records.find((record) => prompt.includes(record.id) && record.screenshot);
+  if (exactId) return exactId;
+  const matching = records.filter((record) => record.screenshot && (!requestedPair || record.pair === requestedPair) && (!requestedDate || record.date === requestedDate) && (!requestedSetup || record.setup === requestedSetup));
+  return matching[0];
 }
 
 function normalizeTradeAction(value: unknown, previous: JarvisTradeAction | null): JarvisTradeAction | null {
@@ -945,14 +955,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
       const hasExplicitChartContext = Boolean(imageForRequest) || wantsChartReview;
       const chartTrade = hasExplicitChartContext
-        ? requestedPair
-          ? orderedTrades.find((trade) => trade.pair === requestedPair && trade.screenshot)
-          : orderedTrades.find((trade) => trade.screenshot)
+        ? selectRequestedChart(orderedTrades, cleanPrompt, requestedPair)
         : undefined;
       const chartBacktest = hasExplicitChartContext
-        ? requestedPair
-          ? orderedBacktests.find((trade) => trade.pair === requestedPair && trade.screenshot)
-          : orderedBacktests.find((trade) => trade.screenshot)
+        ? selectRequestedChart(orderedBacktests, cleanPrompt, requestedPair)
         : undefined;
       const activeChartRecord = wantsBacktest ? chartBacktest : chartTrade;
       const matchingActiveForecasts = orderedForecasts.filter((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair));
@@ -1026,6 +1032,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               notes: trade.notes,
               hasScreenshot: Boolean(trade.screenshot),
             })),
+            imageInventory: [
+              ...orderedTrades.filter((trade) => trade.screenshot).map((trade) => ({ id: trade.id, source: "live", date: trade.date, time: trade.time, pair: trade.pair, setup: trade.setup, direction: trade.direction, outcome: trade.result, hasScreenshot: true })),
+              ...orderedBacktests.filter((trade) => trade.screenshot).map((trade) => ({ id: trade.id, source: "backtest", date: trade.date, time: trade.time, pair: trade.pair, setup: trade.setup, direction: trade.direction, outcome: trade.result, hasScreenshot: true })),
+            ],
             forecasts: orderedForecasts.map((forecast) => ({
               id: forecast.id,
               date: forecast.date,
@@ -1182,6 +1192,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("What am I currently watching?")}><Target size={17} /> Forecasts <span>{activeForecasts.length}</span></button>
                 <button type="button" onClick={() => askJarvis("Show me my recent mistakes")}><Eye size={17} /> Review</button>
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
+                <button type="button" onClick={() => askJarvis("Analyze my full Edge Lab. Show my strongest and weakest hours, sessions, weekdays, pairs, setups, and pair/setup combinations using deterministic data.")}><Clock size={17} /> Edge Lab</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
                 <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
@@ -1200,6 +1211,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><Check size={13} /><p><strong>Backtest journal</strong><small>{backtests.length} records indexed · 137 charts audited</small></p></div>
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
+                <div><Check size={13} /><p><strong>Trade Archive + Edge Lab</strong><small>All views connected · deterministic calculations</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>
                 <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
                 <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} rule{memory.memories.length === 1 ? "" : "s"} · {learningRecords.length} learned case{learningRecords.length === 1 ? "" : "s"}</small></p></div>

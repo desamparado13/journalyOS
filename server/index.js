@@ -42,6 +42,7 @@ JOURNALY NUMERIC ACCURACY
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - For forecast-review counts, directional accuracy, execution counts, or learned patterns, always call get_forecast_learning. Copy its numerators, denominators, percentages, and evidence stage exactly; interpret them but never recalculate them.
 - For any question comparing live execution with replay/backtests for a calendar month, including why performance diverged or whether the user followed the system, always call get_monthly_reconciliation. Treat its metrics, matches, and breakdowns as authoritative. Describe causal explanations only at the evidence level returned: observed, supported, or hypothesis requiring review.
+- For any Trade Archive tab or Edge Lab question—including Analytics, Trades, Images, Calendar, Heatmap, Week Edge, Performance, Yearly, Edge Clock, or Session Edge—call get_archive_view with the matching view. Never approximate a tab from recent records.
 - Treat tool statistics as authoritative. If a screenshot conflicts with tool data, state the conflict without inventing a reconciliation.`;
 const JARVIS_EVIDENCE_INSTRUCTIONS = `
 JARVIS CHART TRUST CONTRACT
@@ -93,6 +94,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_forecasts", description: "Get the authenticated user's complete forecast history with optional pair, setup, status, and calendar-month filters. Use this to learn from forecast decisions and outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 500 } }, required: ["pair", "setup", "status", "month", "limit"] } },
   { type: "function", name: "get_forecast_learning", description: "Get durable automatic reviews and deterministic aggregate patterns from resolved forecasts. This is the only authority for numeric forecast-learning claims. Waiting forecasts are excluded and insights never alter strategy rules.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 200 } }, required: ["pair", "setup", "month", "limit"] } },
   { type: "function", name: "get_monthly_reconciliation", description: "Authoritative month-end reconciliation of live trades against replay/backtests, forecasts, automatic forecast reviews, and journal evidence. Pass one month for a month review, or null plus a month count for a deterministic rolling comparison.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { month: { type: ["string", "null"], pattern: "^[0-9]{4}-[0-9]{2}$" }, months: { type: "integer", minimum: 1, maximum: 24 } }, required: ["month", "months"] } },
+  { type: "function", name: "get_archive_view", description: "Full deterministic access to every Trade Archive and Edge Lab view. Select the exact view and optional filters; all totals, rankings, calendar cells, heatmaps, timing, sessions, and image inventory are computed by code.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { view: { type: "string", enum: ["analytics", "trades", "images", "calendar", "heatmap", "week_edge", "performance", "yearly", "forecast", "edge_clock", "session_edge"] }, source: { type: "string", enum: ["live", "backtest", "both"] }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", "Unrated", null] }, month: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, period: { type: ["string", "null"], enum: ["AM", "PM", null] }, limit: { type: "integer", minimum: 1, maximum: 500 } }, required: ["view", "source", "pair", "setup", "direction", "quality", "month", "year", "period", "limit"] } },
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
@@ -1055,6 +1057,125 @@ function monthlyReconciliationSeries(trades, backtests, forecasts, journals, req
   };
 }
 
+const ARCHIVE_SESSIONS = [
+  { name: "Asian", start: 5 * 60, end: 16 * 60 },
+  { name: "London", start: 15 * 60, end: 24 * 60 },
+  { name: "New York", start: 20 * 60, end: 29 * 60 },
+];
+
+function archiveSessionsForTime(time) {
+  const [hour = 0, minute = 0] = String(time || "00:00").split(":").map(Number);
+  const total = hour * 60 + minute;
+  const adjusted = total < 5 * 60 ? total + 24 * 60 : total;
+  const sessions = ARCHIVE_SESSIONS.filter((session) => adjusted >= session.start && adjusted < session.end).map((session) => session.name);
+  return sessions.length ? sessions : ["Transition"];
+}
+
+function archiveStats(records) {
+  const stats = reconciliationStats(records);
+  const maeValues = records.map((record) => finiteNumber(record.mae)).filter((value) => value !== null);
+  return {
+    ...stats,
+    averageMaeR: maeValues.length ? Math.round((maeValues.reduce((sum, value) => sum + value, 0) / maeValues.length) * 100) / 100 : null,
+  };
+}
+
+function archiveGroups(records, keyFn) {
+  const expanded = records.flatMap((record) => {
+    const labels = keyFn(record);
+    return (Array.isArray(labels) ? labels : [labels]).filter(Boolean).map((label) => ({ label: String(label), record }));
+  });
+  return [...new Set(expanded.map((item) => item.label))].map((label) => {
+    const groupRecords = expanded.filter((item) => item.label === label).map((item) => item.record);
+    return { label, ...archiveStats(groupRecords) };
+  }).sort((a, b) => b.totalR - a.totalR || b.trades - a.trades || a.label.localeCompare(b.label));
+}
+
+function archiveFilters(records, args) {
+  return records.filter((record) =>
+    (!args.pair || normalizePair(record.pair) === normalizePair(args.pair)) &&
+    (!args.setup || matchesText(record.setup, args.setup)) &&
+    (!args.direction || record.direction === args.direction) &&
+    (!args.quality || (args.quality === "Unrated" ? !record.executionQuality : record.executionQuality === args.quality)) &&
+    (!args.month || String(record.date || "").startsWith(args.month)) &&
+    (!args.year || String(record.date || "").startsWith(`${args.year}-`))
+  );
+}
+
+function archiveViewResult(data, args) {
+  const live = (Array.isArray(data.trades) ? data.trades : []).map((record) => ({ ...record, source: "live" }));
+  const backtest = (Array.isArray(data.backtests) ? data.backtests : []).map((record) => ({ ...record, source: "backtest", executionQuality: null, mae: record.mae ?? null }));
+  const sourceRecords = args.source === "live" ? live : args.source === "backtest" ? backtest : [...live, ...backtest];
+  const records = archiveFilters(sourceRecords, args);
+  const base = { source: "trade_archive_full_access", calculation: "deterministic_authenticated_records", view: args.view, filters: args, recordsIncluded: records.length, dataCoverage: { live: live.length, backtest: backtest.length } };
+  const byPair = () => archiveGroups(records, (record) => record.pair);
+  const bySetup = () => archiveGroups(records, (record) => record.setup);
+  const byDirection = () => archiveGroups(records, (record) => record.direction);
+  const byOutcome = () => archiveGroups(records, (record) => record.outcome || "Unrecorded");
+  const byQuality = () => archiveGroups(records, (record) => record.executionQuality || "Unrated");
+
+  if (args.view === "trades") return { ...base, totalMatching: records.length, records: records.slice(0, args.limit) };
+  if (args.view === "images") {
+    const inventory = archiveFilters((data.imageInventory || []).filter((item) => args.source === "both" || item.source === args.source), args);
+    return { ...base, totalImages: inventory.length, records: inventory.slice(0, args.limit), note: "This inventory authoritatively identifies stored charts. A specific chart is visually analyzed only when selected or attached to the current Jarvis request." };
+  }
+  if (args.view === "forecast") {
+    const forecasts = archiveFilters((data.forecasts || []).map((record) => ({ ...record, executionQuality: null })), args);
+    const statuses = Object.fromEntries(["Waiting", "Taken", "Invalidated", "Skipped"].map((status) => [status, forecasts.filter((record) => record.status === status).length]));
+    return { ...base, recordsIncluded: forecasts.length, statuses, records: forecasts.slice(0, args.limit), learning: forecastLearningResult(data.journals || [], data.forecasts || [], { pair: args.pair, setup: args.setup, month: args.month, limit: args.limit }) };
+  }
+  if (args.view === "calendar") {
+    const days = archiveGroups(records, (record) => record.date).sort((a, b) => b.label.localeCompare(a.label));
+    return { ...base, summary: archiveStats(records), days: days.slice(0, args.limit) };
+  }
+  if (args.view === "heatmap") {
+    const months = archiveGroups(records, (record) => String(record.date || "").slice(0, 7)).sort((a, b) => b.label.localeCompare(a.label));
+    const weekdays = archiveGroups(records, (record) => {
+      const date = new Date(`${record.date}T12:00:00Z`);
+      return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][date.getUTCDay()];
+    });
+    const monthWeekday = archiveGroups(records, (record) => {
+      const date = new Date(`${record.date}T12:00:00Z`);
+      return `${String(record.date).slice(0, 7)} · ${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][date.getUTCDay()]}`;
+    });
+    return { ...base, summary: archiveStats(records), months, weekdays, monthWeekday: monthWeekday.slice(0, args.limit) };
+  }
+  if (args.view === "week_edge") {
+    const template = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"]];
+    const days = template.map(([dayIndex, label]) => {
+      const dayRecords = records.filter((record) => new Date(`${record.date}T12:00:00Z`).getUTCDay() === dayIndex);
+      return { label, ...archiveStats(dayRecords), tradeTimes: archiveGroups(dayRecords, (record) => record.time).sort((a, b) => a.label.localeCompare(b.label)) };
+    });
+    const active = days.filter((day) => day.trades > 0);
+    return { ...base, days, successfulDays: active.filter((day) => day.totalR > 0).length, bestDay: [...active].sort((a, b) => b.totalR - a.totalR)[0] || null, mostActiveDay: [...active].sort((a, b) => b.trades - a.trades || b.totalR - a.totalR)[0] || null };
+  }
+  if (args.view === "edge_clock") {
+    const startHour = args.period === "AM" ? 0 : args.period === "PM" ? 12 : null;
+    const clockRecords = startHour === null ? records : records.filter((record) => { const hour = Number(String(record.time || "00").slice(0, 2)); return hour >= startHour && hour < startHour + 12; });
+    const hours = Array.from({ length: startHour === null ? 24 : 12 }, (_, index) => (startHour ?? 0) + index).map((hour) => {
+      const hourRecords = clockRecords.filter((record) => Number(String(record.time || "00").slice(0, 2)) === hour);
+      return { hour, label: `${hour % 12 || 12}:00 ${hour < 12 ? "AM" : "PM"}`, ...archiveStats(hourRecords), exactTimes: archiveGroups(hourRecords, (record) => record.time) };
+    });
+    const active = hours.filter((hour) => hour.trades > 0);
+    return { ...base, summary: archiveStats(clockRecords), hours, bestHour: [...active].sort((a, b) => b.totalR - a.totalR)[0] || null, weakestHour: [...active].sort((a, b) => a.totalR - b.totalR)[0] || null };
+  }
+  if (args.view === "session_edge") {
+    const bySession = archiveGroups(records, (record) => archiveSessionsForTime(record.time));
+    const byCombo = archiveGroups(records, (record) => `${record.pair} · ${record.setup}`);
+    const bySessionPair = archiveGroups(records, (record) => archiveSessionsForTime(record.time).map((session) => `${session} · ${record.pair}`));
+    return { ...base, summary: archiveStats(records), bySession, byPair: byPair(), bySetup: bySetup(), byPairSetup: byCombo, bySessionPair, sessionWindows: [{ session: "Asian", localTime: "5:00 AM–4:00 PM" }, { session: "London", localTime: "3:00 PM–12:00 AM" }, { session: "New York", localTime: "8:00 PM–5:00 AM" }] };
+  }
+  if (args.view === "yearly") {
+    const years = archiveGroups(records, (record) => String(record.date || "").slice(0, 4)).sort((a, b) => b.label.localeCompare(a.label));
+    const pairYears = archiveGroups(records, (record) => `${String(record.date || "").slice(0, 4)} · ${record.pair}`);
+    const setupYears = archiveGroups(records, (record) => `${String(record.date || "").slice(0, 4)} · ${record.setup}`);
+    return { ...base, summary: archiveStats(records), years, pairYears, setupYears };
+  }
+  const pairRows = byPair();
+  const setupRows = bySetup();
+  return { ...base, summary: archiveStats(records), byPair: pairRows, bySetup: setupRows, byDirection: byDirection(), byOutcome: byOutcome(), byQuality: byQuality(), bestPair: pairRows[0] || null, weakestPair: [...pairRows].sort((a, b) => a.totalR - b.totalR)[0] || null, bestSetup: setupRows[0] || null, weakestSetup: [...setupRows].sort((a, b) => a.totalR - b.totalR)[0] || null };
+}
+
 function forecastEvidenceStage(sampleSize, knownDirection, consistencyPercent) {
   if (sampleSize < 5) return "Candidate";
   if (sampleSize >= 30 && knownDirection >= 25 && consistencyPercent !== null && consistencyPercent >= 75) return "Strong";
@@ -1140,6 +1261,14 @@ function verifiedStatisticsAnswer(result) {
     const pair = result.recurringGaps.byPair[0];
     const setup = result.recurringGaps.bySetup[0];
     return `Verified rolling reconciliation across ${result.monthsIncluded.length} completed month${result.monthsIncluded.length === 1 ? "" : "s"} (${result.monthsIncluded.join(", ")}): replay ${result.totals.backtestR >= 0 ? "+" : ""}${result.totals.backtestR.toFixed(2)}R versus live ${result.totals.actualR >= 0 ? "+" : ""}${result.totals.actualR.toFixed(2)}R, a ${result.totals.gapR >= 0 ? "+" : ""}${result.totals.gapR.toFixed(2)}R gap. Live frequency was ${result.totals.liveTrades} records versus ${result.totals.backtests} replay records; exact reconciliation found ${result.totals.extraLive} extra live and ${result.totals.replayOnly} replay-only records.${pair ? `\n\nLargest cumulative pair gap: ${pair.label}, ${pair.cumulativeGapR >= 0 ? "+" : ""}${pair.cumulativeGapR.toFixed(2)}R across ${pair.monthsPresent} month${pair.monthsPresent === 1 ? "" : "s"}.` : ""}${setup ? `\n\nLargest cumulative setup gap: ${setup.label}, ${setup.cumulativeGapR >= 0 ? "+" : ""}${setup.cumulativeGapR.toFixed(2)}R across ${setup.monthsPresent} month${setup.monthsPresent === 1 ? "" : "s"}.` : ""}\n\nThose are observed record-level gaps, not proof of why they occurred. I can inspect the matched and unmatched records month by month next.`;
+  }
+  if (result?.source === "trade_archive_full_access") {
+    const summary = result.summary;
+    if (result.view === "images") return `Verified chart inventory: ${result.totalImages} stored chart${result.totalImages === 1 ? "" : "s"} match those filters. I can identify them by date, pair, setup, direction, source, and record ID; select or name one for visual analysis.`;
+    if (result.view === "trades") return `Verified archive records: ${result.totalMatching} trade${result.totalMatching === 1 ? "" : "s"} match those filters. The returned record list is sourced from the authenticated archive.`;
+    if (result.view === "forecast") return `Verified Forecast view: ${result.recordsIncluded} matching forecast${result.recordsIncluded === 1 ? "" : "s"}. Statuses: ${Object.entries(result.statuses).map(([status, count]) => `${status} ${count}`).join(", ")}. Automatic forecast learning remains separate from strategy-rule changes.`;
+    const best = result.bestDay || result.bestHour || result.bestPair || result.bySession?.[0] || result.years?.[0] || null;
+    return `Verified ${String(result.view).replaceAll("_", " ")} view${summary ? `: ${summary.trades} record${summary.trades === 1 ? "" : "s"}, ${summary.totalR >= 0 ? "+" : ""}${summary.totalR.toFixed(2)}R, ${summary.winRatePercent == null ? "no win rate" : `${summary.winRatePercent}% win rate`}, ${summary.expectancyR == null ? "no expectancy" : `${summary.expectancyR.toFixed(2)}R expectancy`}, ${summary.profitFactor == null ? "unbounded profit factor" : `${summary.profitFactor.toFixed(2)} profit factor`}, and ${summary.maxDrawdownR.toFixed(2)}R max drawdown` : ` with ${result.recordsIncluded} matching records`}.${best ? ` Strongest displayed group: ${best.label}, ${best.totalR >= 0 ? "+" : ""}${best.totalR.toFixed(2)}R across ${best.trades} records.` : ""} All values were calculated deterministically from the authenticated archive.`;
   }
   if (result?.inventory) {
     const lines = Object.entries(result.inventory).map(([name, value]) => `${name}: ${value.count} record${value.count === 1 ? "" : "s"}${value.oldestDate ? ` (${value.oldestDate} to ${value.newestDate})` : ""}`);
@@ -1375,6 +1504,8 @@ function executeJournalyTool(name, args, data) {
     case "get_monthly_reconciliation":
       if ((data.unavailableSurfaces || []).some((surface) => ["trades", "backtests", "tradeDecisions", "journalEntries"].includes(surface))) return { unavailable: "monthly reconciliation evidence" };
       return monthlyReconciliationSeries(trades, backtests, forecasts, journals, args.month, args.months);
+    case "get_archive_view":
+      return archiveViewResult(data, args);
     case "get_skipped_trades": {
       const skipped = forecasts.filter((forecast) => forecast.status === "Invalidated" || forecast.status === "Skipped");
       return { decisions: skipped.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup))).slice(0, args.limit) };
@@ -1578,6 +1709,7 @@ async function handleJarvis(request, env) {
     notifications: authenticatedJournaly?.notifications || [],
     unavailableSurfaces: authenticatedJournaly?.unavailableSurfaces || [],
     authoritativeSource: authenticatedJournaly ? "authenticated_database" : "authenticated_client_snapshot",
+    imageInventory: Array.isArray(journalData?.imageInventory) ? journalData.imageInventory.slice(0, 5000) : [],
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
     sessionState: journalData?.sessionState || {},
   };
@@ -1591,7 +1723,7 @@ async function handleJarvis(request, env) {
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
     auditedBacktestChartLibrary: JARVIS_BACKTEST_AUDIT_SUMMARY,
     learnedCaseCount: toolData.learningRecords.length,
-    dataCoverage: { source: toolData.authoritativeSource, liveTrades: toolData.trades.length, monthlyLedgerTrades: toolData.monthlyTrades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length, journals: toolData.journals.length, daytradeLive: toolData.daytradeLive.length, daytradeBacktests: toolData.daytradeBacktests.length, tradingViewEvents: toolData.tradingViewEvents.length, watchedPairs: toolData.pairStates.length, notifications: toolData.notifications.length },
+    dataCoverage: { source: toolData.authoritativeSource, liveTrades: toolData.trades.length, monthlyLedgerTrades: toolData.monthlyTrades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length, journals: toolData.journals.length, chartImages: toolData.imageInventory.length, daytradeLive: toolData.daytradeLive.length, daytradeBacktests: toolData.daytradeBacktests.length, tradingViewEvents: toolData.tradingViewEvents.length, watchedPairs: toolData.pairStates.length, notifications: toolData.notifications.length },
   };
   const chartImage = validChartImage(body?.chartImage);
   const currentContent = [
@@ -1664,7 +1796,7 @@ async function handleJarvis(request, env) {
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
-          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation"].includes(call.name)) verifiedStatResult = toolResult;
+          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
@@ -1693,7 +1825,7 @@ async function handleJarvis(request, env) {
   return json({ error: "Jarvis could not reach its conversational AI.", category: lastCategory, fallbackAllowed: true }, 502);
 }
 
-export { monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats };
+export { archiveViewResult, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats };
 
 export default {
   async fetch(request, env, ctx) {
