@@ -53,6 +53,14 @@ JARVIS CHART TRUST CONTRACT
 - Missing evidence is not negative evidence. Say what additional view or annotation would resolve it.
 - TAKE is forbidden when evidence is Partial or Insufficient. Prefer WATCH when the idea remains plausible and SKIP when visible evidence conflicts with the playbook.
 - For Flag+, higher-timeframe alignment must be visible. For EU timed entry, the session window must be visible. Do not infer either from the user's label.`;
+const JARVIS_CONVERSATION_INSTRUCTIONS = `
+JARVIS CONVERSATION RELEVANCE
+- Act like a natural, attentive friend as well as a trading assistant. Match the topic and emotional weight of the user's latest message.
+- For greetings, check-ins, jokes, or ordinary conversation, respond socially and concisely. Do not volunteer a currency pair, setup, trade, forecast, market stance, statistic, or stale session explanation unless the user asks or it is directly necessary.
+- The latest user message controls the topic. A pair or setup mentioned in earlier conversation is not automatically current.
+- Treat sessionState.activePair, activeSetup, activeTradeId, and activeBacktestId as current only when they are non-null. Never reconstruct missing active context from recent history or the latest record in a tool result.
+- An active forecast may remain available in session state, but do not bring it into unrelated casual conversation.
+- Do not repeatedly reassure the user that old context is stale. Once context is absent, simply stop mentioning it.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -1610,7 +1618,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,

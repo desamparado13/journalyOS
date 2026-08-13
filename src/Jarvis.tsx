@@ -941,15 +941,22 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error("Your Journaly session has expired.");
       const requestedPair = getPairFromPrompt(cleanPrompt, [...orderedTrades, ...orderedBacktests].map((trade) => trade.pair));
-      const chartTrade = requestedPair
-        ? orderedTrades.find((trade) => trade.pair === requestedPair && trade.screenshot)
-        : orderedTrades.find((trade) => trade.screenshot);
-      const chartBacktest = requestedPair
-        ? orderedBacktests.find((trade) => trade.pair === requestedPair && trade.screenshot)
-        : orderedBacktests.find((trade) => trade.screenshot);
       const wantsBacktest = /\b(backtest|back test|historical test)\b/i.test(cleanPrompt);
       const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
+      const hasExplicitChartContext = Boolean(imageForRequest) || wantsChartReview;
+      const chartTrade = hasExplicitChartContext
+        ? requestedPair
+          ? orderedTrades.find((trade) => trade.pair === requestedPair && trade.screenshot)
+          : orderedTrades.find((trade) => trade.screenshot)
+        : undefined;
+      const chartBacktest = hasExplicitChartContext
+        ? requestedPair
+          ? orderedBacktests.find((trade) => trade.pair === requestedPair && trade.screenshot)
+          : orderedBacktests.find((trade) => trade.screenshot)
+        : undefined;
       const activeChartRecord = wantsBacktest ? chartBacktest : chartTrade;
+      const matchingActiveForecasts = orderedForecasts.filter((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair));
+      const activeForecast = requestedPair ? matchingActiveForecasts[0] : matchingActiveForecasts.length === 1 ? matchingActiveForecasts[0] : undefined;
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
       const response = await fetch("/api/jarvis/chat", {
@@ -979,12 +986,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               learnedCases: learningRecords.length,
             },
             sessionState: {
-              activePair: activeChartRecord?.pair || requestedPair || null,
-              activeSetup: activeChartRecord?.setup || null,
-              activeTradeId: wantsBacktest ? null : chartTrade?.id || null,
-              activeBacktestId: wantsBacktest ? chartBacktest?.id || null : null,
-              activeDataSource: wantsBacktest ? "backtest" : "live",
-              activeForecastId: orderedForecasts.find((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair))?.id || null,
+              activePair: activeChartRecord?.pair || requestedPair || activeForecast?.pair || null,
+              activeSetup: activeChartRecord?.setup || activeForecast?.setup || null,
+              activeTradeId: hasExplicitChartContext && !wantsBacktest ? chartTrade?.id || null : null,
+              activeBacktestId: hasExplicitChartContext && wantsBacktest ? chartBacktest?.id || null : null,
+              activeDataSource: hasExplicitChartContext ? (wantsBacktest ? "backtest" : "live") : null,
+              activeForecastId: activeForecast?.id || null,
               lastChartAvailable: Boolean(imageForRequest || activeChartRecord?.screenshot),
               lastJarvisDecision: lastDecision,
               rollingConversation: recentHistory.slice(-8),
