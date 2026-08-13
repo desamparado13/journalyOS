@@ -346,6 +346,13 @@ const FORECAST_REVIEW_SCHEMA = {
   },
 };
 
+const PUSHOVER_EMERGENCY_EVENTS = new Set(["MRH_BREAK", "MRL_BREAK", "STRUCTURE_BREAK", "SETUP_CONFIRMED"]);
+const pushoverHealth = {
+  lastAttemptAt: null,
+  lastSuccessfulSendAt: null,
+  lastError: null,
+};
+
 function decodeForecastReview(row) {
   const content = String(row?.content || "");
   if (!content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX)) return null;
@@ -558,6 +565,118 @@ async function processTradingViewEvent(env, eventId, webhookToken) {
   }
 }
 
+function normalizedTradingEvent(value) {
+  return String(value || "STRUCTURE_BREAK").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 120);
+}
+
+function pushoverConfiguration(env) {
+  const enabled = String(env.PUSHOVER_ENABLED || "").trim().toLowerCase() === "true";
+  const appTokenConfigured = Boolean(String(env.PUSHOVER_APP_TOKEN || "").trim());
+  const userKeyConfigured = Boolean(String(env.PUSHOVER_USER_KEY || "").trim());
+  return { enabled, appTokenConfigured, userKeyConfigured, available: enabled && appTokenConfigured && userKeyConfigured };
+}
+
+function pushoverDiagnostics(env) {
+  return { ...pushoverConfiguration(env), ...pushoverHealth };
+}
+
+function withDashboardCors(request, response) {
+  const origin = request.headers.get("origin");
+  if (origin !== "https://journaly-os-daytrade.sandaraslark.chatgpt.site") return response;
+  const headers = new Headers(response.headers);
+  headers.set("access-control-allow-origin", origin);
+  headers.set("access-control-allow-headers", "authorization, content-type");
+  headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
+  headers.set("vary", "Origin");
+  return new Response(response.body, { status: response.status, headers });
+}
+
+function pushoverMessage(event) {
+  return [
+    `${event.ticker} / ${event.timeframe}`,
+    `Event: ${event.event}`,
+    event.price == null ? null : `Price: ${event.price}`,
+    event.mrh == null ? null : `MRH: ${event.mrh}`,
+    event.mrl == null ? null : `MRL: ${event.mrl}`,
+    `Time: ${event.event_timestamp}`,
+  ].filter(Boolean).join("\n");
+}
+
+async function sendPushover(env, { title, message, priority }) {
+  const configuration = pushoverConfiguration(env);
+  pushoverHealth.lastAttemptAt = new Date().toISOString();
+  if (!configuration.available) {
+    pushoverHealth.lastError = "Pushover is disabled or not fully configured.";
+    throw new Error(pushoverHealth.lastError);
+  }
+  const body = new URLSearchParams({ token: String(env.PUSHOVER_APP_TOKEN), user: String(env.PUSHOVER_USER_KEY), title, message, priority: String(priority), sound: "siren" });
+  if (priority === 2) {
+    body.set("retry", "60");
+    body.set("expire", "600");
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const send = env.PUSHOVER_FETCH || fetch;
+    const response = await send("https://api.pushover.net/1/messages.json", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: body.toString(), signal: controller.signal });
+    const result = await response.json().catch(() => null);
+    if (!response.ok || result?.status !== 1) throw new Error(`Pushover rejected the message (${response.status}).`);
+    pushoverHealth.lastSuccessfulSendAt = new Date().toISOString();
+    pushoverHealth.lastError = null;
+    return { receipt: typeof result.receipt === "string" ? result.receipt : null };
+  } catch (error) {
+    pushoverHealth.lastError = error instanceof Error && error.name === "AbortError" ? "Pushover timed out." : (error instanceof Error ? error.message : "Pushover delivery failed.");
+    throw new Error(pushoverHealth.lastError);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function finishPushoverDelivery(env, eventId, webhookToken, status, receipt, error) {
+  const response = await supabaseRpc(env, "complete_jarvis_pushover_delivery", { p_event_id: eventId, p_token: webhookToken, p_status: status, p_receipt: receipt, p_error: error });
+  if (!response.ok) throw new Error(`Pushover delivery state could not be saved (${response.status}).`);
+}
+
+async function deliverTradingViewPushover(env, eventId, webhookToken) {
+  let event = null;
+  try {
+    const claimResponse = await supabaseRpc(env, "claim_jarvis_pushover_delivery", { p_event_id: eventId, p_token: webhookToken });
+    const claimResult = await claimResponse.json().catch(() => null);
+    if (!claimResponse.ok) throw new Error(`Pushover delivery could not be claimed (${claimResponse.status}).`);
+    event = Array.isArray(claimResult) ? claimResult[0] : claimResult;
+    if (!event?.event_id) return;
+    if (env.PUSHOVER_OWNER_USER_ID && String(env.PUSHOVER_OWNER_USER_ID) !== String(event.user_id)) {
+      await finishPushoverDelivery(env, eventId, webhookToken, "failed", null, "No Pushover recipient is mapped for this user.");
+      return;
+    }
+    const sent = await sendPushover(env, { title: "JARVIS — TRADING ALERT", message: pushoverMessage(event), priority: 2 });
+    await finishPushoverDelivery(env, eventId, webhookToken, "sent", sent.receipt, null);
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 500) : "Pushover delivery failed.";
+    if (event?.event_id) {
+      try { await finishPushoverDelivery(env, eventId, webhookToken, "failed", null, message); } catch { /* the delivery error remains available in diagnostics */ }
+    }
+    console.error("[Pushover delivery failure]", JSON.stringify({ eventId, category: "delivery", message }));
+  }
+}
+
+async function handlePushoverTest(request, env) {
+  if (request.method === "OPTIONS") return withDashboardCors(request, new Response(null, { status: 204 }));
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  let body;
+  try { body = await request.json(); } catch { body = {}; }
+  let authorization;
+  try { authorization = await authorizeOwner(request, env, body?.userId || null); } catch { return json({ error: "Jarvis authentication failed." }, 503); }
+  if (authorization.error) return authorization.error;
+  const priority = Number(body?.priority) === 2 ? 2 : 1;
+  try {
+    const sent = await sendPushover(env, { title: "JARVIS TEST", message: `Server-side Pushover test from Journaly\nPriority: ${priority === 2 ? "Emergency" : "High"}\nTime: ${new Date().toISOString()}`, priority });
+    return withDashboardCors(request, json({ ok: true, priority, emergency: priority === 2, sentAt: pushoverHealth.lastSuccessfulSendAt, receiptCreated: Boolean(sent.receipt) }));
+  } catch (error) {
+    return withDashboardCors(request, json({ error: error instanceof Error ? error.message : "Pushover test failed.", diagnostics: pushoverDiagnostics(env) }, 503));
+  }
+}
+
 async function handleTradingView(request, env, ctx) {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   if (!/^application\/json\b/i.test(request.headers.get("content-type") || "")) return json({ error: "Content-Type must be application/json." }, 415);
@@ -572,7 +691,7 @@ async function handleTradingView(request, env, ctx) {
 
   const ticker = String(payload.ticker || payload.symbol || "").trim().toUpperCase().replace(/[^A-Z0-9._:-]/g, "").slice(0, 40);
   const timeframe = String(payload.timeframe || payload.interval || "").trim().slice(0, 20);
-  const event = String(payload.event || payload.alert || "structure_break").trim().slice(0, 120);
+  const event = normalizedTradingEvent(payload.event || payload.alert || "structure_break");
   const timestamp = eventTimestamp(payload.timestamp ?? payload.time ?? payload.candle?.timestamp ?? payload.candle?.time);
   if (!ticker || !timeframe || !event || !timestamp) return json({ error: "ticker, timeframe, event, and a valid timestamp are required." }, 400);
 
@@ -582,7 +701,7 @@ async function handleTradingView(request, env, ctx) {
   } : null;
   const bullishBreakCount = nonNegativeInteger(payload.bullish_break_count);
   const bearishBreakCount = nonNegativeInteger(payload.bearish_break_count);
-  const dedupeKey = await sha256Text([ticker, timeframe, bullishBreakCount, bearishBreakCount, timestamp, candle?.open ?? "", candle?.high ?? "", candle?.low ?? "", candle?.close ?? ""].join("|"));
+  const dedupeKey = await sha256Text([ticker, timeframe, event, timestamp].join("|"));
   const safePayload = { ...payload };
   delete safePayload.webhook_token;
   delete safePayload.token;
@@ -618,7 +737,10 @@ async function handleTradingView(request, env, ctx) {
   const eventId = row?.event_id;
   const duplicate = row?.is_duplicate === true;
   if (eventId && !duplicate) {
-    const work = processTradingViewEvent(env, eventId, webhookToken);
+    const work = Promise.allSettled([
+      processTradingViewEvent(env, eventId, webhookToken),
+      PUSHOVER_EMERGENCY_EVENTS.has(event) ? deliverTradingViewPushover(env, eventId, webhookToken) : Promise.resolve(),
+    ]);
     if (ctx?.waitUntil) ctx.waitUntil(work);
     else void work;
   }
@@ -1649,6 +1771,7 @@ async function handleCoachingReport(request, env) {
 }
 
 async function handleHealth(request, env) {
+  if (request.method === "OPTIONS") return withDashboardCors(request, new Response(null, { status: 204 }));
   if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
   let authorization;
   try {
@@ -1676,7 +1799,7 @@ async function handleHealth(request, env) {
       recordAiFailure({ message: error instanceof Error ? error.message : String(error), model: configuredModel });
     }
   }
-  return json(aiHealth);
+  return withDashboardCors(request, json({ ...aiHealth, pushover: pushoverDiagnostics(env) }));
 }
 
 async function handleJarvis(request, env) {
@@ -1863,8 +1986,9 @@ export default {
     if (url.pathname === "/api/jarvis/chat") return handleJarvis(request, env);
     if (url.pathname === "/api/jarvis/forecast-review") return handleForecastReview(request, env);
     if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
-    if (url.pathname === "/api/jarvis/health") return handleHealth(request, env);
+    if (url.pathname === "/api/jarvis/health") return withDashboardCors(request, await handleHealth(request, env));
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
+    if (url.pathname === "/api/jarvis/pushover/test") return withDashboardCors(request, await handlePushoverTest(request, env));
 
     const response = await env.ASSETS.fetch(request);
     if (response.status !== 404 || url.pathname.includes(".")) return response;

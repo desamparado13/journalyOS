@@ -32,9 +32,24 @@ create table if not exists public.jarvis_tradingview_events (
   processing_status text not null default 'received' check (processing_status in ('received', 'processed', 'error')),
   processing_error text,
   processed_at timestamptz,
+  pushover_status text not null default 'not_required' check (pushover_status in ('not_required', 'pending', 'sent', 'failed')),
+  pushover_receipt text,
+  pushover_attempted_at timestamptz,
+  pushover_sent_at timestamptz,
+  pushover_error text,
   received_at timestamptz not null default now(),
   unique (user_id, dedupe_key)
 );
+
+alter table public.jarvis_tradingview_events add column if not exists pushover_status text not null default 'not_required';
+alter table public.jarvis_tradingview_events add column if not exists pushover_receipt text;
+alter table public.jarvis_tradingview_events add column if not exists pushover_attempted_at timestamptz;
+alter table public.jarvis_tradingview_events add column if not exists pushover_sent_at timestamptz;
+alter table public.jarvis_tradingview_events add column if not exists pushover_error text;
+do $$ begin
+  alter table public.jarvis_tradingview_events add constraint jarvis_events_pushover_status_check check (pushover_status in ('not_required', 'pending', 'sent', 'failed'));
+exception when duplicate_object then null;
+end $$;
 
 create table if not exists public.jarvis_pair_state (
   id uuid primary key default gen_random_uuid(),
@@ -142,6 +157,61 @@ begin
 end;
 $$;
 
+drop function if exists public.claim_jarvis_pushover_delivery(uuid,text);
+create function public.claim_jarvis_pushover_delivery(p_event_id uuid, p_token text)
+returns table(event_id uuid, user_id uuid, ticker text, timeframe text, event text, event_timestamp timestamptz, price numeric, mrh numeric, mrl numeric)
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  event_row public.jarvis_tradingview_events%rowtype;
+begin
+  select e.* into event_row
+  from public.jarvis_tradingview_events e
+  join public.jarvis_webhook_tokens token on token.id = e.webhook_token_id
+  where e.id = p_event_id
+    and token.is_active = true
+    and token.token_hash = encode(digest(p_token, 'sha256'), 'hex')
+  for update of e;
+
+  if event_row.id is null then return; end if;
+  if event_row.pushover_status = 'sent' then return; end if;
+  if event_row.pushover_status = 'pending' and event_row.pushover_attempted_at > now() - interval '15 minutes' then return; end if;
+
+  update public.jarvis_tradingview_events
+  set pushover_status = 'pending', pushover_attempted_at = now(), pushover_error = null
+  where id = event_row.id;
+
+  return query select event_row.id, event_row.user_id, event_row.ticker, event_row.timeframe, event_row.event,
+    event_row.event_timestamp, event_row.price, event_row.mrh, event_row.mrl;
+end;
+$$;
+
+drop function if exists public.complete_jarvis_pushover_delivery(uuid,text,text,text,text);
+create function public.complete_jarvis_pushover_delivery(p_event_id uuid, p_token text, p_status text, p_receipt text, p_error text)
+returns void
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+begin
+  if p_status not in ('sent', 'failed') then raise exception 'invalid Pushover status'; end if;
+
+  update public.jarvis_tradingview_events e
+  set pushover_status = p_status,
+      pushover_receipt = case when p_status = 'sent' then p_receipt else null end,
+      pushover_sent_at = case when p_status = 'sent' then now() else null end,
+      pushover_error = case when p_status = 'failed' then left(coalesce(p_error, 'Delivery failed.'), 500) else null end
+  from public.jarvis_webhook_tokens token
+  where e.id = p_event_id
+    and token.id = e.webhook_token_id
+    and token.is_active = true
+    and token.token_hash = encode(digest(p_token, 'sha256'), 'hex')
+    and e.pushover_status = 'pending';
+end;
+$$;
+
 drop function if exists public.process_jarvis_tradingview_event(uuid);
 create or replace function public.process_jarvis_tradingview_event(p_event_id uuid, p_token text)
 returns void
@@ -188,5 +258,9 @@ revoke all on function public.ingest_jarvis_tradingview_event(text,text,text,tex
 grant execute on function public.ingest_jarvis_tradingview_event(text,text,text,text,timestamptz,numeric,numeric,numeric,integer,integer,jsonb,jsonb,text) to anon, authenticated;
 revoke all on function public.process_jarvis_tradingview_event(uuid,text) from public;
 grant execute on function public.process_jarvis_tradingview_event(uuid,text) to anon, authenticated;
+revoke all on function public.claim_jarvis_pushover_delivery(uuid,text) from public;
+grant execute on function public.claim_jarvis_pushover_delivery(uuid,text) to anon, authenticated;
+revoke all on function public.complete_jarvis_pushover_delivery(uuid,text,text,text,text) from public;
+grant execute on function public.complete_jarvis_pushover_delivery(uuid,text,text,text,text) to anon, authenticated;
 
 notify pgrst, 'reload schema';

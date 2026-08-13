@@ -28,6 +28,10 @@ function runtimeEnvironment() {
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     JARVIS_AUTH_BYPASS_USER_ID: process.env.JARVIS_AUTH_BYPASS_USER_ID,
     JARVIS_AUTH_BYPASS_EMAIL: process.env.JARVIS_AUTH_BYPASS_EMAIL,
+    PUSHOVER_APP_TOKEN: process.env.PUSHOVER_APP_TOKEN,
+    PUSHOVER_USER_KEY: process.env.PUSHOVER_USER_KEY,
+    PUSHOVER_ENABLED: process.env.PUSHOVER_ENABLED,
+    PUSHOVER_OWNER_USER_ID: process.env.PUSHOVER_OWNER_USER_ID,
     ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
   };
 }

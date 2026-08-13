@@ -59,9 +59,17 @@ async function ask(question, history = []) {
 const results = [];
 const webhookCalls = [];
 const webhookBackground = [];
+const pushoverCalls = [];
 let webhookIngestCount = 0;
 const webhookEnv = {
   ...ownerEnv,
+  PUSHOVER_APP_TOKEN: "test-app-token",
+  PUSHOVER_USER_KEY: "test-user-key",
+  PUSHOVER_ENABLED: "true",
+  PUSHOVER_FETCH: async (url, init) => {
+    pushoverCalls.push({ url, body: new URLSearchParams(init.body) });
+    return Response.json({ status: 1, receipt: "test-emergency-receipt" });
+  },
   NEXT_PUBLIC_SUPABASE_URL: "https://journaly-test.supabase.co",
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
   SUPABASE_FETCH: async (url, init) => {
@@ -72,6 +80,8 @@ const webhookEnv = {
       return new Response(JSON.stringify([{ event_id: "00000000-0000-4000-8000-000000000001", is_duplicate: webhookIngestCount > 1 }]), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (String(url).endsWith("/process_jarvis_tradingview_event")) return new Response(null, { status: 204 });
+    if (String(url).endsWith("/claim_jarvis_pushover_delivery")) return Response.json([{ event_id: body.p_event_id, user_id: "local-smoke-test", ticker: "AUDJPY", timeframe: "15", event: "STRUCTURE_BREAK", event_timestamp: "2026-08-12T12:00:00Z", price: 102.2, mrh: 102.4, mrl: 101.9 }]);
+    if (String(url).endsWith("/complete_jarvis_pushover_delivery")) return new Response(null, { status: 204 });
     return new Response("Not found", { status: 404 });
   },
 };
@@ -84,11 +94,18 @@ const webhookRequest = makeWebhookRequest();
 const webhookResponse = await worker.fetch(webhookRequest, webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
 const webhookPayload = await webhookResponse.json();
 await Promise.all(webhookBackground);
-results.push({ test: "TradingView immediate intake and background processing", pass: webhookResponse.status === 200 && webhookPayload.accepted === true && webhookCalls.length === 2 && webhookCalls[0].body.p_ticker === "AUDJPY" && webhookCalls[0].body.p_bullish_break_count === 3 && webhookCalls[0].body.p_raw_payload.webhook_token == null, status: webhookResponse.status });
+results.push({ test: "TradingView emergency delivery", pass: webhookResponse.status === 200 && webhookPayload.accepted === true && webhookCalls.length === 4 && webhookCalls[0].body.p_ticker === "AUDJPY" && webhookCalls[0].body.p_event === "STRUCTURE_BREAK" && webhookCalls[0].body.p_raw_payload.webhook_token == null && pushoverCalls.length === 1 && pushoverCalls[0].body.get("priority") === "2" && pushoverCalls[0].body.get("retry") === "60" && pushoverCalls[0].body.get("expire") === "600" && webhookCalls.at(-1).body.p_status === "sent", status: webhookResponse.status });
 
 const duplicateResponse = await worker.fetch(makeWebhookRequest(), webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
 const duplicatePayload = await duplicateResponse.json();
-results.push({ test: "TradingView duplicate suppression", pass: duplicateResponse.status === 200 && duplicatePayload.duplicate === true && webhookCalls.length === 3, status: duplicateResponse.status });
+results.push({ test: "TradingView duplicate suppression", pass: duplicateResponse.status === 200 && duplicatePayload.duplicate === true && webhookCalls.length === 5 && pushoverCalls.length === 1, status: duplicateResponse.status });
+
+const pushoverTestResponse = await worker.fetch(new Request("http://local/api/jarvis/pushover/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "local-smoke-test", priority: 1 }) }), webhookEnv);
+const pushoverTest = await pushoverTestResponse.json();
+results.push({ test: "protected high-priority Pushover test", pass: pushoverTestResponse.ok && pushoverTest.priority === 1 && pushoverCalls.length === 2 && pushoverCalls[1].body.get("priority") === "1" && !pushoverCalls[1].body.has("retry"), status: pushoverTestResponse.status });
+
+const blockedPushoverResponse = await worker.fetch(new Request("http://local/api/jarvis/pushover/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "another-user", priority: 1 }) }), webhookEnv);
+results.push({ test: "Pushover test remains owner protected", pass: blockedPushoverResponse.status === 401, status: blockedPushoverResponse.status });
 
 const reportEnv = { ...ownerEnv, JARVIS_REPORT_TRADES: context.trades.map((trade) => ({ ...trade, trade_date: trade.date, pnl_r: trade.pnlR, result: trade.outcome, trade_quality: trade.executionQuality })) };
 const weeklyReportResponse = await worker.fetch(new Request("http://local/api/jarvis/reports?period=week&anchor=2026-08-12&userId=local-smoke-test"), reportEnv);

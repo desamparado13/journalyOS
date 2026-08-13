@@ -39,7 +39,7 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
-  Webhook,
+  BellRing,
   X,
 } from "lucide-react";
 import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -47,7 +47,7 @@ import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
 import Jarvis, { JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_LEARNING_PREFIX } from "./Jarvis";
-import TradingViewEventLog from "./TradingViewEventLog";
+import PushoverAlerts from "./PushoverAlerts";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
@@ -4995,8 +4995,8 @@ export default function App() {
             type="button"
             onClick={() => setActiveView("jarvis-events")}
           >
-            <Webhook size={18} />
-            Jarvis events
+            <BellRing size={18} />
+            Pushover alerts
           </button> : null}
             </>
           ) : (
@@ -5814,7 +5814,7 @@ export default function App() {
         ) : null}
 
         {activeView === "jarvis-events" && currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
-          <TradingViewEventLog userId={currentUser.id} displayName={accountProfile.displayName || "Pot"} />
+          <PushoverAlerts userId={currentUser.id} displayName={accountProfile.displayName || "Pot"} />
         ) : null}
 
         {activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis" ? (
