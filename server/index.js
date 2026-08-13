@@ -670,7 +670,7 @@ async function handlePushoverTest(request, env) {
   if (authorization.error) return authorization.error;
   const priority = Number(body?.priority) === 2 ? 2 : 1;
   try {
-    const sent = await sendPushover(env, { title: "JARVIS TEST", message: `Server-side Pushover test from Journaly\nPriority: ${priority === 2 ? "Emergency" : "High"}\nTime: ${new Date().toISOString()}`, priority });
+    const sent = await sendPushover(env, { title: "JARVIS TEST", message: `Pushover integration is working.\nPriority: ${priority === 2 ? "Emergency" : "High"}\nTime: ${new Date().toISOString()}`, priority });
     return withDashboardCors(request, json({ ok: true, priority, emergency: priority === 2, sentAt: pushoverHealth.lastSuccessfulSendAt, receiptCreated: Boolean(sent.receipt) }));
   } catch (error) {
     return withDashboardCors(request, json({ error: error instanceof Error ? error.message : "Pushover test failed.", diagnostics: pushoverDiagnostics(env) }, 503));

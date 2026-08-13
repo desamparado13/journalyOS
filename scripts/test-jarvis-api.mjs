@@ -61,6 +61,7 @@ const webhookCalls = [];
 const webhookBackground = [];
 const pushoverCalls = [];
 let webhookIngestCount = 0;
+const ingestedWebhookKeys = new Set();
 const webhookEnv = {
   ...ownerEnv,
   PUSHOVER_APP_TOKEN: "test-app-token",
@@ -77,7 +78,9 @@ const webhookEnv = {
     webhookCalls.push({ url, body });
     if (String(url).endsWith("/ingest_jarvis_tradingview_event")) {
       webhookIngestCount += 1;
-      return new Response(JSON.stringify([{ event_id: "00000000-0000-4000-8000-000000000001", is_duplicate: webhookIngestCount > 1 }]), { status: 200, headers: { "content-type": "application/json" } });
+      const isDuplicate = ingestedWebhookKeys.has(body.p_dedupe_key);
+      ingestedWebhookKeys.add(body.p_dedupe_key);
+      return new Response(JSON.stringify([{ event_id: `00000000-0000-4000-8000-${String(webhookIngestCount).padStart(12, "0")}`, is_duplicate: isDuplicate }]), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (String(url).endsWith("/process_jarvis_tradingview_event")) return new Response(null, { status: 204 });
     if (String(url).endsWith("/claim_jarvis_pushover_delivery")) return Response.json([{ event_id: body.p_event_id, user_id: "local-smoke-test", ticker: "AUDJPY", timeframe: "15", event: "STRUCTURE_BREAK", event_timestamp: "2026-08-12T12:00:00Z", price: 102.2, mrh: 102.4, mrl: 101.9 }]);
@@ -85,10 +88,10 @@ const webhookEnv = {
     return new Response("Not found", { status: 404 });
   },
 };
-const makeWebhookRequest = () => new Request("http://local/api/jarvis/tradingview", {
+const makeWebhookRequest = (event = "structure_break", timestamp = "2026-08-12T12:00:00Z") => new Request("http://local/api/jarvis/tradingview", {
   method: "POST",
   headers: { "content-type": "application/json", authorization: `Bearer jtv_${"a".repeat(43)}` },
-  body: JSON.stringify({ ticker: "AUDJPY", timeframe: "15", event: "structure_break", timestamp: "2026-08-12T12:00:00Z", price: 102.2, MRH: 102.4, MRL: 101.9, bullish_break_count: 3, bearish_break_count: 0, candle: { open: 102, high: 102.5, low: 101.95, close: 102.2 } }),
+  body: JSON.stringify({ ticker: "AUDJPY", timeframe: "15", event, timestamp, price: 102.2, MRH: 102.4, MRL: 101.9, bullish_break_count: 3, bearish_break_count: 0, candle: { open: 102, high: 102.5, low: 101.95, close: 102.2 } }),
 });
 const webhookRequest = makeWebhookRequest();
 const webhookResponse = await worker.fetch(webhookRequest, webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
@@ -99,6 +102,11 @@ results.push({ test: "TradingView emergency delivery", pass: webhookResponse.sta
 const duplicateResponse = await worker.fetch(makeWebhookRequest(), webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
 const duplicatePayload = await duplicateResponse.json();
 results.push({ test: "TradingView duplicate suppression", pass: duplicateResponse.status === 200 && duplicatePayload.duplicate === true && webhookCalls.length === 5 && pushoverCalls.length === 1, status: duplicateResponse.status });
+
+const quietBackground = [];
+const quietResponse = await worker.fetch(makeWebhookRequest("MRL_MOVE", "2026-08-12T12:05:00Z"), webhookEnv, { waitUntil(promise) { quietBackground.push(promise); } });
+await Promise.all(quietBackground);
+results.push({ test: "non-emergency TradingView event stays silent", pass: quietResponse.ok && webhookCalls.length === 7 && pushoverCalls.length === 1, status: quietResponse.status });
 
 const pushoverTestResponse = await worker.fetch(new Request("http://local/api/jarvis/pushover/test", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "local-smoke-test", priority: 1 }) }), webhookEnv);
 const pushoverTest = await pushoverTestResponse.json();
