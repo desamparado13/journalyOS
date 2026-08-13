@@ -10,7 +10,9 @@ const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
 const VERCEL_GATEWAY_ENDPOINT = "https://ai-gateway.vercel.sh/v1/responses";
 const AI_TIMEOUT_MS = 45_000;
 const MAX_TOOL_ROUNDS = 3;
+const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
 const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
+const JOURNALY_MONTHLY_PREFIX = "[[JOURNALY_MONTHLY:";
 const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
 JOURNALY TRADE ACTIONS
 - You may prepare a new Journaly live-trade draft when the user clearly says they are taking, entering, logging, or adding a trade.
@@ -39,6 +41,7 @@ JOURNALY NUMERIC ACCURACY
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - For forecast-review counts, directional accuracy, execution counts, or learned patterns, always call get_forecast_learning. Copy its numerators, denominators, percentages, and evidence stage exactly; interpret them but never recalculate them.
+- For any question comparing live execution with replay/backtests for a calendar month, including why performance diverged or whether the user followed the system, always call get_monthly_reconciliation. Treat its metrics, matches, and breakdowns as authoritative. Describe causal explanations only at the evidence level returned: observed, supported, or hypothesis requiring review.
 - Treat tool statistics as authoritative. If a screenshot conflicts with tool data, state the conflict without inventing a reconciliation.`;
 const JARVIS_EVIDENCE_INSTRUCTIONS = `
 JARVIS CHART TRUST CONTRACT
@@ -81,6 +84,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_active_forecasts", description: "Get active Journaly forecasts, optionally for one pair.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] } }, required: ["pair"] } },
   { type: "function", name: "get_forecasts", description: "Get the authenticated user's complete forecast history with optional pair, setup, status, and calendar-month filters. Use this to learn from forecast decisions and outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 500 } }, required: ["pair", "setup", "status", "month", "limit"] } },
   { type: "function", name: "get_forecast_learning", description: "Get durable automatic reviews and deterministic aggregate patterns from resolved forecasts. This is the only authority for numeric forecast-learning claims. Waiting forecasts are excluded and insights never alter strategy rules.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, month: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 200 } }, required: ["pair", "setup", "month", "limit"] } },
+  { type: "function", name: "get_monthly_reconciliation", description: "Authoritative month-end reconciliation of live trades against replay/backtests, forecasts, automatic forecast reviews, and journal evidence. Pass one month for a month review, or null plus a month count for a deterministic rolling comparison.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { month: { type: ["string", "null"], pattern: "^[0-9]{4}-[0-9]{2}$" }, months: { type: "integer", minimum: 1, maximum: 24 } }, required: ["month", "months"] } },
   { type: "function", name: "get_skipped_trades", description: "Get the authenticated user's recorded skipped, cancelled, or missed trade decisions and their documented outcomes.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, limit: { type: "integer", minimum: 1, maximum: 50 } }, required: ["pair", "setup", "limit"] } },
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
@@ -831,6 +835,218 @@ function deterministicStats(records, valueKey = "pnlR") {
   return setupStats(normalized);
 }
 
+function reconciliationStats(records) {
+  const ordered = [...records].sort((a, b) => `${a.date}|${a.time || ""}|${a.id || ""}`.localeCompare(`${b.date}|${b.time || ""}|${b.id || ""}`));
+  const hundredths = ordered.map((record) => Math.round(Number(record.pnlR || 0) * 100));
+  const wins = hundredths.filter((value) => value > 0);
+  const losses = hundredths.filter((value) => value < 0);
+  const total = hundredths.reduce((sum, value) => sum + value, 0);
+  const grossWin = wins.reduce((sum, value) => sum + value, 0);
+  const grossLoss = Math.abs(losses.reduce((sum, value) => sum + value, 0));
+  let equity = 0;
+  let peak = 0;
+  let maxDrawdown = 0;
+  hundredths.forEach((value) => {
+    equity += value;
+    peak = Math.max(peak, equity);
+    maxDrawdown = Math.max(maxDrawdown, peak - equity);
+  });
+  return {
+    trades: ordered.length,
+    wins: wins.length,
+    losses: losses.length,
+    breakeven: ordered.length - wins.length - losses.length,
+    totalR: total / 100,
+    winRatePercent: ordered.length ? Math.round((wins.length / ordered.length) * 1000) / 10 : null,
+    expectancyR: ordered.length ? Math.round((total / ordered.length)) / 100 : null,
+    profitFactor: grossLoss ? Math.round((grossWin / grossLoss) * 100) / 100 : grossWin ? null : 0,
+    maxDrawdownR: maxDrawdown / 100,
+    averageWinR: wins.length ? Math.round(grossWin / wins.length) / 100 : null,
+    averageLossR: losses.length ? Math.round(grossLoss / losses.length) / 100 : null,
+  };
+}
+
+function reconciliationGap(actual, replay) {
+  const difference = (a, b) => a === null || b === null ? null : Math.round((a - b) * 100) / 100;
+  return {
+    trades: actual.trades - replay.trades,
+    totalR: difference(actual.totalR, replay.totalR),
+    winRatePoints: difference(actual.winRatePercent, replay.winRatePercent),
+    expectancyR: difference(actual.expectancyR, replay.expectancyR),
+    profitFactor: difference(actual.profitFactor, replay.profitFactor),
+    maxDrawdownR: difference(actual.maxDrawdownR, replay.maxDrawdownR),
+    averageWinR: difference(actual.averageWinR, replay.averageWinR),
+    averageLossR: difference(actual.averageLossR, replay.averageLossR),
+  };
+}
+
+function reconciliationSession(time) {
+  const [hour = 0, minute = 0] = String(time || "00:00").split(":").map(Number);
+  const minutes = hour * 60 + minute;
+  if (minutes >= 6 * 60 && minutes < 14 * 60) return "Asian";
+  if (minutes >= 14 * 60 && minutes < 19 * 60) return "London";
+  if (minutes >= 19 * 60 || minutes < 2 * 60) return "New York";
+  return "Transition";
+}
+
+function reconciliationDimensions(live, replay, keyFn) {
+  const labels = [...new Set([...live.map(keyFn), ...replay.map(keyFn)].filter(Boolean))];
+  return labels.map((label) => {
+    const actualRecords = live.filter((record) => keyFn(record) === label);
+    const replayRecords = replay.filter((record) => keyFn(record) === label);
+    const actual = reconciliationStats(actualRecords);
+    const backtest = reconciliationStats(replayRecords);
+    return { label, actual, backtest, gap: reconciliationGap(actual, backtest) };
+  }).sort((a, b) => Math.abs(b.gap.totalR || 0) - Math.abs(a.gap.totalR || 0) || b.actual.trades + b.backtest.trades - a.actual.trades - a.backtest.trades || a.label.localeCompare(b.label));
+}
+
+function matchMonthlyExecutions(live, replay) {
+  const unusedReplay = new Set(replay.map((record) => record.id));
+  const matches = [];
+  const extraLive = [];
+  const minutes = (time) => {
+    const [hour = 0, minute = 0] = String(time || "00:00").split(":").map(Number);
+    return hour * 60 + minute;
+  };
+  live.forEach((actual) => {
+    const candidates = replay.filter((tested) => unusedReplay.has(tested.id) && tested.date === actual.date && normalizePair(tested.pair) === normalizePair(actual.pair) && String(tested.setup || "").toLowerCase() === String(actual.setup || "").toLowerCase() && tested.direction === actual.direction);
+    const matched = candidates.sort((a, b) => Math.abs(minutes(a.time) - minutes(actual.time)) - Math.abs(minutes(b.time) - minutes(actual.time)))[0];
+    if (!matched) {
+      extraLive.push({ id: actual.id, date: actual.date, time: actual.time, pair: actual.pair, setup: actual.setup, direction: actual.direction, pnlR: actual.pnlR, notes: actual.notes || "" });
+      return;
+    }
+    unusedReplay.delete(matched.id);
+    matches.push({
+      key: `${actual.date}|${actual.pair}|${actual.setup}|${actual.direction}`,
+      live: { id: actual.id, time: actual.time, pnlR: actual.pnlR, notes: actual.notes || "" },
+      backtest: { id: matched.id, time: matched.time, pnlR: matched.pnlR, notes: matched.notes || "" },
+      entryTimeDifferenceMinutes: Math.abs(minutes(actual.time) - minutes(matched.time)),
+      resultGapR: Math.round((Number(actual.pnlR || 0) - Number(matched.pnlR || 0)) * 100) / 100,
+    });
+  });
+  return {
+    method: "Exact date + pair + setup + direction; duplicate candidates matched by nearest recorded entry time.",
+    matched: matches,
+    extraLive,
+    replayOnly: replay.filter((record) => unusedReplay.has(record.id)).map(({ id, date, time, pair, setup, direction, pnlR, notes }) => ({ id, date, time, pair, setup, direction, pnlR, notes: notes || "" })),
+  };
+}
+
+function journalEvidenceForMonth(journals, month) {
+  const stopwords = new Set(["that", "this", "with", "from", "have", "were", "your", "trade", "trades", "forecast", "backtest", "actual", "month", "then", "when", "what", "into", "just", "also", "because", "about", "there", "their", "they", "them"]);
+  const entries = journals.filter((row) => {
+    const content = String(row.content || "");
+    return String(row.entry_date || "").startsWith(month) && !content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX) && !content.startsWith(JARVIS_LEARNING_PREFIX);
+  }).map((row) => {
+    const rawContent = String(row.content || "");
+    const content = rawContent.startsWith(JOURNALY_MONTHLY_PREFIX) ? rawContent.replace(/^\[\[JOURNALY_MONTHLY:[^\]]+\]\]\s*/, "") : rawContent;
+    return { id: row.id, date: row.entry_date, pair: row.pair || null, content: content.slice(0, 1800), advice: String(row.advice || "").slice(0, 900) };
+  });
+  const counts = new Map();
+  entries.forEach((entry) => `${entry.content} ${entry.advice}`.toLowerCase().match(/[a-z][a-z'-]{3,}/g)?.forEach((word) => {
+    if (!stopwords.has(word)) counts.set(word, (counts.get(word) || 0) + 1);
+  }));
+  return { entries, recurringTerms: [...counts.entries()].filter(([, count]) => count >= 2).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 15).map(([term, count]) => ({ term, count })) };
+}
+
+function monthlyReconciliationResult(trades, backtests, forecasts, journals, month) {
+  const live = trades.filter((record) => String(record.date || "").startsWith(month));
+  const replay = backtests.filter((record) => String(record.date || "").startsWith(month));
+  const actual = reconciliationStats(live);
+  const backtest = reconciliationStats(replay);
+  const matching = matchMonthlyExecutions(live, replay);
+  const resolvedForecasts = forecasts.filter((record) => String(record.date || "").startsWith(month) && record.status !== "Waiting");
+  const forecastReviews = journals.map(decodeForecastReview).filter((review) => review && String(review.forecastDate || "").startsWith(month));
+  const forecastLearning = aggregateForecastReviews(forecastReviews, month);
+  const journalEvidence = journalEvidenceForMonth(journals, month);
+  const pairBreakdown = reconciliationDimensions(live, replay, (record) => record.pair);
+  const setupBreakdown = reconciliationDimensions(live, replay, (record) => record.setup);
+  const sessionBreakdown = reconciliationDimensions(live, replay, (record) => reconciliationSession(record.time));
+  const executionGap = reconciliationGap(actual, backtest);
+  const monthEnd = new Date(`${month}-01T00:00:00Z`);
+  monthEnd.setUTCMonth(monthEnd.getUTCMonth() + 1);
+  const monthClosed = monthEnd.getTime() <= Date.now();
+  const observed = [
+    { statement: `Live minus replay total is ${executionGap.totalR}R.`, evidence: "observed" },
+    { statement: `${live.length} live trades versus ${replay.length} replay trades; ${matching.extraLive.length} live records have no exact replay counterpart and ${matching.replayOnly.length} replay records have no exact live counterpart.`, evidence: "observed" },
+    ...pairBreakdown.slice(0, 3).map((row) => ({ statement: `${row.label} live-minus-replay gap is ${row.gap.totalR}R across ${row.actual.trades} live and ${row.backtest.trades} replay trades.`, evidence: "observed" })),
+  ];
+  const supported = [];
+  if (matching.extraLive.length >= 3 && live.length >= 5) supported.push({ statement: "Live frequency exceeded the exact replay-qualified set in this month.", evidence: "supported", support: `${matching.extraLive.length} unmatched live trades across ${live.length} live records.` });
+  if (forecastLearning.sampleSize >= 5 && forecastLearning.direction.known >= 5) supported.push({ statement: "Resolved forecast evidence is large enough to compare directional forecasting with execution for this month.", evidence: "supported", support: `${forecastLearning.direction.fraction} directionally correct across known reviewed outcomes.` });
+  const hypotheses = [
+    { statement: "Overtrading or looser live setup selection may explain part of the gap.", evidence: "hypothesis_requires_review", verifyWith: "Inspect unmatched live records against replay inclusion rules and their notes." },
+    { statement: "Replay hindsight, spreads, rule changes, or different entry interpretation may explain part of the gap.", evidence: "hypothesis_requires_review", verifyWith: "Compare matched record screenshots, timestamps, and contemporaneous journal notes." },
+  ];
+  return {
+    source: "monthly_live_backtest_reconciliation",
+    calculation: "deterministic_authenticated_records",
+    month,
+    monthClosed,
+    ready: monthClosed && live.length > 0 && replay.length > 0,
+    coverage: { liveTrades: live.length, backtests: replay.length, resolvedForecasts: resolvedForecasts.length, reviewedForecasts: forecastReviews.length, journalEntries: journalEvidence.entries.length },
+    metrics: { actual, backtest, gap: executionGap },
+    breakdowns: { byPair: pairBreakdown, bySetup: setupBreakdown, bySession: sessionBreakdown },
+    executionMatching: matching,
+    forecastEvidence: {
+      reviewCoverage: `${forecastReviews.length}/${resolvedForecasts.length}`,
+      aggregate: forecastLearning,
+      skipped: resolvedForecasts.filter((forecast) => forecast.status === "Skipped"),
+      invalidated: resolvedForecasts.filter((forecast) => forecast.status === "Invalidated"),
+    },
+    journalEvidence,
+    findings: { observed, supported, hypotheses },
+    guardrails: ["Metrics and matching are deterministic.", "Record matching indicates correspondence, not causation.", "Hypotheses require record-level review.", "No reconciliation may automatically change a strategy rule."],
+  };
+}
+
+function monthlyReconciliationSeries(trades, backtests, forecasts, journals, requestedMonth, monthCount) {
+  if (requestedMonth) return monthlyReconciliationResult(trades, backtests, forecasts, journals, requestedMonth);
+  const available = [...new Set([...trades, ...backtests].map((record) => String(record.date || "").slice(0, 7)).filter((month) => /^\d{4}-\d{2}$/.test(month)))]
+    .filter((month) => {
+      const end = new Date(`${month}-01T00:00:00Z`);
+      end.setUTCMonth(end.getUTCMonth() + 1);
+      return end.getTime() <= Date.now() && trades.some((record) => String(record.date || "").startsWith(month)) && backtests.some((record) => String(record.date || "").startsWith(month));
+    })
+    .sort().reverse().slice(0, monthCount);
+  const reports = available.map((month) => monthlyReconciliationResult(trades, backtests, forecasts, journals, month));
+  const summarizeBreakdowns = (dimension) => {
+    const labels = [...new Set(reports.flatMap((report) => report.breakdowns[dimension].map((row) => row.label)))];
+    return labels.map((label) => {
+      const rows = reports.flatMap((report) => report.breakdowns[dimension].filter((row) => row.label === label).map((row) => ({ month: report.month, ...row })));
+      return {
+        label,
+        monthsPresent: rows.length,
+        liveTrades: rows.reduce((sum, row) => sum + row.actual.trades, 0),
+        replayTrades: rows.reduce((sum, row) => sum + row.backtest.trades, 0),
+        cumulativeGapR: Math.round(rows.reduce((sum, row) => sum + Number(row.gap.totalR || 0), 0) * 100) / 100,
+        monthlyGaps: rows.map((row) => ({ month: row.month, gapR: row.gap.totalR })),
+      };
+    }).sort((a, b) => Math.abs(b.cumulativeGapR) - Math.abs(a.cumulativeGapR) || b.monthsPresent - a.monthsPresent || a.label.localeCompare(b.label));
+  };
+  const totalActualR = Math.round(reports.reduce((sum, report) => sum + report.metrics.actual.totalR, 0) * 100) / 100;
+  const totalBacktestR = Math.round(reports.reduce((sum, report) => sum + report.metrics.backtest.totalR, 0) * 100) / 100;
+  return {
+    source: "rolling_monthly_live_backtest_reconciliation",
+    calculation: "deterministic_authenticated_records",
+    requestedMonths: monthCount,
+    monthsIncluded: available,
+    totals: {
+      actualR: totalActualR,
+      backtestR: totalBacktestR,
+      gapR: Math.round((totalActualR - totalBacktestR) * 100) / 100,
+      liveTrades: reports.reduce((sum, report) => sum + report.metrics.actual.trades, 0),
+      backtests: reports.reduce((sum, report) => sum + report.metrics.backtest.trades, 0),
+      matched: reports.reduce((sum, report) => sum + report.executionMatching.matched.length, 0),
+      extraLive: reports.reduce((sum, report) => sum + report.executionMatching.extraLive.length, 0),
+      replayOnly: reports.reduce((sum, report) => sum + report.executionMatching.replayOnly.length, 0),
+    },
+    recurringGaps: { byPair: summarizeBreakdowns("byPair"), bySetup: summarizeBreakdowns("bySetup"), bySession: summarizeBreakdowns("bySession") },
+    reports,
+    guardrails: ["Cross-month totals and gaps are deterministic.", "Recurrence means a label appeared across month records; it does not prove causation.", "No reconciliation may automatically change a strategy rule."],
+  };
+}
+
 function forecastEvidenceStage(sampleSize, knownDirection, consistencyPercent) {
   if (sampleSize < 5) return "Candidate";
   if (sampleSize >= 30 && knownDirection >= 25 && consistencyPercent !== null && consistencyPercent >= 75) return "Strong";
@@ -896,6 +1112,26 @@ function verifiedStatisticsAnswer(result) {
     const overall = result.overall;
     const patternLines = result.patterns.bySetup.slice(0, 5).map((pattern) => `- ${pattern.label}: ${pattern.sampleSize} eligible review${pattern.sampleSize === 1 ? "" : "s"}, direction ${pattern.direction.fraction}${pattern.direction.accuracyPercent === null ? " (not enough known outcomes)" : ` (${pattern.direction.accuracyPercent}%)`}, ${pattern.evidenceStage}`);
     return `Verified forecast learning: ${result.coverage.reviewedForecasts}/${result.coverage.resolvedForecasts} resolved forecasts have automatic reviews; Waiting forecasts are excluded. Across ${overall.sampleSize} aggregate-eligible reviews, directional accuracy is ${overall.direction.fraction}${overall.direction.accuracyPercent === null ? " with no reliable percentage yet" : ` (${overall.direction.accuracyPercent}%)`}. Evidence stage: ${overall.evidenceStage}.\n\nSetup patterns:\n${patternLines.length ? patternLines.join("\n") : "- No eligible setup pattern yet."}\n\nThese figures were calculated deterministically from the stored reviews. They are evidence for an insight, not permission to change a strategy rule.`;
+  }
+  if (result?.source === "monthly_live_backtest_reconciliation") {
+    const { actual, backtest, gap } = result.metrics;
+    const largestPair = result.breakdowns.byPair[0];
+    const largestSetup = result.breakdowns.bySetup[0];
+    const lines = [
+      `Verified ${result.month} reconciliation: replay ${backtest.totalR >= 0 ? "+" : ""}${backtest.totalR.toFixed(2)}R across ${backtest.trades} trades versus live ${actual.totalR >= 0 ? "+" : ""}${actual.totalR.toFixed(2)}R across ${actual.trades} trades; live-minus-replay gap ${gap.totalR >= 0 ? "+" : ""}${gap.totalR.toFixed(2)}R.`,
+      `Exact record reconciliation found ${result.executionMatching.matched.length} matched execution${result.executionMatching.matched.length === 1 ? "" : "s"}, ${result.executionMatching.extraLive.length} extra live record${result.executionMatching.extraLive.length === 1 ? "" : "s"}, and ${result.executionMatching.replayOnly.length} replay-only record${result.executionMatching.replayOnly.length === 1 ? "" : "s"}.`,
+    ];
+    if (largestPair) lines.push(`Largest absolute pair gap: ${largestPair.label}, ${largestPair.gap.totalR >= 0 ? "+" : ""}${largestPair.gap.totalR.toFixed(2)}R (${largestPair.actual.trades} live vs ${largestPair.backtest.trades} replay).`);
+    if (largestSetup) lines.push(`Largest absolute setup gap: ${largestSetup.label}, ${largestSetup.gap.totalR >= 0 ? "+" : ""}${largestSetup.gap.totalR.toFixed(2)}R (${largestSetup.actual.trades} live vs ${largestSetup.backtest.trades} replay).`);
+    lines.push(`Forecast reviews cover ${result.forecastEvidence.reviewCoverage} resolved forecasts for the month; ${result.forecastEvidence.skipped.length} were Skipped.`);
+    if (result.findings.supported.length) lines.push(`Supported finding: ${result.findings.supported[0].statement} ${result.findings.supported[0].support}`);
+    lines.push(`Hypothesis requiring review: ${result.findings.hypotheses[0].statement} This is not proven by the totals alone.`);
+    return `${lines.join("\n\n")}\n\nAll figures and matches were calculated from authenticated records. I can walk through the unmatched live trades or the largest pair/setup gap next.`;
+  }
+  if (result?.source === "rolling_monthly_live_backtest_reconciliation") {
+    const pair = result.recurringGaps.byPair[0];
+    const setup = result.recurringGaps.bySetup[0];
+    return `Verified rolling reconciliation across ${result.monthsIncluded.length} completed month${result.monthsIncluded.length === 1 ? "" : "s"} (${result.monthsIncluded.join(", ")}): replay ${result.totals.backtestR >= 0 ? "+" : ""}${result.totals.backtestR.toFixed(2)}R versus live ${result.totals.actualR >= 0 ? "+" : ""}${result.totals.actualR.toFixed(2)}R, a ${result.totals.gapR >= 0 ? "+" : ""}${result.totals.gapR.toFixed(2)}R gap. Live frequency was ${result.totals.liveTrades} records versus ${result.totals.backtests} replay records; exact reconciliation found ${result.totals.extraLive} extra live and ${result.totals.replayOnly} replay-only records.${pair ? `\n\nLargest cumulative pair gap: ${pair.label}, ${pair.cumulativeGapR >= 0 ? "+" : ""}${pair.cumulativeGapR.toFixed(2)}R across ${pair.monthsPresent} month${pair.monthsPresent === 1 ? "" : "s"}.` : ""}${setup ? `\n\nLargest cumulative setup gap: ${setup.label}, ${setup.cumulativeGapR >= 0 ? "+" : ""}${setup.cumulativeGapR.toFixed(2)}R across ${setup.monthsPresent} month${setup.monthsPresent === 1 ? "" : "s"}.` : ""}\n\nThose are observed record-level gaps, not proof of why they occurred. I can inspect the matched and unmatched records month by month next.`;
   }
   if (result?.inventory) {
     const lines = Object.entries(result.inventory).map(([name, value]) => `${name}: ${value.count} record${value.count === 1 ? "" : "s"}${value.oldestDate ? ` (${value.oldestDate} to ${value.newestDate})` : ""}`);
@@ -1128,6 +1364,9 @@ function executeJournalyTool(name, args, data) {
     case "get_forecast_learning":
       if ((data.unavailableSurfaces || []).includes("journalEntries")) return { unavailable: "forecast reviews" };
       return forecastLearningResult(journals, forecasts, args);
+    case "get_monthly_reconciliation":
+      if ((data.unavailableSurfaces || []).some((surface) => ["trades", "backtests", "tradeDecisions", "journalEntries"].includes(surface))) return { unavailable: "monthly reconciliation evidence" };
+      return monthlyReconciliationSeries(trades, backtests, forecasts, journals, args.month, args.months);
     case "get_skipped_trades": {
       const skipped = forecasts.filter((forecast) => forecast.status === "Invalidated" || forecast.status === "Skipped");
       return { decisions: skipped.filter((forecast) => (!args.pair || normalizePair(forecast.pair) === normalizePair(args.pair)) && (!args.setup || matchesText(forecast.setup, args.setup))).slice(0, args.limit) };
@@ -1215,12 +1454,29 @@ async function handleCoachingReport(request, env) {
   const authorization = await authorizeOwner(request, env, requestedUserId);
   if (authorization.error) return authorization.error;
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get("anchor") || "") ? url.searchParams.get("anchor") : isoDateInManila();
-  let rows;
-  if (env.JARVIS_AUTH_BYPASS_USER_ID && Array.isArray(env.JARVIS_REPORT_TRADES)) rows = env.JARVIS_REPORT_TRADES;
-  else rows = await loadAuthenticatedRows(request, env, authorization.user.id, "trades", "id,trade_date,pair,setup,direction,pnl_r,result,trade_quality,notes", "trade_date.desc,id.desc");
-  if (!Array.isArray(rows)) return json({ error: "Journaly's live-trade records are unavailable. No coaching report was generated." }, 503);
-  const trades = rows.map((row) => ({ id: row.id, date: row.trade_date || row.date, pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r ?? row.pnlR ?? 0), outcome: row.result || row.outcome, executionQuality: row.trade_quality || row.executionQuality || null, notes: row.notes || "" }));
-  return json({ report: deterministicCoachingReport(trades, period, anchor) });
+  let authenticatedData = null;
+  let trades;
+  if (env.JARVIS_AUTH_BYPASS_USER_ID && Array.isArray(env.JARVIS_REPORT_TRADES)) {
+    trades = env.JARVIS_REPORT_TRADES.map((row) => ({ id: row.id, date: row.trade_date || row.date, time: row.trade_time || row.time, pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r ?? row.pnlR ?? 0), outcome: row.result || row.outcome, executionQuality: row.trade_quality || row.executionQuality || null, notes: row.notes || "" }));
+  } else if (period === "month") {
+    authenticatedData = await loadAuthenticatedJournalyData(request, env, authorization.user.id);
+    trades = authenticatedData?.trades;
+  } else {
+    const rows = await loadAuthenticatedRows(request, env, authorization.user.id, "trades", "id,trade_date,trade_time,pair,setup,direction,pnl_r,result,trade_quality,notes", "trade_date.desc,id.desc");
+    trades = Array.isArray(rows) ? rows.map((row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, executionQuality: row.trade_quality || null, notes: row.notes || "" })) : null;
+  }
+  if (!Array.isArray(trades)) return json({ error: "Journaly's live-trade records are unavailable. No coaching report was generated." }, 503);
+  const report = deterministicCoachingReport(trades, period, anchor);
+  if (period === "month" && authenticatedData && Array.isArray(authenticatedData.backtests) && Array.isArray(authenticatedData.forecasts) && Array.isArray(authenticatedData.journals)) {
+    const reconciliation = monthlyReconciliationResult(trades, authenticatedData.backtests, authenticatedData.forecasts, authenticatedData.journals, report.start.slice(0, 7));
+    if (reconciliation.ready) {
+      const summary = verifiedStatisticsAnswer(reconciliation);
+      report.text = `${report.text}\n\nMONTH-END LIVE VS REPLAY RECONCILIATION\n\n${summary}`;
+      report.key = `${report.key}:reconciliation:${reconciliation.coverage.liveTrades}:${reconciliation.coverage.backtests}:${reconciliation.coverage.reviewedForecasts}:${reconciliation.metrics.actual.totalR}:${reconciliation.metrics.backtest.totalR}`;
+      report.reconciliation = reconciliation;
+    }
+  }
+  return json({ report });
 }
 
 async function handleHealth(request, env) {
@@ -1400,7 +1656,7 @@ async function handleJarvis(request, env) {
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
-          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning"].includes(call.name)) verifiedStatResult = toolResult;
+          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
@@ -1428,6 +1684,8 @@ async function handleJarvis(request, env) {
 
   return json({ error: "Jarvis could not reach its conversational AI.", category: lastCategory, fallbackAllowed: true }, 502);
 }
+
+export { monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats };
 
 export default {
   async fetch(request, env, ctx) {

@@ -611,6 +611,16 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, [isOpen]);
 
   useEffect(() => {
+    function openWithPrompt(event: Event) {
+      const detail = (event as CustomEvent<{ prompt?: string }>).detail;
+      setIsOpen(true);
+      if (detail?.prompt) setPrompt(detail.prompt.slice(0, 6000));
+    }
+    window.addEventListener("journaly:ask-jarvis", openWithPrompt);
+    return () => window.removeEventListener("journaly:ask-jarvis", openWithPrompt);
+  }, []);
+
+  useEffect(() => {
     if (!isOpen || !supabase) return;
     let cancelled = false;
     supabase.auth.getSession().then(async ({ data }) => {

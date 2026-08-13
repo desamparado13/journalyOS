@@ -3119,6 +3119,9 @@ export default function App() {
       .sort((a, b) => Math.max(Math.abs(b.actualR), Math.abs(b.testedR)) - Math.max(Math.abs(a.actualR), Math.abs(a.testedR)));
     const [year, month] = backtestComparisonMonth.split("-").map(Number);
     const monthEnded = new Date(year, month, 1).getTime() <= new Date().setHours(0, 0, 0, 0);
+    const resolvedForecasts = tradeDecisions.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && entry.status !== "Waiting");
+    const reviewedForecasts = resolvedForecasts.filter((entry) => forecastReviews.has(entry.id));
+    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && !entry.content.startsWith(JARVIS_LEARNING_PREFIX) && !entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX));
 
     return {
       actual,
@@ -3130,8 +3133,17 @@ export default function App() {
       rGap: actual.totalR - tested.totalR,
       winRateGap: actual.winRate - tested.winRate,
       expectancyGap: actual.expectancy - tested.expectancy,
+      jarvisEvidence: {
+        ready: monthEnded && liveItems.length > 0 && testedItems.length > 0,
+        liveTrades: liveItems.length,
+        backtests: testedItems.length,
+        resolvedForecasts: resolvedForecasts.length,
+        reviewedForecasts: reviewedForecasts.length,
+        journalEntries: monthJournalEntries.length,
+        setupCount: new Set([...liveItems.map((item) => item.setup), ...testedItems.map((item) => item.setup)]).size,
+      },
     };
-  }, [backtestComparisonMonth, backtests, trades]);
+  }, [backtestComparisonMonth, backtests, forecastReviews, journalEntries, tradeDecisions, trades]);
 
   const filteredBacktests = useMemo(() => {
     return backtests
@@ -6826,6 +6838,34 @@ export default function App() {
                     </span>
                   </div>
                 </div>
+
+                <section className={`jarvis-reconciliation-status${monthlyBacktestComparison.jarvisEvidence.ready ? " is-ready" : ""}`} aria-label="Jarvis monthly reconciliation status">
+                  <div className="jarvis-reconciliation-heading">
+                    <span><Brain size={17} /> Jarvis evidence</span>
+                    <strong>{monthlyBacktestComparison.jarvisEvidence.ready ? "Reconciliation ready" : "Building evidence"}</strong>
+                  </div>
+                  <p>
+                    Jarvis now combines this live-vs-replay comparison with resolved forecasts and journal evidence. It refreshes automatically whenever you add or edit a trade, backtest, forecast, or note.
+                  </p>
+                  <div className="jarvis-reconciliation-inputs">
+                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.liveTrades}</strong> live</span>
+                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.backtests}</strong> replay</span>
+                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.reviewedForecasts}/{monthlyBacktestComparison.jarvisEvidence.resolvedForecasts}</strong> forecast reviews</span>
+                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.journalEntries}</strong> journal entries</span>
+                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.setupCount}</strong> setups compared</span>
+                  </div>
+                  <div className="jarvis-evidence-legend" aria-label="Jarvis evidence labels">
+                    <span className="is-observed">Observed</span>
+                    <span className="is-supported">Supported</span>
+                    <span className="is-hypothesis">Hypothesis · requires review</span>
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent("journaly:ask-jarvis", { detail: { prompt: `Jarvis, reconcile my live trading against my backtests for ${formatMonthLabel(backtestComparisonMonth)} (${backtestComparisonMonth}). Show the biggest pair, setup, and session gaps, connect the resolved forecasts and journal notes, and clearly separate observed facts, supported findings, and hypotheses.` } }))}
+                    >
+                      <MessageSquareText size={13} /> Ask Jarvis about this month
+                    </button>
+                  </div>
+                </section>
 
                 {!monthlyBacktestComparison.hasActual || !monthlyBacktestComparison.hasBacktest ? (
                   <div className="comparison-empty-note">

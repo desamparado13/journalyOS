@@ -8102,6 +8102,34 @@ textarea:focus {
   color: var(--review-color);
   text-align: left;
 }
+
+.jarvis-reconciliation-status {
+  display: grid;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-radius: 10px;
+  padding: 17px 18px;
+  background:
+    radial-gradient(circle at 94% 16%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 15rem),
+    var(--surface);
+  box-shadow: var(--shadow);
+}
+.jarvis-reconciliation-status.is-ready { border-color: color-mix(in srgb, var(--positive) 36%, var(--line)); }
+.jarvis-reconciliation-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.jarvis-reconciliation-heading > span { display: inline-flex; align-items: center; gap: 7px; color: var(--brand-strong); font-size: 0.73rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
+.jarvis-reconciliation-heading strong { color: var(--text); font-size: 0.8rem; }
+.jarvis-reconciliation-status.is-ready .jarvis-reconciliation-heading strong { color: var(--positive); }
+.jarvis-reconciliation-status > p { max-width: 850px; margin: 0; color: var(--muted); font-size: 0.78rem; line-height: 1.55; }
+.jarvis-reconciliation-inputs { display: flex; flex-wrap: wrap; gap: 7px; }
+.jarvis-reconciliation-inputs span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; background: var(--surface-strong); color: var(--muted); font-size: 0.67rem; }
+.jarvis-reconciliation-inputs strong { color: var(--text); }
+.jarvis-evidence-legend { display: flex; flex-wrap: wrap; gap: 7px; border-top: 1px solid var(--line); padding-top: 10px; }
+.jarvis-evidence-legend span { border-radius: 999px; padding: 4px 8px; font-size: 0.62rem; font-weight: 850; }
+.jarvis-evidence-legend .is-observed { background: color-mix(in srgb, var(--brand) 13%, transparent); color: var(--brand-strong); }
+.jarvis-evidence-legend .is-supported { background: color-mix(in srgb, var(--positive) 13%, transparent); color: var(--positive); }
+.jarvis-evidence-legend .is-hypothesis { background: color-mix(in srgb, #f59e0b 13%, transparent); color: #d97706; }
+.jarvis-evidence-legend button { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line)); border-radius: 999px; padding: 6px 10px; background: color-mix(in srgb, var(--brand) 9%, var(--surface-strong)); color: var(--brand-strong); font-size: 0.65rem; font-weight: 850; cursor: pointer; }
+.jarvis-evidence-legend button:hover { border-color: var(--brand); }
 .forecast-review-state > svg { flex: 0 0 auto; }
 .forecast-review-state > span { display: grid; gap: 1px; min-width: 0; color: var(--muted); font-size: 0.65rem; line-height: 1.35; }
 .forecast-review-state strong { color: var(--review-color); font-size: 0.67rem; }
