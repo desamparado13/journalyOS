@@ -121,7 +121,7 @@ export default function PushoverAlerts({ userId, displayName }: { userId: string
       <div className="tv-setup-grid">
         <article className="tv-setup-card pushover-test-card">
           <header><Siren size={18} /><div><span>Server test</span><strong>Confirm phone delivery now</strong></div></header>
-          <p>High priority plays the siren once. Emergency repeats every 60 seconds for up to 10 minutes until acknowledged.</p>
+          <p>High priority plays the siren once. Emergency uses the longer Persistent sound and repeats every 30 seconds until acknowledged, capped by Pushover at 50 retries (about 25 minutes).</p>
           <div className="pushover-test-actions"><button className="secondary-action" type="button" disabled={testing !== null} onClick={() => void sendTest(1)}><Send size={15} /> {testing === 1 ? "Sending…" : "High-priority test"}</button><button className="primary-action" type="button" disabled={testing !== null} onClick={() => void sendTest(2)}><Siren size={15} /> {testing === 2 ? "Sending…" : "Emergency test"}</button></div>
           <small>Last successful server send: {compactDate(diagnostics?.lastSuccessfulSendAt || null)}</small>
           {diagnostics?.lastError ? <small className="is-error">Last error: {diagnostics.lastError}</small> : null}

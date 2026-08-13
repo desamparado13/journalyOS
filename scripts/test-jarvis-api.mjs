@@ -97,7 +97,7 @@ const webhookRequest = makeWebhookRequest();
 const webhookResponse = await worker.fetch(webhookRequest, webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
 const webhookPayload = await webhookResponse.json();
 await Promise.all(webhookBackground);
-results.push({ test: "TradingView emergency delivery", pass: webhookResponse.status === 200 && webhookPayload.accepted === true && webhookCalls.length === 4 && webhookCalls[0].body.p_ticker === "AUDJPY" && webhookCalls[0].body.p_event === "STRUCTURE_BREAK" && webhookCalls[0].body.p_raw_payload.webhook_token == null && pushoverCalls.length === 1 && pushoverCalls[0].body.get("priority") === "2" && pushoverCalls[0].body.get("retry") === "60" && pushoverCalls[0].body.get("expire") === "600" && webhookCalls.at(-1).body.p_status === "sent", status: webhookResponse.status });
+results.push({ test: "TradingView emergency delivery", pass: webhookResponse.status === 200 && webhookPayload.accepted === true && webhookCalls.length === 4 && webhookCalls[0].body.p_ticker === "AUDJPY" && webhookCalls[0].body.p_event === "STRUCTURE_BREAK" && webhookCalls[0].body.p_raw_payload.webhook_token == null && pushoverCalls.length === 1 && pushoverCalls[0].body.get("priority") === "2" && pushoverCalls[0].body.get("retry") === "30" && pushoverCalls[0].body.get("expire") === "10800" && pushoverCalls[0].body.get("sound") === "persistent" && webhookCalls.at(-1).body.p_status === "sent", status: webhookResponse.status });
 
 const duplicateResponse = await worker.fetch(makeWebhookRequest(), webhookEnv, { waitUntil(promise) { webhookBackground.push(promise); } });
 const duplicatePayload = await duplicateResponse.json();

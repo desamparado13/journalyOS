@@ -609,10 +609,10 @@ async function sendPushover(env, { title, message, priority }) {
     pushoverHealth.lastError = "Pushover is disabled or not fully configured.";
     throw new Error(pushoverHealth.lastError);
   }
-  const body = new URLSearchParams({ token: String(env.PUSHOVER_APP_TOKEN), user: String(env.PUSHOVER_USER_KEY), title, message, priority: String(priority), sound: "siren" });
+  const body = new URLSearchParams({ token: String(env.PUSHOVER_APP_TOKEN), user: String(env.PUSHOVER_USER_KEY), title, message, priority: String(priority), sound: priority === 2 ? "persistent" : "siren" });
   if (priority === 2) {
-    body.set("retry", "60");
-    body.set("expire", "600");
+    body.set("retry", "30");
+    body.set("expire", "10800");
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
