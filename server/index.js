@@ -50,9 +50,10 @@ JARVIS CHART TRUST CONTRACT
 - Describe only evidence visible in the attached image. Never invent an entry marker, structure line, timeframe, session window, higher-timeframe context, or unseen candle.
 - Never mention historical resemblance or a historical edge in the prose answer. Journaly's deterministic matcher appends verified historical records after your analysis.
 - Without a current chart, every question about a resembling case, recurring pattern, or historical example must call find_historical_patterns. Never manufacture a resemblance from memory.
-- Use Clear only when every required setup component is visibly supported. Use Partial when the setup is plausible but at least one required component is unclear. Use Insufficient when the setup cannot be reliably identified.
-- Missing evidence is not negative evidence. Say what additional view or annotation would resolve it.
-- TAKE is forbidden when evidence is Partial or Insufficient. Prefer WATCH when the idea remains plausible and SKIP when visible evidence conflicts with the playbook.
+- Keep confidence and opinion separate. Confidence measures how much of the setup can be verified; the decision is Jarvis's opinion from what is available.
+- Missing evidence is not negative evidence. It lowers confidence and should usually lead to WATCH, not a refusal to form an opinion. Say naturally what would resolve it and acknowledge that the user may have confirmed it outside the screenshot.
+- A visibly failed mandatory strategy condition may justify SKIP or INVALIDATED. A mandatory condition that is merely outside the screenshot is unknown, not failed.
+- TAKE requires every mandatory setup component to be visibly supported. Otherwise, prefer WATCH when the idea remains plausible and SKIP only when visible evidence conflicts with the playbook.
 - For Flag+, higher-timeframe alignment must be visible. For EU timed entry, the session window must be visible. Do not infer either from the user's label.`;
 const JARVIS_CONVERSATION_INSTRUCTIONS = `
 JARVIS CONVERSATION RELEVANCE
@@ -1291,8 +1292,10 @@ function verifiedStatisticsAnswer(result) {
     if (!result.totalMatching) return `No authenticated ${result.source} Journaly records match those filters. I will not claim that this is a historical pattern.`;
     const stats = result.statistics;
     const records = result.records.map((record) => `- ${record.date} · ${record.pair} ${record.setup} ${record.direction || ""} · ${record.outcome || "Unrecorded"} · ${record.pnlR > 0 ? "+" : ""}${record.pnlR.toFixed(2)}R · ID ${record.id}`).join("\n");
-    const warning = result.totalMatching < 5 ? "\n\nThis is anecdotal evidence, not a proven edge." : "";
-    return `Verified ${result.source} historical pattern: ${result.totalMatching} exact matching record${result.totalMatching === 1 ? "" : "s"} (${result.evidenceStrength} evidence), ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}.\n\nExact records${result.totalMatching > result.records.length ? ` (showing ${result.records.length})` : ""}:\n${records}${warning}`;
+    if (result.totalMatching < 5) {
+      return `Historical context only: ${result.totalMatching} exact matching ${result.source} record${result.totalMatching === 1 ? "" : "s"}. This sample is anecdotal and too small to influence a trade opinion, so I’m not presenting its win rate as an edge.\n\nExact records${result.totalMatching > result.records.length ? ` (showing ${result.records.length})` : ""}:\n${records}`;
+    }
+    return `Verified ${result.source} historical pattern: ${result.totalMatching} exact matching records (${result.evidenceStrength} evidence), ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}.\n\nExact records${result.totalMatching > result.records.length ? ` (showing ${result.records.length})` : ""}:\n${records}`;
   }
   const stats = result?.statistics;
   if (!stats) return null;
@@ -1327,7 +1330,9 @@ function enforceChartEvidenceGate(assessment) {
   const evidenceLevel = allRequired ? "Clear" : partlySupported ? "Partial" : "Insufficient";
   const proposedDecision = ["TAKE", "SKIP", "WATCH", "ARMED", "INVALIDATED"].includes(safe.decision) ? safe.decision : "WATCH";
   const decision = evidenceLevel === "Clear" ? proposedDecision : ["SKIP", "INVALIDATED"].includes(proposedDecision) ? proposedDecision : "WATCH";
-  return { setupCandidate: setup, direction: ["Long", "Short"].includes(safe.direction) ? safe.direction : null, decision, evidenceLevel, visibleEvidence, missingEvidence, conflictingEvidence, features };
+  const coverage = requirements.length ? supportedCount / requirements.length : 0;
+  const confidence = Math.max(20, Math.min(95, Math.round(30 + coverage * 45 + (ppaVisible ? 10 : 0) + Math.min(visibleEvidence.length, 3) * 4 - conflictingEvidence.length * 8)));
+  return { setupCandidate: setup, direction: ["Long", "Short"].includes(safe.direction) ? safe.direction : null, decision, confidence, evidenceLevel, visibleEvidence, missingEvidence, conflictingEvidence, features };
 }
 
 function deterministicHistoricalMatches(assessment, trades, activePair) {
@@ -1352,18 +1357,43 @@ function deterministicHistoricalMatches(assessment, trades, activePair) {
 }
 
 function verifiedChartAnswer(assessment, matches) {
-  const setup = assessment.setupCandidate || "No setup confirmed";
-  const visible = assessment.visibleEvidence.length ? assessment.visibleEvidence.map((item) => `- ${item}`).join("\n") : "- No setup-defining evidence was reliable enough to verify.";
-  const missing = assessment.missingEvidence.length ? assessment.missingEvidence.map((item) => `- ${item}`).join("\n") : "- Nothing required by this setup's gate is currently missing.";
-  const conflicts = assessment.conflictingEvidence.length ? `\n\nConflicting evidence:\n${assessment.conflictingEvidence.map((item) => `- ${item}`).join("\n")}` : "";
-  let history = "No matching live Journaly trades were found, so I will not claim a historical pattern.";
-  if (matches.sampleSize) {
+  const setup = assessment.setupCandidate || "Unclear setup";
+  const direction = assessment.direction ? ` ${assessment.direction}` : "";
+  const lead = assessment.decision === "TAKE"
+    ? "I like this. The mandatory pieces I need are visible, so this is a valid take from the chart provided."
+    : assessment.decision === "ARMED"
+      ? "I like the idea. It looks close, but I’d stay armed and let the trigger finish the job."
+      : assessment.decision === "SKIP"
+        ? "I don’t like this one. Something visible conflicts with the playbook, so I’d leave it alone."
+        : assessment.decision === "INVALIDATED"
+          ? "This idea has lost the condition that made it interesting, so I’d treat it as invalidated."
+          : "I see what you’re looking at. I’d keep this on watch for now.";
+  const observed = assessment.visibleEvidence.length
+    ? assessment.visibleEvidence.slice(0, 3).join(" ")
+    : "The screenshot does not give me enough clean setup detail to lean harder yet.";
+  const caution = assessment.conflictingEvidence.length
+    ? `What makes me cautious: ${assessment.conflictingEvidence.slice(0, 2).join(" ")}`
+    : assessment.missingEvidence.length
+      ? `The main thing I want is ${assessment.missingEvidence[0]}. I can’t verify that from this image; if you’ve confirmed it on your chart, move to the next condition rather than treating it as a failed rule.`
+      : "I don’t see a missing mandatory condition in this view.";
+
+  let history = "";
+  if (matches.sampleSize > 0 && matches.sampleSize < 5) {
+    const losses = Number(matches.statistics?.losses || 0);
+    const wins = Number(matches.statistics?.wins || 0);
+    const outcome = losses === matches.sampleSize
+      ? matches.sampleSize === 1 ? "it was a loss" : `all ${losses} were losses`
+      : wins === matches.sampleSize
+        ? matches.sampleSize === 1 ? "it was a win" : `all ${wins} were wins`
+        : `${wins} win${wins === 1 ? "" : "s"} and ${losses} loss${losses === 1 ? "" : "es"}`;
+    history = `\n\nHistorical note: I found only ${matches.sampleSize} comparable live trade${matches.sampleSize === 1 ? "" : "s"}; ${outcome}. That sample is anecdotal, so it does not influence this call.`;
+  } else if (matches.sampleSize >= 5) {
     const stats = matches.statistics;
-    const citations = matches.records.map((record) => `- ${record.date} · ${record.pair} ${record.setup} ${record.direction || ""} · ${record.outcome || "Unrecorded"} · ${record.pnlR > 0 ? "+" : ""}${record.pnlR.toFixed(2)}R · ID ${record.id}`).join("\n");
-    history = `Deterministic historical match (${matches.evidenceStrength} evidence): ${matches.sampleSize} matching live trade${matches.sampleSize === 1 ? "" : "s"}, ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total, ${stats.winRate == null ? "no win rate" : `${stats.winRate}% win rate`}. Closest records:\n${citations}`;
-    if (matches.sampleSize < 5) history += "\nThis sample is anecdotal and does not establish an edge.";
+    const weight = matches.sampleSize >= 30 ? "material" : matches.sampleSize >= 15 ? "meaningful but moderate" : "weak supporting";
+    history = `\n\nHistorical context (${weight}, n=${matches.sampleSize}): ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total${stats.winRate == null ? "" : ` · ${stats.winRate}% win rate`}. ${matches.sampleSize >= 30 ? "This can influence the opinion, but it does not override the current chart." : "I’m keeping it secondary to the current chart."}`;
   }
-  return `Evidence-gated chart review\n\nDecision: ${assessment.decision}\nEvidence: ${assessment.evidenceLevel}\nSetup: ${setup}${assessment.direction ? ` · ${assessment.direction}` : ""}\n\nWhat is visibly supported:\n${visible}\n\nWhat remains unclear:\n${missing}${conflicts}\n\n${history}\n\n${assessment.decision === "TAKE" ? "The chart passed the visible-evidence gate, but this is still decision support—not certainty." : "No entry is validated by Jarvis until the missing evidence is visible."}`;
+
+  return `JARVIS — ${setup}${direction}\n\n${lead}\n\n${observed}\n\n${caution}${history}\n\nJarvis read: ${assessment.decision} · Confidence ${assessment.confidence}%`;
 }
 
 function isoDateInManila(now = new Date()) {

@@ -122,7 +122,7 @@ const tradeDraft = await ask("Jarvis, log my AJ long as an Internal reversal wit
 results.push({ test: "confirmed trade draft", pass: tradeDraft.tradeAction?.intent === "ready" && tradeDraft.tradeAction?.pair === "AUDJPY" && tradeDraft.tradeAction?.setup === "Internal reversal" && tradeDraft.tradeAction?.direction === "Long" && tradeDraft.tradeAction?.stopLossPips === 14 && Array.isArray(tradeDraft.tradeAction?.missingFields) && tradeDraft.tradeAction.missingFields.length === 0 && /confirm|ready|add/i.test(tradeDraft.answer), tradeAction: tradeDraft.tradeAction });
 
 const stats = await ask("how have my Internals performed this month?");
-results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).includes("get_setup_statistics") && /3|33\.3|0R|internal/i.test(stats.answer), tools: stats.toolsUsed });
+results.push({ test: "real setup statistics", pass: (stats.toolsUsed || []).some((tool) => tool === "get_setup_statistics" || tool === "get_live_trade_statistics") && /3|33\.3|0R|internal/i.test(stats.answer), tools: stats.toolsUsed, answer: stats.answer });
 
 const monthly = await ask("Rank my best live trading months in 2026.");
 results.push({ test: "authoritative monthly performance", pass: (monthly.toolsUsed || []).includes("get_monthly_performance") && /April|2026-04/i.test(monthly.answer) && /10\.85R?/i.test(monthly.answer) && /10 trades?/i.test(monthly.answer), tools: monthly.toolsUsed, answer: monthly.answer });
@@ -158,12 +158,12 @@ const liveVsBacktest = await ask("compare my live trades against my backtests fo
 results.push({ test: "live versus backtest comparison", pass: /live/i.test(liveVsBacktest.answer) && /backtest/i.test(liveVsBacktest.answer) && (liveVsBacktest.toolsUsed || []).includes("compare_live_vs_backtest"), tools: liveVsBacktest.toolsUsed });
 
 const historicalPattern = await ask("Show me the exact losing AUDJPY Internal Reversal live trades this resembles historically.");
-results.push({ test: "deterministic historical pattern citations", pass: (historicalPattern.toolsUsed || []).includes("find_historical_patterns") && /t4|ID t4/i.test(historicalPattern.answer) && /1 exact matching record|1 exact matching/i.test(historicalPattern.answer) && /anecdotal/i.test(historicalPattern.answer), tools: historicalPattern.toolsUsed, answer: historicalPattern.answer });
+results.push({ test: "deterministic historical pattern citations", pass: (historicalPattern.toolsUsed || []).includes("find_historical_patterns") && /t4|ID t4/i.test(historicalPattern.answer) && /1 exact matching record|1 exact matching/i.test(historicalPattern.answer) && /anecdotal/i.test(historicalPattern.answer) && !/0% win rate/i.test(historicalPattern.answer), tools: historicalPattern.toolsUsed, answer: historicalPattern.answer });
 
 const chartGateRequest = new Request("http://local/api/jarvis/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId: "local-smoke-test", question: "Is this a valid Internal Reversal entry?", chartImage: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", context }) });
 const chartGateResponse = await worker.fetch(chartGateRequest, ownerEnv);
 const chartGate = await chartGateResponse.json();
-results.push({ test: "hard chart evidence gate", pass: chartGateResponse.ok && chartGate.chartReviewed === true && /Evidence-gated chart review/i.test(chartGate.answer) && /Evidence: (Partial|Insufficient)/i.test(chartGate.answer) && !/Decision: TAKE/i.test(chartGate.answer) && chartGate.chartAssessment?.decision !== "TAKE", answer: chartGate.answer });
+results.push({ test: "conversational chart evidence gate", pass: chartGateResponse.ok && chartGate.chartReviewed === true && /JARVIS —/i.test(chartGate.answer) && /Confidence \d+%/i.test(chartGate.answer) && /watch|skip|invalidated/i.test(chartGate.answer) && !/Evidence-gated chart review|Evidence: Partial|No entry is validated/i.test(chartGate.answer) && chartGate.chartAssessment?.decision !== "TAKE", answer: chartGate.answer });
 
 const visualAudit = await ask("what recurring visual quality problems did you find across my audited backtest charts?");
 results.push({ test: "audited backtest chart retrieval", pass: /137|PPA|countertrend|trigger|visual|chart/i.test(visualAudit.answer) && (visualAudit.toolsUsed || []).includes("get_backtest_visual_audit"), tools: visualAudit.toolsUsed });

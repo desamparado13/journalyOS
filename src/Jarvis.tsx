@@ -1082,8 +1082,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
       }
-      if (payload.tradeAction) setTradeDraft((current) => normalizeTradeAction(payload.tradeAction, current));
-      if (payload.forecastAction) setForecastDraft((current) => normalizeForecastAction(payload.forecastAction, current));
+      setTradeDraft((current) => payload.tradeAction ? normalizeTradeAction(payload.tradeAction, current) : null);
+      setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
@@ -1194,7 +1194,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
                 <button type="button" onClick={() => askJarvis("Analyze my full Edge Lab. Show my strongest and weakest hours, sessions, weekdays, pairs, setups, and pair/setup combinations using deterministic data.")}><Clock size={17} /> Edge Lab</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
-                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); }}><RefreshCcw size={17} /> New conversation</button>
+                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); setForecastDraft(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               <div className="jarvis-source-stack">
