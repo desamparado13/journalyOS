@@ -46,7 +46,7 @@ import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, 
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
-import Jarvis, { JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_LEARNING_PREFIX } from "./Jarvis";
+import Jarvis, { JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX } from "./Jarvis";
 import PushoverAlerts from "./PushoverAlerts";
 import logoUrl from "../assets/logo.svg";
 
@@ -2342,7 +2342,7 @@ export default function App() {
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const dailyJournalEntries = useMemo(
-    () => journalEntries.filter((entry) => entry.kind === "daily" && !entry.content.startsWith(JARVIS_LEARNING_PREFIX) && !entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX) && !entry.content.startsWith(JARVIS_FEEDBACK_PREFIX)),
+    () => journalEntries.filter((entry) => entry.kind === "daily" && !entry.content.startsWith(JARVIS_LEARNING_PREFIX) && !entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX) && !entry.content.startsWith(JARVIS_FEEDBACK_PREFIX) && !entry.content.startsWith(JARVIS_MEMORY_SYNC_PREFIX) && !entry.content.startsWith(JARVIS_SESSION_SYNC_PREFIX)),
     [journalEntries],
   );
   const forecastReviews = useMemo(() => {
@@ -3121,7 +3121,7 @@ export default function App() {
     const monthEnded = new Date(year, month, 1).getTime() <= new Date().setHours(0, 0, 0, 0);
     const resolvedForecasts = tradeDecisions.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && entry.status !== "Waiting");
     const reviewedForecasts = resolvedForecasts.filter((entry) => forecastReviews.has(entry.id));
-    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && !entry.content.startsWith(JARVIS_LEARNING_PREFIX) && !entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX) && !entry.content.startsWith(JARVIS_FEEDBACK_PREFIX));
+    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && !entry.content.startsWith(JARVIS_LEARNING_PREFIX) && !entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX) && !entry.content.startsWith(JARVIS_FEEDBACK_PREFIX) && !entry.content.startsWith(JARVIS_MEMORY_SYNC_PREFIX) && !entry.content.startsWith(JARVIS_SESSION_SYNC_PREFIX));
 
     return {
       actual,

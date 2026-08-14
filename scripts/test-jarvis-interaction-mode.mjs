@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker, { detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, selectRelevantMemories } from "../server/index.js";
+import worker, { detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal } from "../server/index.js";
 
 const chart = "data:image/png;base64,test";
 const activeTradeMessages = [
@@ -28,6 +28,8 @@ assert.equal(detectConversationMode("how are my Internals doing?", null, {}), "p
 assert.equal(detectConversationMode("I want to reflect on my trading journey", null, {}), "journal_reflection");
 assert.equal(detectConversationMode("thanks", null, {}), "casual_conversation");
 assert.equal(detectConversationMode("should I hold?", null, { activeTradeId: "trade-1" }), "active_trade_management");
+assert.equal(detectConversationMode("what about it?", null, { activeForecastId: "forecast-1" }), "forecast_management");
+assert.equal(detectConversationMode("give me my morning briefing", null, {}), "daily_routine");
 
 const relevantMemories = selectRelevantMemories([
   { operation: "upsert", category: "risk_rule", key: "fixed_target", value: "Pot prefers fixed 2R targets." },
@@ -41,6 +43,16 @@ const feedbackExamples = feedbackStyleExamples([{
   advice: "The response was too strict or sounded like an auditor.",
 }]);
 assert.equal(feedbackExamples[0]?.reason, "too_strict");
+
+const syncedMemories = syncedMemoriesFromJournal([
+  { content: '[[JARVIS_MEMORY_SYNC_V1]]\n{"syncedAt":"2026-08-14T08:00:00Z","updates":[{"operation":"upsert","category":"preference","key":"tone","value":"Formal","confidence":1}]}' },
+  { content: '[[JARVIS_MEMORY_SYNC_V1]]\n{"syncedAt":"2026-08-14T09:00:00Z","updates":[{"operation":"upsert","category":"preference","key":"tone","value":"Natural and concise","confidence":1}]}' },
+]);
+assert.equal(syncedMemories[0]?.value, "Natural and concise");
+const syncedSession = syncedSessionFromJournal([
+  { content: '[[JARVIS_SESSION_SYNC_V1]]\n{"syncedAt":"2026-08-14T09:00:00Z","state":{"pair":"AUDUSD","forecastId":"forecast-1"}}' },
+]);
+assert.equal(syncedSession?.pair, "AUDUSD");
 
 const modelAnswer = "You are already in this NZDJPY trade. The move is progressing toward your target, so I would manage the open position rather than reassess the entry.";
 const modelPayload = {
@@ -88,7 +100,11 @@ const modelPayload = {
 };
 
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async () => Response.json({ output_text: JSON.stringify(modelPayload), usage: {} });
+let capturedModelRequest = null;
+globalThis.fetch = async (_url, init) => {
+  capturedModelRequest = JSON.parse(init.body);
+  return Response.json({ output_text: JSON.stringify(modelPayload), usage: {} });
+};
 try {
   const request = new Request("http://local/api/jarvis/chat", {
     method: "POST",
@@ -97,9 +113,11 @@ try {
       userId: "interaction-routing-test",
       question: activeTradeMessages[0],
       chartImage: chart,
+      previousChartImage: "data:image/png;base64,previous",
       context: {
-        sessionState: { activeTradeId: "trade-1", activePair: "NZDJPY", activeSetup: "Break and retest" },
+        sessionState: { activeTradeId: "trade-1", activeForecastId: "forecast-1", activePair: "NZDJPY", activeSetup: "Break and retest" },
         trades: [{ id: "trade-1", date: "2026-08-14", time: "08:00", pair: "NZDJPY", setup: "Break and retest", direction: "Long", outcome: "Breakeven", pnlR: 0, notes: "Open trade targeting 2R." }],
+        forecasts: [{ id: "forecast-1", date: "2026-08-14", time: "07:00", pair: "NZDJPY", setup: "Break and retest", direction: "Long", status: "Waiting", entryPlan: "Wait for the retest to hold.", notes: "Documented before entry." }],
       },
     }),
   });
@@ -114,8 +132,12 @@ try {
   assert.equal(payload.answer, modelAnswer, "active-trade answer must not be replaced by the pre-entry chart formatter");
   assert.equal(payload.tradeAction, null, "an existing active trade must not create a duplicate trade draft");
   assert.equal(payload.conversationMode, "active_trade_management");
+  assert.equal(payload.chartCompared, true);
+  const currentTurn = capturedModelRequest.input.at(-1).content;
+  assert.equal(currentTurn.filter((item) => item.type === "input_image").length, 2);
+  assert.match(currentTurn[0].text, /"activeForecast":\{"id":"forecast-1"/);
 } finally {
   globalThis.fetch = originalFetch;
 }
 
-console.log("Jarvis intelligence routing: 19/19 passed");
+console.log("Jarvis intelligence routing: 24/24 passed");

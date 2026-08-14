@@ -14,6 +14,9 @@ import {
   Eye,
   Gauge,
   ImagePlus,
+  Mic,
+  MicOff,
+  Moon,
   Paperclip,
   Radio,
   RefreshCcw,
@@ -23,6 +26,9 @@ import {
   ThumbsDown,
   ThumbsUp,
   TrendingUp,
+  Sunrise,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +40,8 @@ const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
 const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
 const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
+const JARVIS_VOICE_REPLIES_KEY_PREFIX = "journaly-os-jarvis-voice-replies-v1";
+const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -44,6 +52,8 @@ const JARVIS_TRADE_SETUPS = new Set(["REVERSAL", "Internal reversal", "Liquidity
 export const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
 export const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
 export const JARVIS_FEEDBACK_PREFIX = "[[JARVIS_FEEDBACK_V1]]";
+export const JARVIS_MEMORY_SYNC_PREFIX = "[[JARVIS_MEMORY_SYNC_V1]]";
+export const JARVIS_SESSION_SYNC_PREFIX = "[[JARVIS_SESSION_SYNC_V1]]";
 
 type JarvisTrade = {
   id: string;
@@ -123,6 +133,23 @@ type JarvisActiveContext = {
 
 type JarvisFeedbackReason = "helpful" | "too_strict" | "too_long" | "misread_context" | "unnatural";
 
+type JarvisSpeechRecognitionEvent = {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};
+
+type JarvisSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: JarvisSpeechRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type JarvisSpeechRecognitionConstructor = new () => JarvisSpeechRecognition;
+
 type JarvisTradeAction = {
   intent: "draft" | "ready";
   date: string | null;
@@ -181,7 +208,7 @@ type JarvisProps = {
   backtests: JarvisBacktest[];
   forecasts: JarvisForecast[];
   session: JarvisSession;
-  journalEntries: Array<{ id: string; date: string; content: string; advice: string }>;
+  journalEntries: Array<{ id: string; date: string; content: string; advice: string; createdAt?: string; updatedAt?: string }>;
   onTradeCreated: () => void | Promise<void>;
   onForecastChanged: (forecast?: { id: string; status: NonNullable<JarvisForecastAction["status"]> }) => void | Promise<void>;
 };
@@ -259,16 +286,23 @@ function readJarvisMemory(userId: string, username: string): JarvisMemoryState {
 function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdate[]): JarvisMemoryState {
   let preferredName = state.preferredName;
   let memories = [...state.memories];
+  let changed = false;
   updates.filter((update) => update && update.confidence >= 0.7).forEach((update) => {
     const key = update.key.trim().slice(0, 80);
     if (!key) return;
     if (update.category === "identity" && key.toLowerCase().replaceAll("-", "_") === "preferred_name") {
-      preferredName = update.operation === "delete" ? null : update.value.trim().slice(0, 80) || null;
+      const nextName = update.operation === "delete" ? null : update.value.trim().slice(0, 80) || null;
+      if (preferredName !== nextName) { preferredName = nextName; changed = true; }
     }
+    const existing = memories.find((memory) => memory.category === update.category && memory.key === key);
+    const nextValue = update.value.trim().slice(0, 800);
+    if (update.operation === "upsert" && existing?.value === nextValue && existing.confidence === update.confidence) return;
+    if (update.operation === "delete" && !existing) return;
     memories = memories.filter((memory) => !(memory.category === update.category && memory.key === key));
-    if (update.operation === "upsert") memories.push({ ...update, key, value: update.value.trim().slice(0, 800), updatedAt: new Date().toISOString() });
+    if (update.operation === "upsert") memories.push({ ...update, key, value: nextValue, updatedAt: new Date().toISOString() });
+    changed = true;
   });
-  return { ...state, preferredName, memories: memories.slice(-40) };
+  return changed ? { ...state, preferredName, memories: memories.slice(-40) } : state;
 }
 
 function decodeLearningRecord(entry: JarvisProps["journalEntries"][number]): JarvisLearningRecord | null {
@@ -357,10 +391,13 @@ function formatUsd(value: number) {
 }
 
 const quickCommands = [
+  { label: "Morning briefing", prompt: "Give me my morning briefing using only Journaly: waiting forecasts, current plans, recent execution, risk rules, and what deserves my attention. Do not claim live market conditions.", icon: Sunrise },
+  { label: "Forecast briefing", prompt: "Brief me on every waiting forecast: the documented thesis, what is complete, what still needs confirmation, and which ideas need a decision. Use Journaly only, not live market assumptions.", icon: Radio },
+  { label: "Evening debrief", prompt: "Run my evening debrief from Journaly. Review today's forecasts, trades, execution decisions, lessons, and the one thing I should carry into the next session.", icon: Moon },
   { label: "Analyze latest trade", prompt: "Analyze my latest trade", icon: Crosshair },
   { label: "Recent mistakes", prompt: "Show me my recent mistakes", icon: Eye },
   { label: "Internal performance", prompt: "How are my Internals doing?", icon: BarChart3 },
-  { label: "Forecast patterns", prompt: "What are you learning from my forecast history?", icon: Radio },
+  { label: "Forecast patterns", prompt: "What are you learning from my forecast history?", icon: BarChart3 },
   { label: "Risk check", prompt: "What is my risk right now?", icon: ShieldCheck },
 ] as const;
 
@@ -411,6 +448,36 @@ function readJarvisActiveContext(userId: string): JarvisActiveContext | null {
   } catch {
     return null;
   }
+}
+
+function syncedMemoryUpdates(entries: JarvisProps["journalEntries"]): JarvisMemoryUpdate[] {
+  return entries.flatMap((entry) => {
+    if (!entry.content.startsWith(JARVIS_MEMORY_SYNC_PREFIX)) return [];
+    try {
+      const metadata = JSON.parse(entry.content.slice(JARVIS_MEMORY_SYNC_PREFIX.length).trim());
+      const syncedAt = String(metadata?.syncedAt || entry.updatedAt || entry.createdAt || entry.date);
+      return Array.isArray(metadata?.updates) ? [{ updates: metadata.updates as JarvisMemoryUpdate[], syncedAt }] : [];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => a.syncedAt.localeCompare(b.syncedAt)).flatMap((record) => record.updates);
+}
+
+function syncedActiveContext(entries: JarvisProps["journalEntries"]): { state: JarvisActiveContext | null; syncedAt: string } | undefined {
+  const records = entries.flatMap((entry) => {
+    if (!entry.content.startsWith(JARVIS_SESSION_SYNC_PREFIX)) return [];
+    try {
+      const metadata = JSON.parse(entry.content.slice(JARVIS_SESSION_SYNC_PREFIX.length).trim());
+      return [{ state: metadata?.state as JarvisActiveContext | null, syncedAt: String(metadata?.syncedAt || entry.updatedAt || entry.createdAt || entry.date) }];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => b.syncedAt.localeCompare(a.syncedAt));
+  return records[0];
+}
+
+function readVoiceReplies(userId: string) {
+  return localStorage.getItem(`${JARVIS_VOICE_REPLIES_KEY_PREFIX}:${userId}`) === "true";
 }
 
 function selectRequestedChart<T extends { id: string; date: string; pair: string; setup: string; screenshot: string }>(records: T[], prompt: string, requestedPair?: string) {
@@ -601,6 +668,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [activeContext, setActiveContext] = useState<JarvisActiveContext | null>(() => readJarvisActiveContext(userId));
   const [messageFeedback, setMessageFeedback] = useState<Record<string, JarvisFeedbackReason>>({});
   const [feedbackTarget, setFeedbackTarget] = useState<string | null>(null);
+  const [lastChartImage, setLastChartImage] = useState<{ dataUrl: string; name: string } | null>(null);
+  const [voiceReplies, setVoiceReplies] = useState(() => readVoiceReplies(userId));
+  const [isListening, setIsListening] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
   const [attachedImage, setAttachedImage] = useState<{ dataUrl: string; name: string } | null>(null);
@@ -619,6 +690,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const wasChatOpen = useRef(false);
   const tradeSaveLock = useRef(false);
   const forecastSaveLock = useRef(false);
+  const sessionSyncEntryIdRef = useRef<string | null>(journalEntries.find((entry) => entry.content.startsWith(JARVIS_SESSION_SYNC_PREFIX))?.id || null);
+  const speechRecognitionRef = useRef<JarvisSpeechRecognition | null>(null);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
@@ -744,10 +817,44 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, [memory, userId]);
 
   useEffect(() => {
+    const updates = syncedMemoryUpdates(journalEntries);
+    if (updates.length) setMemory((current) => applyMemoryUpdates(current, updates));
+    const synced = syncedActiveContext(journalEntries);
+    sessionSyncEntryIdRef.current = journalEntries.find((entry) => entry.content.startsWith(JARVIS_SESSION_SYNC_PREFIX))?.id || sessionSyncEntryIdRef.current;
+    if (!synced) return;
+    setActiveContext((current) => {
+      const currentTimestamp = current?.updatedAt ? new Date(current.updatedAt).getTime() : 0;
+      const syncedTimestamp = new Date(synced.syncedAt).getTime();
+      return Number.isFinite(syncedTimestamp) && syncedTimestamp >= currentTimestamp ? synced.state : current;
+    });
+  }, [journalEntries]);
+
+  useEffect(() => {
     const key = `${JARVIS_ACTIVE_CONTEXT_KEY_PREFIX}:${userId}`;
     if (activeContext) localStorage.setItem(key, JSON.stringify(activeContext));
     else localStorage.removeItem(key);
   }, [activeContext, userId]);
+
+  useEffect(() => {
+    localStorage.setItem(`${JARVIS_VOICE_REPLIES_KEY_PREFIX}:${userId}`, String(voiceReplies));
+    if (!voiceReplies && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  }, [userId, voiceReplies]);
+
+  useEffect(() => () => {
+    speechRecognitionRef.current?.stop();
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || (!activeForecasts.length && !activeContext)) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = `${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`;
+    if (localStorage.getItem(key) === today) return;
+    localStorage.setItem(key, today);
+    const forecastText = activeForecasts.length ? `${activeForecasts.length} forecast${activeForecasts.length === 1 ? " is" : "s are"} still waiting in Journaly.` : "";
+    const contextText = activeContext?.pair ? ` I still have ${activeContext.pair}${activeContext.setup ? ` ${activeContext.setup}` : ""} in context.` : "";
+    setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Quiet check-in", text: `${forecastText}${contextText} If you want, I can give you a quick forecast briefing—Journaly evidence only, no invented market read.`.trim() }]);
+  }, [activeContext, activeForecasts.length, isOpen, userId]);
 
   useEffect(() => {
     localStorage.setItem(`${JARVIS_SPEND_KEY_PREFIX}:${userId}`, JSON.stringify(spend));
@@ -898,6 +1005,92 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }
   }
 
+  async function persistMemoryUpdates(updates: JarvisMemoryUpdate[]) {
+    const durable = updates.filter((update) => update && update.confidence >= 0.7);
+    if (!supabase || !durable.length) return;
+    const syncedAt = new Date().toISOString();
+    await supabase.from("journal_entries").insert({
+      user_id: userId,
+      entry_date: syncedAt.slice(0, 10),
+      content: `${JARVIS_MEMORY_SYNC_PREFIX}\n${JSON.stringify({ updates: durable, syncedAt })}`,
+      advice: "Jarvis cross-device memory sync.",
+      image_url: "",
+      pair: null,
+      related_trade_id: null,
+      related_discipline_id: null,
+      updated_at: syncedAt,
+    });
+  }
+
+  async function persistActiveContext(next: JarvisActiveContext | null) {
+    if (!supabase) return;
+    const syncedAt = new Date().toISOString();
+    const payload = {
+      entry_date: syncedAt.slice(0, 10),
+      content: `${JARVIS_SESSION_SYNC_PREFIX}\n${JSON.stringify({ state: next, syncedAt })}`,
+      advice: "Jarvis cross-device conversation context.",
+      image_url: "",
+      pair: next?.pair || null,
+      related_trade_id: next?.tradeId || null,
+      related_discipline_id: next?.forecastId || null,
+      updated_at: syncedAt,
+    };
+    if (sessionSyncEntryIdRef.current) {
+      await supabase.from("journal_entries").update(payload).eq("id", sessionSyncEntryIdRef.current).eq("user_id", userId);
+    } else {
+      const { data } = await supabase.from("journal_entries").insert({ user_id: userId, ...payload }).select("id").single();
+      if (data?.id) sessionSyncEntryIdRef.current = data.id;
+    }
+  }
+
+  function setAndSyncActiveContext(next: JarvisActiveContext | null) {
+    setActiveContext(next);
+    void persistActiveContext(next);
+  }
+
+  function speakJarvisMessage(message: JarvisMessage) {
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") return;
+    window.speechSynthesis.cancel();
+    if (speakingMessageId === message.id) {
+      setSpeakingMessageId(null);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(message.text);
+    utterance.rate = 0.96;
+    utterance.pitch = 0.92;
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+    setSpeakingMessageId(message.id);
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function toggleVoiceInput() {
+    if (isListening) {
+      speechRecognitionRef.current?.stop();
+      return;
+    }
+    const speechWindow = window as Window & { SpeechRecognition?: JarvisSpeechRecognitionConstructor; webkitSpeechRecognition?: JarvisSpeechRecognitionConstructor };
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setAttachmentError("Voice input is not supported in this browser.");
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results).map((result) => result[0]?.transcript || "").join(" ").trim();
+      if (transcript) setPrompt((current) => `${current}${current.trim() ? " " : ""}${transcript}`);
+    };
+    recognition.onerror = () => { setIsListening(false); setAttachmentError("I couldnâ€™t hear that clearly. Try again."); };
+    recognition.onend = () => setIsListening(false);
+    speechRecognitionRef.current = recognition;
+    setAttachmentError("");
+    setIsListening(true);
+    recognition.start();
+  }
+
   async function saveTradeDraft(draft: JarvisTradeAction) {
     if (!supabase || tradeSaveLock.current || draft.intent !== "ready" || draft.missingFields.length || !draft.pair || !draft.setup || !draft.direction) return;
     tradeSaveLock.current = true;
@@ -933,7 +1126,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         return;
       }
       setTradeDraft(null);
-      if (data?.id) setActiveContext({ pair, setup: draft.setup, tradeId: data.id, backtestId: null, forecastId: null, dataSource: "live", updatedAt: now.toISOString() });
+      if (data?.id) setAndSyncActiveContext({ pair, setup: draft.setup, tradeId: data.id, backtestId: null, forecastId: null, dataSource: "live", updatedAt: now.toISOString() });
       await onTradeCreated();
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade added", text: `${pair} ${direction.toLowerCase()} is now in your Journaly trade log. I used only the fields available in Add Trade.` }]);
     } catch (error) {
@@ -970,6 +1163,20 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }
       const actionLabel = draft.intent === "create" ? "Forecast added" : "Forecast updated";
       setForecastDraft(null);
+      const savedForecast = forecasts.find((forecast) => forecast.id === data?.id || forecast.id === draft.forecastId);
+      if (data?.id && draft.status === "Waiting" && (draft.pair || savedForecast?.pair)) {
+        setAndSyncActiveContext({
+          pair: draft.pair || savedForecast?.pair || null,
+          setup: draft.setup || savedForecast?.setup || null,
+          tradeId: null,
+          backtestId: null,
+          forecastId: data.id,
+          dataSource: "forecast",
+          updatedAt: now.toISOString(),
+        });
+      } else if (draft.forecastId && activeContext?.forecastId === draft.forecastId && draft.status !== "Waiting") {
+        setAndSyncActiveContext(null);
+      }
       await onForecastChanged(data?.id ? { id: data.id, status: draft.status } : undefined);
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: actionLabel, text: draft.intent === "create" ? `${draft.pair} ${draft.direction?.toLowerCase()} is now waiting in Forecasts.` : `The ${draft.pair || "selected"} forecast is now marked ${draft.status}.` }]);
     } catch (error) {
@@ -982,6 +1189,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
   async function askJarvis(nextPrompt: string) {
     const imageForRequest = attachedImage;
+    const previousChartForRequest = imageForRequest && lastChartImage && imageForRequest.dataUrl !== lastChartImage.dataUrl && imageForRequest.dataUrl.length + lastChartImage.dataUrl.length <= 3_800_000
+      ? lastChartImage
+      : null;
     const cleanPrompt = nextPrompt.trim() || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
     if (forecastDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
@@ -1060,7 +1270,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         dataSource: "forecast",
         updatedAt: new Date().toISOString(),
       } : activeContext && (!requestedPair || activeContext.pair === requestedPair) ? activeContext : null;
-      if (nextActiveContext && nextActiveContext !== activeContext) setActiveContext(nextActiveContext);
+      if (nextActiveContext && nextActiveContext !== activeContext) setAndSyncActiveContext(nextActiveContext);
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
       const response = await fetch("/api/jarvis/chat", {
@@ -1071,6 +1281,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           question: cleanPrompt,
           history: recentHistory,
           chartImage: imageForRequest?.dataUrl || (wantsChartReview ? activeChartRecord?.screenshot || null : null),
+          previousChartImage: previousChartForRequest?.dataUrl || null,
           context: {
             generatedAt: new Date().toISOString(),
             profile: {
@@ -1090,6 +1301,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               learnedCases: learningRecords.length,
             },
             sessionState: {
+              activeContextExplicit: true,
               activePair: requestedPair || nextActiveContext?.pair || activeForecast?.pair || null,
               activeSetup: nextActiveContext?.setup || activeForecast?.setup || null,
               activeTradeId: nextActiveContext?.tradeId || null,
@@ -1179,6 +1391,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }));
       if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
         setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
+        void persistMemoryUpdates(payload.memoryUpdates);
       }
       setTradeDraft((current) => payload.tradeAction ? normalizeTradeAction(payload.tradeAction, current) : null);
       setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
@@ -1200,11 +1413,11 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           };
         });
       }
-      if (closesActiveTrade) setActiveContext(null);
-      setMessages((current) => [
-        ...current,
-        { id: crypto.randomUUID(), role: "jarvis", text: payload.answer },
-      ]);
+      if (closesActiveTrade) setAndSyncActiveContext(null);
+      if (imageForRequest) setLastChartImage(imageForRequest);
+      const jarvisMessage: JarvisMessage = { id: crypto.randomUUID(), role: "jarvis", text: payload.answer };
+      setMessages((current) => [...current, jarvisMessage]);
+      if (voiceReplies) speakJarvisMessage(jarvisMessage);
     } catch (error) {
       const failure = error as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
       setAiHealth((current) => ({
@@ -1280,7 +1493,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <span><i /> {!aiHealth ? "Checking conversational AI" : aiHealth.apiReachable ? "Conversational AI online" : "AI connection needs attention"}</span>
               <span>{session.label} · {session.timeLabel}</span>
             </div>
-            <button className="jarvis-close" type="button" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={20} /></button>
+            <div className="jarvis-header-actions">
+              <button className={`jarvis-voice-toggle${voiceReplies ? " is-active" : ""}`} type="button" title={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} aria-label={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} onClick={() => setVoiceReplies((current) => !current)}>{voiceReplies ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+              <button className="jarvis-close" type="button" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={20} /></button>
+            </div>
           </header>
 
           <div className="jarvis-layout">
@@ -1293,7 +1509,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
                 <button type="button" onClick={() => askJarvis("Analyze my full Edge Lab. Show my strongest and weakest hours, sessions, weekdays, pairs, setups, and pair/setup combinations using deterministic data.")}><Clock size={17} /> Edge Lab</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
-                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); setForecastDraft(null); setActiveContext(null); setFeedbackTarget(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
+                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); setForecastDraft(null); setAndSyncActiveContext(null); setFeedbackTarget(null); setLastChartImage(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               <div className="jarvis-source-stack">
@@ -1313,7 +1529,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><Check size={13} /><p><strong>Trade Archive + Edge Lab</strong><small>All views connected · deterministic calculations</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>
                 <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
-                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} rule{memory.memories.length === 1 ? "" : "s"} · {learningRecords.length} learned case{learningRecords.length === 1 ? "" : "s"}</small></p></div>
+                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} rule{memory.memories.length === 1 ? "" : "s"} · cross-device sync</small></p></div>
                 <div><BookOpenCheck size={13} /><p><strong>Learning archive</strong><small>{learningSyncState === "saving" ? "Saving latest insight…" : learningSyncState === "error" ? "Latest insight stayed in chat" : "Summaries synced · images stay lightweight"}</small></p></div>
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
@@ -1359,6 +1575,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           {message.metrics?.length ? <div className="jarvis-response-metrics">{message.metrics.map((metric) => <div className={metric.tone ? `is-${metric.tone}` : ""} key={`${metric.label}-${metric.value}`}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div> : null}
                           {message.role === "jarvis" ? (
                             <div className="jarvis-feedback">
+                              <button type="button" aria-label={speakingMessageId === message.id ? "Stop speaking" : "Read this reply aloud"} title={speakingMessageId === message.id ? "Stop speaking" : "Read aloud"} onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />} {speakingMessageId === message.id ? "Stop" : "Listen"}</button>
                               {messageFeedback[message.id] ? <small><Check size={12} /> Feedback saved</small> : (
                                 <>
                                   <button type="button" onClick={() => void saveMessageFeedback(message, "helpful")}><ThumbsUp size={13} /> Helpful</button>
@@ -1421,6 +1638,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <form className={`jarvis-composer${attachedImage ? " has-attachment" : ""}`} onSubmit={submitPrompt}>
                 <input ref={fileInputRef} className="jarvis-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseImage} />
                 <button className="jarvis-attach" type="button" title="Attach a chart screenshot" aria-label="Attach a chart screenshot" onClick={() => fileInputRef.current?.click()}><ImagePlus size={19} /></button>
+                <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}`} type="button" title={isListening ? "Stop listening" : "Speak to Jarvis"} aria-label={isListening ? "Stop listening" : "Speak to Jarvis"} onClick={toggleVoiceInput}>{isListening ? <MicOff size={18} /> : <Mic size={18} />}</button>
                 {attachedImage ? <div className="jarvis-attachment-preview"><img src={attachedImage.dataUrl} alt="Chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove attached image"><X size={14} /></button></div> : null}
                 <textarea
                   ref={inputRef}
@@ -1451,7 +1669,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <section className="jarvis-context-card">
                 <header><Target size={16} /><span>Active forecasts</span><b>{activeForecasts.length}</b></header>
                 {activeForecasts.length ? activeForecasts.slice(0, 3).map((item) => (
-                  <button type="button" key={item.id} onClick={() => askJarvis(`Check ${item.pair}`)}><span><strong>{item.pair}</strong><small>{item.setup}</small></span><ChevronRight size={15} /></button>
+                  <button type="button" key={item.id} onClick={() => askJarvis(`Review my active ${item.pair} forecast using its documented thesis and current status. Do not assume live market conditions.`)}><span><strong>{item.pair}</strong><small>{item.setup}</small></span><ChevronRight size={15} /></button>
                 )) : <p>No pairs are waiting for confirmation.</p>}
               </section>
               <section className="jarvis-context-card">
@@ -1463,7 +1681,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.4</strong><small>Conversational / visual / memory / confirmed Journaly actions</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.5</strong><small>Forecast-aware / voice / chart comparison / cross-device continuity</small></div></div>
             </aside>
           </div>
         </section>

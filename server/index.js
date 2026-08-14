@@ -13,6 +13,8 @@ const MAX_TOOL_ROUNDS = 3;
 const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
 const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
 const JARVIS_FEEDBACK_PREFIX = "[[JARVIS_FEEDBACK_V1]]";
+const JARVIS_MEMORY_SYNC_PREFIX = "[[JARVIS_MEMORY_SYNC_V1]]";
+const JARVIS_SESSION_SYNC_PREFIX = "[[JARVIS_SESSION_SYNC_V1]]";
 const JOURNALY_MONTHLY_PREFIX = "[[JOURNALY_MONTHLY:";
 const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
 JOURNALY TRADE ACTIONS
@@ -49,6 +51,7 @@ const JARVIS_EVIDENCE_INSTRUCTIONS = `
 JARVIS CHART TRUST CONTRACT
 - When a chart image is attached, chartAssessment is mandatory. When there is no chart image, chartAssessment must be null.
 - Describe only evidence visible in the attached image. Never invent an entry marker, structure line, timeframe, session window, higher-timeframe context, or unseen candle.
+- When PREVIOUS CHART and CURRENT CHART are both supplied, compare only changes visibly supported by both images. Do not assume identical timeframe, zoom, scale, or annotations when they are not visibly consistent. Center the opinion on what changed and whether that change affects the user's documented trade or forecast plan.
 - Never mention historical resemblance or a historical edge in the prose answer. Journaly's deterministic matcher appends verified historical records after your analysis.
 - Without a current chart, every question about a resembling case, recurring pattern, or historical example must call find_historical_patterns. Never manufacture a resemblance from memory.
 - Keep confidence and opinion separate. Confidence measures how much of the setup can be verified; the decision is Jarvis's opinion from what is available.
@@ -70,6 +73,10 @@ JARVIS CONVERSATION RELEVANCE
 - Ask a follow-up only when the missing answer would materially change the guidance. Otherwise make the best supported inference and state uncertainty naturally.
 - Use relevantMemories selectively. Never force an unrelated memory into the conversation just because it is available.
 - Use styleExamples as tone feedback. Repeat qualities the user marked helpful and avoid the failure described by negative feedback, while never copying an old answer verbatim or allowing style feedback to override trading evidence.
+- Forecast awareness is not market awareness. For an active forecast, remember its thesis, entry plan, direction, status, and the user's documented reasoning. Discuss whether the plan is complete or what evidence the user still needs, but never claim the present market confirmed or invalidated it without a current chart or authenticated TradingView evidence.
+- When activeForecast is present, follow-ups such as "what about it?", "still valid?", or "what do you think now?" refer to that forecast unless the user names another pair or trade.
+- In daily_routine mode, give a concise morning preparation or evening debrief using only Journaly forecasts, trades, execution reviews, goals, and memories. Explicitly avoid invented live-market commentary.
+- For a morning or forecast briefing, call get_active_forecasts before answering. For an evening debrief, call get_recent_trades and get_forecasts when those records are relevant; keep numeric claims delegated to the deterministic statistics tools.
 - An active forecast may remain available in session state, but do not bring it into unrelated casual conversation.
 - Do not repeatedly reassure the user that old context is stale. Once context is absent, simply stop mentioning it.`;
 const JARVIS_MEMORY_INSTRUCTIONS = `
@@ -366,9 +373,11 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (hasActiveTradeSignal(text) || activeFollowUp) return "active_trade_management";
   if (chartImage) return "pre_trade_review";
   if (/\b(?:closed|finished|stopped\s+out|hit\s+(?:tp|target|sl)|booked|ended)\b.*\b(?:trade|position|r)\b|\b(?:trade|position)\b.*\b(?:closed|finished|won|lost|breakeven)\b/.test(text)) return "post_trade_review";
+  if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day)\b/.test(text)) return "daily_routine";
   if (/\b(?:journal|reflect|reflection|trading\s+journey|write\s+down|debrief|how\s+have\s+i\s+changed)\b/.test(text)) return "journal_reflection";
   if (/\b(?:win\s*rate|expectancy|statistics|stats|performance|edge\s+lab|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
-  if (/\b(?:forecast|watchlist|watching|invalidated|skipped\s+idea)\b/.test(text)) return "forecast_management";
+  const forecastFollowUp = Boolean(sessionState?.activeForecastId) && /\b(?:what\s+about\s+it|still\s+valid|what\s+do\s+you\s+think|what\s+now|check\s+it|update\s+me|the\s+idea|that\s+idea)\b/.test(text);
+  if (forecastFollowUp || /\b(?:forecast|watchlist|watching|invalidated|skipped\s+idea)\b/.test(text)) return "forecast_management";
   if (/\b(?:log|add|record|save)\b.*\b(?:trade|position)\b|\b(?:taking|entering|opening)\b.*\b(?:trade|position|long|short)\b/.test(text)) return "trade_logging";
   if (/^(?:hey|hi|hello|yo|thanks|thank\s+you|good\s+(?:morning|afternoon|evening)|what's\s+up|whats\s+up|how\s+are\s+you)[!,.\s]*$/.test(text)) return "casual_conversation";
   return "general_trading_conversation";
@@ -416,6 +425,47 @@ function feedbackStyleExamples(journals, limit = 10) {
       return [];
     }
   }).slice(0, limit);
+}
+
+function isJarvisInternalJournalContent(content) {
+  const value = String(content || "");
+  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX].some((prefix) => value.startsWith(prefix));
+}
+
+function syncedMemoriesFromJournal(journals, limit = 40) {
+  if (!Array.isArray(journals)) return [];
+  const updates = journals.flatMap((entry) => {
+    const content = String(entry?.content || "");
+    if (!content.startsWith(JARVIS_MEMORY_SYNC_PREFIX)) return [];
+    try {
+      const metadata = JSON.parse(content.slice(JARVIS_MEMORY_SYNC_PREFIX.length).trim());
+      const syncedAt = typeof metadata?.syncedAt === "string" ? metadata.syncedAt : entry?.updated_at || entry?.created_at || "";
+      return Array.isArray(metadata?.updates) ? metadata.updates.map((update) => ({ ...update, updatedAt: syncedAt })) : [];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => String(a.updatedAt).localeCompare(String(b.updatedAt)));
+  const latest = new Map();
+  updates.forEach((update) => {
+    if (!update?.category || !update?.key) return;
+    latest.set(`${update.category}:${update.key}`, update);
+  });
+  return [...latest.values()].slice(-limit);
+}
+
+function syncedSessionFromJournal(journals) {
+  if (!Array.isArray(journals)) return null;
+  const records = journals.flatMap((entry) => {
+    const content = String(entry?.content || "");
+    if (!content.startsWith(JARVIS_SESSION_SYNC_PREFIX)) return [];
+    try {
+      const metadata = JSON.parse(content.slice(JARVIS_SESSION_SYNC_PREFIX.length).trim());
+      return [{ state: metadata?.state || null, syncedAt: metadata?.syncedAt || entry?.updated_at || entry?.created_at || "" }];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => String(b.syncedAt).localeCompare(String(a.syncedAt)));
+  return records[0]?.state || null;
 }
 
 const FORECAST_REVIEW_SCHEMA = {
@@ -1786,7 +1836,10 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_journal_entries":
       if ((data.unavailableSurfaces || []).includes("journalEntries")) return { unavailable: "journal entries" };
-      return { entries: journals.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.year || String(item.entry_date || "").startsWith(`${args.year}-`))).slice(0, args.limit), totalAvailable: journals.length };
+      {
+        const personalEntries = journals.filter((item) => !isJarvisInternalJournalContent(item.content));
+        return { entries: personalEntries.filter((item) => (!args.pair || normalizePair(item.pair) === normalizePair(args.pair)) && (!args.year || String(item.entry_date || "").startsWith(`${args.year}-`))).slice(0, args.limit), totalAvailable: personalEntries.length };
+      }
     case "get_tradingview_state": {
       if ((data.unavailableSurfaces || []).some((surface) => ["tradingViewEvents", "pairStates", "notifications"].includes(surface))) return { unavailable: "TradingView/Jarvis state" };
       const matches = (item) => (!args.ticker || normalizePair(item.ticker) === normalizePair(args.ticker)) && (!args.timeframe || String(item.timeframe) === String(args.timeframe));
@@ -1935,15 +1988,33 @@ async function handleJarvis(request, env) {
       preferredName: typeof suppliedProfile?.preferredName === "string" ? suppliedProfile.preferredName.slice(0, 80) : null,
       preferences: suppliedProfile?.preferences || {},
   };
+  const journalRows = authenticatedJournaly?.journals || [];
+  const clientMemories = Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [];
+  const syncedMemories = syncedMemoriesFromJournal(journalRows);
+  const mergedMemories = new Map();
+  [...syncedMemories, ...clientMemories].sort((a, b) => String(a?.updatedAt || "").localeCompare(String(b?.updatedAt || ""))).forEach((memory) => {
+    if (memory?.category && memory?.key) mergedMemories.set(`${memory.category}:${memory.key}`, memory);
+  });
+  const suppliedSessionState = journalData?.sessionState && typeof journalData.sessionState === "object" ? journalData.sessionState : {};
+  const syncedSessionState = syncedSessionFromJournal(journalRows);
+  const sessionState = syncedSessionState && suppliedSessionState.activeContextExplicit !== true ? {
+    ...suppliedSessionState,
+    activePair: suppliedSessionState.activePair ?? syncedSessionState.pair ?? null,
+    activeSetup: suppliedSessionState.activeSetup ?? syncedSessionState.setup ?? null,
+    activeTradeId: suppliedSessionState.activeTradeId ?? syncedSessionState.tradeId ?? null,
+    activeBacktestId: suppliedSessionState.activeBacktestId ?? syncedSessionState.backtestId ?? null,
+    activeForecastId: suppliedSessionState.activeForecastId ?? syncedSessionState.forecastId ?? null,
+    activeDataSource: suppliedSessionState.activeDataSource ?? syncedSessionState.dataSource ?? null,
+  } : suppliedSessionState;
   const toolData = {
     profile,
-    memories: Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [],
+    memories: [...mergedMemories.values()].slice(-40),
     trades: authenticatedJournaly?.trades || (Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : []),
     monthlyTrades: authenticatedJournaly?.trades || (Array.isArray(journalData?.monthlyTrades) ? journalData.monthlyTrades : Array.isArray(journalData?.trades) ? journalData.trades : []),
     monthlyLedgerSource: authenticatedJournaly?.trades ? "authenticated_database" : "authenticated_client_snapshot",
     backtests: authenticatedJournaly?.backtests || (Array.isArray(journalData?.backtests) ? journalData.backtests : []),
     forecasts: authenticatedJournaly?.forecasts || (Array.isArray(journalData?.forecasts) ? journalData.forecasts : []),
-    journals: authenticatedJournaly?.journals || [],
+    journals: journalRows,
     daytradeLive: authenticatedJournaly?.daytradeLive || [],
     daytradeBacktests: authenticatedJournaly?.daytradeBacktests || [],
     tradingViewEvents: authenticatedJournaly?.tradingViewEvents || [],
@@ -1953,13 +2024,17 @@ async function handleJarvis(request, env) {
     authoritativeSource: authenticatedJournaly ? "authenticated_database" : "authenticated_client_snapshot",
     imageInventory: Array.isArray(journalData?.imageInventory) ? journalData.imageInventory.slice(0, 5000) : [],
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
-    sessionState: journalData?.sessionState || {},
+    sessionState,
   };
   const chartImage = validChartImage(body?.chartImage);
+  const previousChartImage = validChartImage(body?.previousChartImage);
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
     ? toolData.trades.find((trade) => String(trade.id) === String(toolData.sessionState.activeTradeId)) || null
+    : null;
+  const activeForecast = toolData.sessionState?.activeForecastId
+    ? toolData.forecasts.find((forecast) => String(forecast.id) === String(toolData.sessionState.activeForecastId)) || null
     : null;
   const relevantMemories = selectRelevantMemories(toolData.memories, question, conversationMode);
   const styleExamples = feedbackStyleExamples(toolData.journals);
@@ -1968,7 +2043,7 @@ async function handleJarvis(request, env) {
     generatedAt: journalData.generatedAt,
     marketSession: journalData.marketSession,
     summary: journalData.summary,
-    sessionState: journalData.sessionState,
+    sessionState,
     conversationMode,
     interactionMode,
     activeTrade: activeTrade ? {
@@ -1982,6 +2057,20 @@ async function handleJarvis(request, env) {
       pnlR: activeTrade.pnlR,
       notes: activeTrade.notes,
     } : null,
+    activeForecast: activeForecast ? {
+      id: activeForecast.id,
+      date: activeForecast.date,
+      time: activeForecast.time,
+      pair: activeForecast.pair,
+      setup: activeForecast.setup,
+      direction: activeForecast.direction,
+      status: activeForecast.status,
+      entryPlan: activeForecast.entryPlan,
+      reasonToTake: activeForecast.reasonToTake,
+      reasonCancelled: activeForecast.reasonCancelled,
+      notes: activeForecast.notes,
+    } : null,
+    chartComparisonAvailable: Boolean(previousChartImage && chartImage),
     relevantMemories,
     styleExamples,
     availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
@@ -1993,6 +2082,11 @@ async function handleJarvis(request, env) {
   const currentContent = [
     { type: "input_text", text: `CURRENT AUTHENTICATED SESSION\n${JSON.stringify(compactContext)}\n\nUSER MESSAGE\n${question}` },
   ];
+  if (previousChartImage && chartImage) {
+    currentContent.push({ type: "input_text", text: "PREVIOUS CHART — use only to identify visible changes versus the current chart." });
+    currentContent.push({ type: "input_image", image_url: previousChartImage, detail: "high" });
+    currentContent.push({ type: "input_text", text: "CURRENT CHART — this is the authoritative image for the current assessment." });
+  }
   if (chartImage) currentContent.push({ type: "input_image", image_url: chartImage, detail: "high" });
   const input = [
     ...history,
@@ -2085,14 +2179,14 @@ async function handleJarvis(request, env) {
         }
       } else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
+      return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
     }
   }
 
   return json({ error: "Jarvis could not reach its conversational AI.", category: lastCategory, fallbackAllowed: true }, 502);
 }
 
-export { archiveViewResult, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories };
+export { archiveViewResult, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
 
 export default {
   async fetch(request, env, ctx) {
