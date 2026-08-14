@@ -2261,9 +2261,16 @@ async function handleRoutine(request, env) {
   if (!env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${env.CRON_SECRET}`) return json({ error: "Unauthorized" }, 401);
   const baseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-  const userId = env.JARVIS_ROUTINE_USER_ID || env.PUSHOVER_OWNER_USER_ID;
-  if (!baseUrl || !serviceKey || !userId) return json({ error: "Jarvis background routine needs Supabase service access and an owner user id." }, 503);
+  let userId = env.JARVIS_ROUTINE_USER_ID || env.PUSHOVER_OWNER_USER_ID;
+  if (!baseUrl || !serviceKey) return json({ error: "Jarvis background routine needs Supabase service access." }, 503);
   const headers = { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, "content-type": "application/json" };
+  if (!userId) {
+    const ownerResponse = await fetch(`${baseUrl}/rest/v1/trade_decisions?select=user_id&order=updated_at.desc&limit=20`, { headers });
+    const ownerRows = ownerResponse.ok ? await ownerResponse.json() : [];
+    const owners = [...new Set((ownerRows || []).map((row) => row.user_id).filter(Boolean))];
+    if (owners.length !== 1) return json({ error: "Jarvis could not identify one unambiguous Journaly owner for this routine." }, 503);
+    userId = owners[0];
+  }
   const read = async (table, select) => {
     const response = await fetch(`${baseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}&user_id=eq.${encodeURIComponent(userId)}&order=updated_at.desc&limit=200`, { headers });
     if (!response.ok) throw new Error(`Could not read ${table}`);
