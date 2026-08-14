@@ -1614,6 +1614,14 @@ label span,
 .jarvis-message-body > span { color: #4c8097; font-size: 0.56rem; font-weight: 900; letter-spacing: 0.16em; }
 .jarvis-message-body h3 { margin: 7px 0 5px; color: #dcfaff; font-size: 1rem; }
 .jarvis-message-body p { margin: 5px 0 0; white-space: pre-line; color: #a1bac8; font-size: 0.82rem; line-height: 1.65; }
+.jarvis-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.jarvis-feedback > button,
+.jarvis-feedback-reasons button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border: 1px solid rgba(125, 211, 252, 0.12); border-radius: 999px; color: #6f94a7; background: rgba(3, 15, 25, 0.28); font-size: 0.63rem; font-weight: 750; cursor: pointer; transition: 150ms ease; }
+.jarvis-feedback > button:hover,
+.jarvis-feedback-reasons button:hover { border-color: rgba(103, 232, 249, 0.32); color: #bdeff5; background: rgba(8, 85, 105, 0.18); }
+.jarvis-feedback > small { display: inline-flex; align-items: center; gap: 5px; color: #5e9b98; font-size: 0.64rem; }
+.jarvis-feedback-reasons { display: flex; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 6px; padding-top: 2px; }
+.jarvis-feedback-reasons > span { margin-right: 2px; color: #51778a; font-size: 0.63rem; font-weight: 750; }
 .jarvis-trade-draft { margin-left: 48px; overflow: hidden; border: 1px solid rgba(45, 212, 191, 0.3); border-radius: 14px; background: linear-gradient(145deg, rgba(6, 78, 89, 0.24), rgba(5, 19, 31, 0.9)); box-shadow: 0 16px 44px rgba(0, 0, 0, 0.24); animation: jarvis-message-in 300ms ease both; }
 .jarvis-trade-draft.is-draft { border-color: rgba(251, 191, 36, 0.28); }
 .jarvis-trade-draft > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; border-bottom: 1px solid rgba(125, 211, 252, 0.1); }

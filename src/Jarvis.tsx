@@ -20,6 +20,8 @@ import {
   ShieldCheck,
   Sparkles,
   Target,
+  ThumbsDown,
+  ThumbsUp,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -31,6 +33,7 @@ const JARVIS_CHAT_KEY_PREFIX = "journaly-os-jarvis-chat";
 const JARVIS_MEMORY_KEY_PREFIX = "journaly-os-jarvis-memory-v0.3";
 const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
+const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -40,6 +43,7 @@ const JARVIS_TRADE_PAIRS = new Set(["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBP
 const JARVIS_TRADE_SETUPS = new Set(["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry"]);
 export const JARVIS_LEARNING_PREFIX = "[[JARVIS_LEARNING_V1]]";
 export const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
+export const JARVIS_FEEDBACK_PREFIX = "[[JARVIS_FEEDBACK_V1]]";
 
 type JarvisTrade = {
   id: string;
@@ -106,6 +110,18 @@ type JarvisMessage = {
   imagePreview?: string;
   attachmentName?: string;
 };
+
+type JarvisActiveContext = {
+  pair: string | null;
+  setup: string | null;
+  tradeId: string | null;
+  backtestId: string | null;
+  forecastId: string | null;
+  dataSource: "live" | "backtest" | "forecast" | null;
+  updatedAt: string;
+};
+
+type JarvisFeedbackReason = "helpful" | "too_strict" | "too_long" | "misread_context" | "unnatural";
 
 type JarvisTradeAction = {
   intent: "draft" | "ready";
@@ -385,6 +401,18 @@ function latestFirst<T extends { date: string; time?: string }>(source: T[]) {
   return [...source].sort((a, b) => `${b.date} ${b.time || ""}`.localeCompare(`${a.date} ${a.time || ""}`));
 }
 
+function readJarvisActiveContext(userId: string): JarvisActiveContext | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(`${JARVIS_ACTIVE_CONTEXT_KEY_PREFIX}:${userId}`) || "null") as JarvisActiveContext | null;
+    if (!saved || typeof saved.updatedAt !== "string") return null;
+    const age = Date.now() - new Date(saved.updatedAt).getTime();
+    if (!Number.isFinite(age) || age > 7 * 24 * 60 * 60 * 1000) return null;
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
 function selectRequestedChart<T extends { id: string; date: string; pair: string; setup: string; screenshot: string }>(records: T[], prompt: string, requestedPair?: string) {
   const requestedDate = prompt.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0];
   const requestedSetup = [...JARVIS_TRADE_SETUPS].find((setup) => prompt.toLowerCase().includes(setup.toLowerCase()));
@@ -570,6 +598,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<JarvisMessage[]>(() => readJarvisMessages(userId));
   const [memory, setMemory] = useState<JarvisMemoryState>(() => readJarvisMemory(userId, username));
+  const [activeContext, setActiveContext] = useState<JarvisActiveContext | null>(() => readJarvisActiveContext(userId));
+  const [messageFeedback, setMessageFeedback] = useState<Record<string, JarvisFeedbackReason>>({});
+  const [feedbackTarget, setFeedbackTarget] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
   const [attachedImage, setAttachedImage] = useState<{ dataUrl: string; name: string } | null>(null);
@@ -713,6 +744,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, [memory, userId]);
 
   useEffect(() => {
+    const key = `${JARVIS_ACTIVE_CONTEXT_KEY_PREFIX}:${userId}`;
+    if (activeContext) localStorage.setItem(key, JSON.stringify(activeContext));
+    else localStorage.removeItem(key);
+  }, [activeContext, userId]);
+
+  useEffect(() => {
     localStorage.setItem(`${JARVIS_SPEND_KEY_PREFIX}:${userId}`, JSON.stringify(spend));
   }, [spend, userId]);
 
@@ -820,6 +857,47 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     setLearningSyncState("saved");
   }
 
+  async function saveMessageFeedback(message: JarvisMessage, reason: JarvisFeedbackReason) {
+    if (!supabase || message.role !== "jarvis" || messageFeedback[message.id]) return;
+    const messageIndex = messages.findIndex((item) => item.id === message.id);
+    const priorUserMessage = messages.slice(0, messageIndex).reverse().find((item) => item.role === "user");
+    const sentiment = reason === "helpful" ? "helpful" : "missed";
+    const reasonLabels: Record<JarvisFeedbackReason, string> = {
+      helpful: "Keep this response style and level of judgment.",
+      too_strict: "The response was too strict or sounded like an auditor.",
+      too_long: "The response was longer than the moment required.",
+      misread_context: "Jarvis misunderstood the current trade or conversation state.",
+      unnatural: "The response did not sound like a natural trading partner.",
+    };
+    setMessageFeedback((current) => ({ ...current, [message.id]: reason }));
+    setFeedbackTarget(null);
+    const content = `${JARVIS_FEEDBACK_PREFIX}\n${JSON.stringify({
+      messageId: message.id,
+      sentiment,
+      reason,
+      userMessage: priorUserMessage?.text.slice(0, 500) || "",
+      assistantResponse: message.text.slice(0, 900),
+    })}`;
+    const { error } = await supabase.from("journal_entries").insert({
+      user_id: userId,
+      entry_date: new Date().toISOString().slice(0, 10),
+      content,
+      advice: reasonLabels[reason],
+      image_url: "",
+      pair: null,
+      related_trade_id: null,
+      related_discipline_id: null,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      setMessageFeedback((current) => {
+        const next = { ...current };
+        delete next[message.id];
+        return next;
+      });
+    }
+  }
+
   async function saveTradeDraft(draft: JarvisTradeAction) {
     if (!supabase || tradeSaveLock.current || draft.intent !== "ready" || draft.missingFields.length || !draft.pair || !draft.setup || !draft.direction) return;
     tradeSaveLock.current = true;
@@ -830,7 +908,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const pnl = draft.pnl ?? 0;
     const result = draft.result || (pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven");
     try {
-      const { error } = await supabase.from("trades").insert({
+      const { data, error } = await supabase.from("trades").insert({
         user_id: userId,
         trade_date: draft.date || now.toISOString().slice(0, 10),
         trade_time: draft.time || now.toTimeString().slice(0, 5),
@@ -849,12 +927,13 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         duration_minutes: null,
         finalized_at: null,
         updated_at: now.toISOString(),
-      });
+      }).select("id").single();
       if (error) {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: `Journaly could not save that trade: ${error.message}` }]);
         return;
       }
       setTradeDraft(null);
+      if (data?.id) setActiveContext({ pair, setup: draft.setup, tradeId: data.id, backtestId: null, forecastId: null, dataSource: "live", updatedAt: now.toISOString() });
       await onTradeCreated();
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade added", text: `${pair} ${direction.toLowerCase()} is now in your Journaly trade log. I used only the fields available in Add Trade.` }]);
     } catch (error) {
@@ -931,6 +1010,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }
     const learningSource: JarvisLearningRecord["source"] = imageForRequest ? "chart" : /\bforecast(?:s|ed|ing)?\b/i.test(cleanPrompt) ? "forecast" : /\bskip(?:ped|ping)?\b/i.test(cleanPrompt) ? "skipped_trade" : "insight";
     const shouldArchiveLearning = Boolean(imageForRequest) || /\b(remember|learn from|lesson|insight|note that|my rule|from now on|key takeaway|teach|i (?:notice|noticed|find|found)|forecast pattern|skip(?:ped|ping)? trade)\b/i.test(cleanPrompt);
+    const closesActiveTrade = /\b(?:closed|finished|stopped\s+out|hit\s+(?:tp|target|sl)|booked)\b/i.test(cleanPrompt) && /\b(?:trade|position|tp|target|sl|\d+(?:\.\d+)?\s*r)\b/i.test(cleanPrompt);
     const recentHistory = messages.slice(-14).map((message) => ({
       role: message.role === "jarvis" ? "assistant" : "user",
       content: [message.title, message.text].filter(Boolean).join("\n"),
@@ -963,6 +1043,24 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const activeChartRecord = wantsBacktest ? chartBacktest : chartTrade;
       const matchingActiveForecasts = orderedForecasts.filter((forecast) => forecast.status === "Waiting" && (!requestedPair || forecast.pair === requestedPair));
       const activeForecast = requestedPair ? matchingActiveForecasts[0] : matchingActiveForecasts.length === 1 ? matchingActiveForecasts[0] : undefined;
+      const nextActiveContext: JarvisActiveContext | null = activeChartRecord ? {
+        pair: activeChartRecord.pair,
+        setup: activeChartRecord.setup,
+        tradeId: wantsBacktest ? null : activeChartRecord.id,
+        backtestId: wantsBacktest ? activeChartRecord.id : null,
+        forecastId: null,
+        dataSource: wantsBacktest ? "backtest" : "live",
+        updatedAt: new Date().toISOString(),
+      } : activeForecast && requestedPair ? {
+        pair: activeForecast.pair,
+        setup: activeForecast.setup,
+        tradeId: null,
+        backtestId: null,
+        forecastId: activeForecast.id,
+        dataSource: "forecast",
+        updatedAt: new Date().toISOString(),
+      } : activeContext && (!requestedPair || activeContext.pair === requestedPair) ? activeContext : null;
+      if (nextActiveContext && nextActiveContext !== activeContext) setActiveContext(nextActiveContext);
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
       const response = await fetch("/api/jarvis/chat", {
@@ -992,12 +1090,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               learnedCases: learningRecords.length,
             },
             sessionState: {
-              activePair: activeChartRecord?.pair || requestedPair || activeForecast?.pair || null,
-              activeSetup: activeChartRecord?.setup || activeForecast?.setup || null,
-              activeTradeId: hasExplicitChartContext && !wantsBacktest ? chartTrade?.id || null : null,
-              activeBacktestId: hasExplicitChartContext && wantsBacktest ? chartBacktest?.id || null : null,
-              activeDataSource: hasExplicitChartContext ? (wantsBacktest ? "backtest" : "live") : null,
-              activeForecastId: activeForecast?.id || null,
+              activePair: requestedPair || nextActiveContext?.pair || activeForecast?.pair || null,
+              activeSetup: nextActiveContext?.setup || activeForecast?.setup || null,
+              activeTradeId: nextActiveContext?.tradeId || null,
+              activeBacktestId: nextActiveContext?.backtestId || null,
+              activeDataSource: nextActiveContext?.dataSource || null,
+              activeForecastId: nextActiveContext?.forecastId || activeForecast?.id || null,
               lastChartAvailable: Boolean(imageForRequest || activeChartRecord?.screenshot),
               lastJarvisDecision: lastDecision,
               rollingConversation: recentHistory.slice(-8),
@@ -1102,6 +1200,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           };
         });
       }
+      if (closesActiveTrade) setActiveContext(null);
       setMessages((current) => [
         ...current,
         { id: crypto.randomUUID(), role: "jarvis", text: payload.answer },
@@ -1194,7 +1293,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
                 <button type="button" onClick={() => askJarvis("Analyze my full Edge Lab. Show my strongest and weakest hours, sessions, weekdays, pairs, setups, and pair/setup combinations using deterministic data.")}><Clock size={17} /> Edge Lab</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
-                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); setForecastDraft(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
+                <button type="button" onClick={() => { setMessages([]); setTradeDraft(null); setForecastDraft(null); setActiveContext(null); setFeedbackTarget(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               <div className="jarvis-source-stack">
@@ -1258,6 +1357,25 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           {message.attachmentName ? <small className="jarvis-attachment-name"><Paperclip size={11} /> {message.attachmentName}</small> : null}
                           <p>{message.text}</p>
                           {message.metrics?.length ? <div className="jarvis-response-metrics">{message.metrics.map((metric) => <div className={metric.tone ? `is-${metric.tone}` : ""} key={`${metric.label}-${metric.value}`}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div> : null}
+                          {message.role === "jarvis" ? (
+                            <div className="jarvis-feedback">
+                              {messageFeedback[message.id] ? <small><Check size={12} /> Feedback saved</small> : (
+                                <>
+                                  <button type="button" onClick={() => void saveMessageFeedback(message, "helpful")}><ThumbsUp size={13} /> Helpful</button>
+                                  <button type="button" onClick={() => setFeedbackTarget((current) => current === message.id ? null : message.id)}><ThumbsDown size={13} /> Missed it</button>
+                                </>
+                              )}
+                              {feedbackTarget === message.id && !messageFeedback[message.id] ? (
+                                <div className="jarvis-feedback-reasons" aria-label="Why did Jarvis miss it?">
+                                  <span>What felt off?</span>
+                                  <button type="button" onClick={() => void saveMessageFeedback(message, "too_strict")}>Too strict</button>
+                                  <button type="button" onClick={() => void saveMessageFeedback(message, "too_long")}>Too long</button>
+                                  <button type="button" onClick={() => void saveMessageFeedback(message, "misread_context")}>Misread context</button>
+                                  <button type="button" onClick={() => void saveMessageFeedback(message, "unnatural")}>Didnâ€™t sound natural</button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                       </article>
                     ))}
