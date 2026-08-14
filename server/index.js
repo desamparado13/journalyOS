@@ -2692,6 +2692,22 @@ async function handleJarvis(request, env) {
   const activeTrade = toolData.sessionState?.activeTradeId
     ? toolData.trades.find((trade) => String(trade.id) === String(toolData.sessionState.activeTradeId)) || null
     : null;
+  const activePair = normalizePair(toolData.sessionState?.activePair || "");
+  const pendingPairTrades = toolData.trades.filter((trade) => !trade.finalizedAt && activePair && normalizePair(trade.pair) === activePair);
+  const tradeWriteTarget = activeTrade && !activeTrade.finalizedAt && (!activePair || normalizePair(activeTrade.pair) === activePair)
+    ? activeTrade
+    : pendingPairTrades.length === 1 ? pendingPairTrades[0] : null;
+  const recentUserTurns = [...history.filter((message) => message.role === "user").map((message) => String(message.content || "")), question].slice(-8);
+  const isStatusQuestion = (text) => /\b(?:did|have)\s+(?:you\s+)?(?:already\s+)?(?:update|save|finaliz)|\bis\s+(?:it|the\s+trade)\s+(?:already\s+)?(?:updated|saved|finalized)\b/i.test(text);
+  const isExplicitTradeWrite = (text) => !isStatusQuestion(text) && (/\b(?:update|correct|change|edit|finalize|save|record)\b[\s\S]{0,80}\b(?:trade|it|this|that|one)\b/i.test(text) || /\badd\s+(?:a\s+)?notes?\b/i.test(text) || (/[-+]?\d+(?:\.\d+)?\s*r\b/i.test(text) && /\b(?:actual|result|closed|cut|early|notes?|trade)\b/i.test(text)));
+  const explicitTradeWriteTurn = [...recentUserTurns].reverse().find(isExplicitTradeWrite) || null;
+  const requestedRText = [...recentUserTurns].reverse().find((text) => /[-+]?\d+(?:\.\d+)?\s*r\b/i.test(text)) || "";
+  const requestedRMatch = requestedRText.match(/([-+]?\d+(?:\.\d+)?)\s*r\b/i);
+  const requestedTradeR = requestedRMatch ? Number(requestedRMatch[1]) : null;
+  const recentTradeWriteText = recentUserTurns.join(" ");
+  const inferredTradeNote = /\b(?:fear|afraid|scared)\b/i.test(recentTradeWriteText) && /\b(?:cut|clos(?:e|ed)|exit(?:ed)?)\b[\s\S]{0,40}\b(?:early|too\s+early)\b/i.test(recentTradeWriteText)
+    ? "Cut the trade too early due to fear."
+    : /\b(?:cut|clos(?:e|ed)|exit(?:ed)?)\b[\s\S]{0,40}\b(?:early|too\s+early)\b/i.test(recentTradeWriteText) ? "Cut the trade too early." : "";
   const activeForecast = toolData.sessionState?.activeForecastId
     ? toolData.forecasts.find((forecast) => String(forecast.id) === String(toolData.sessionState.activeForecastId)) || null
     : null;
@@ -2854,6 +2870,28 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
+      if (!result.tradeAction && tradeWriteTarget && explicitTradeWriteTurn && Number.isFinite(requestedTradeR)) {
+        const pnl = Number(requestedTradeR);
+        const existingNotes = String(tradeWriteTarget.notes || "").trim();
+        const notes = inferredTradeNote && !existingNotes.toLowerCase().includes(inferredTradeNote.toLowerCase())
+          ? [existingNotes, inferredTradeNote].filter(Boolean).join("\n")
+          : existingNotes;
+        result.tradeAction = {
+          intent: "update_pending",
+          tradeId: String(tradeWriteTarget.id),
+          date: tradeWriteTarget.date || null,
+          time: tradeWriteTarget.time || null,
+          pair: tradeWriteTarget.pair || null,
+          setup: tradeWriteTarget.setup || null,
+          direction: tradeWriteTarget.direction || null,
+          stopLossPips: tradeWriteTarget.stopLossPips ?? null,
+          mae: Number(tradeWriteTarget.mae || 0),
+          pnl,
+          result: pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven",
+          notes,
+          missingFields: [],
+        };
+      }
       if (result.tradeAction?.intent === "update_pending") {
         const target = toolData.trades.find((trade) => String(trade.id) === String(result.tradeAction.tradeId));
         if (!target || target.finalizedAt) {
@@ -2915,6 +2953,9 @@ async function handleJarvis(request, env) {
       }
       if (verifiedPositionProfile) result.positionProfileAction = verifiedPositionProfile;
       if (conversationMode === "active_trade_management" && result.tradeAction?.intent !== "update_pending") result.tradeAction = null;
+      if (!result.tradeAction && isStatusQuestion(question) && tradeWriteTarget) {
+        result.answer = `No. The authenticated journal still shows ${Number(tradeWriteTarget.pnlR || 0).toFixed(2)}R, ${tradeWriteTarget.screenshot ? "a saved screenshot" : "no screenshot"}, and Pending final. I will not claim it is updated until Journaly confirms the database write.`;
+      }
       let historicalMatches = null;
       if (chartImage) {
         result.chartAssessment = enforceChartEvidenceGate(result.chartAssessment);
