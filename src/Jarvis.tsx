@@ -49,6 +49,7 @@ const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
 const JARVIS_VOICE_REPLIES_KEY_PREFIX = "journaly-os-jarvis-voice-replies-v1";
 const JARVIS_MISSION_SEEN_KEY_PREFIX = "journaly-os-jarvis-mission-seen-v1";
 const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
+const JARVIS_MONITOR_NOTIFIED_KEY_PREFIX = "journaly-os-jarvis-monitor-notified-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -136,6 +137,15 @@ type JarvisMessage = {
   imagePreview?: string;
   attachmentName?: string;
   createdAt?: string;
+};
+
+type JarvisMonitorItem = {
+  id: string;
+  priority: "high" | "medium" | "low";
+  category: "follow_up" | "forecast" | "trade_review" | "context";
+  title: string;
+  detail: string;
+  prompt: string;
 };
 
 type JarvisActiveContext = {
@@ -1013,6 +1023,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [isThinking, setIsThinking] = useState(false);
   const [unreadProactiveCount, setUnreadProactiveCount] = useState(0);
   const [inAppNotification, setInAppNotification] = useState<JarvisMessage | null>(null);
+  const [monitorClock, setMonitorClock] = useState(() => Date.now());
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1055,6 +1066,73 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       .slice(0, 8);
   }, [memory.companionSettings.sensitiveMemoryEnabled, memory.memories]);
   const dueMissionCount = missionMemories.filter((item) => item.followUpAt && new Date(item.followUpAt).getTime() <= Date.now()).length;
+  const monitorItems = useMemo<JarvisMonitorItem[]>(() => {
+    const items: JarvisMonitorItem[] = [];
+    const dayMs = 86400000;
+    const recordTime = (date: string, time = "00:00") => new Date(`${date}T${time || "00:00"}`).getTime();
+
+    missionMemories.forEach((item) => {
+      if (!item.followUpAt || new Date(item.followUpAt).getTime() > monitorClock) return;
+      items.push({
+        id: `follow-up:${item.category}:${item.key}:${item.followUpAt}`,
+        priority: "high",
+        category: "follow_up",
+        title: item.key.replaceAll("_", " "),
+        detail: `Follow-up due · ${item.value}`,
+        prompt: `Check in with me naturally about ${item.key.replaceAll("_", " ")}. You remember: ${item.value}.`,
+      });
+    });
+
+    forecasts.forEach((forecast) => {
+      const timestamp = recordTime(forecast.date, forecast.time);
+      if (forecast.status === "Waiting") {
+        const stale = Number.isFinite(timestamp) && monitorClock - timestamp > dayMs;
+        items.push({
+          id: `forecast:${forecast.id}:${stale ? "stale" : "waiting"}`,
+          priority: stale ? "medium" : "low",
+          category: "forecast",
+          title: `${forecast.pair} · ${forecast.setup}`,
+          detail: stale ? "Waiting over 24 hours — worth a fresh check" : "Waiting for confirmation",
+          prompt: `Review what you are monitoring for my ${forecast.pair} ${forecast.setup} forecast. Use its saved thesis and status, and do not assume live market conditions.`,
+        });
+      }
+      if (forecast.status === "Taken" && !trades.some((trade) => trade.pair === forecast.pair && trade.setup === forecast.setup && trade.direction === forecast.direction && trade.date >= forecast.date)) {
+        items.push({
+          id: `forecast:${forecast.id}:unlinked`,
+          priority: "high",
+          category: "forecast",
+          title: `${forecast.pair} taken forecast`,
+          detail: "No matching saved trade yet",
+          prompt: `Help me reconcile my Taken ${forecast.pair} ${forecast.setup} forecast with my trade log. Tell me exactly what appears to be missing.`,
+        });
+      }
+    });
+
+    trades.filter((trade) => !trade.quality && monitorClock - recordTime(trade.date, trade.time) <= 2 * dayMs).forEach((trade) => {
+      items.push({
+        id: `trade:${trade.id}:review`,
+        priority: "medium",
+        category: "trade_review",
+        title: `${trade.pair} execution review`,
+        detail: "Recent trade still needs a Good, Mid, or Bad rating",
+        prompt: `Help me review the execution quality of my recent ${trade.pair} ${trade.setup} trade. Use the saved record and ask only for evidence that would materially change the rating.`,
+      });
+    });
+
+    if (activeContext?.pair && !items.some((item) => item.title.startsWith(activeContext.pair || ""))) {
+      items.push({
+        id: `context:${activeContext.pair}:${activeContext.setup || "general"}`,
+        priority: "low",
+        category: "context",
+        title: `${activeContext.pair}${activeContext.setup ? ` · ${activeContext.setup}` : ""}`,
+        detail: "Current conversation context",
+        prompt: `Tell me briefly what you are currently tracking for ${activeContext.pair}${activeContext.setup ? ` ${activeContext.setup}` : ""}, without assuming live market conditions.`,
+      });
+    }
+
+    const priority = { high: 0, medium: 1, low: 2 } as const;
+    return items.sort((a, b) => priority[a.priority] - priority[b.priority] || a.title.localeCompare(b.title)).slice(0, 12);
+  }, [activeContext?.pair, activeContext?.setup, forecasts, missionMemories, monitorClock, trades]);
   const recentFeedback = useMemo(() => journalEntries.filter((entry) => entry.content.startsWith(JARVIS_FEEDBACK_PREFIX) && Date.now() - new Date(entry.createdAt || entry.updatedAt || entry.date).getTime() <= 7 * 86400000), [journalEntries]);
   const learningRecords = useMemo(() => {
     const records = [...journalEntries.map(decodeLearningRecord).filter((record): record is JarvisLearningRecord => Boolean(record)), ...sessionLearningRecords];
@@ -1220,6 +1298,37 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   useEffect(() => {
     localStorage.setItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`, JSON.stringify(memory));
   }, [memory, userId]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setMonitorClock(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!memory.companionSettings.proactiveFollowups) return;
+    const actionable = monitorItems.find((item) => item.priority !== "low");
+    if (!actionable) return;
+    const key = `${JARVIS_MONITOR_NOTIFIED_KEY_PREFIX}:${userId}`;
+    let seen: string[] = [];
+    try {
+      const stored = JSON.parse(localStorage.getItem(key) || "[]");
+      if (Array.isArray(stored)) seen = stored.filter((item): item is string => typeof item === "string");
+    } catch { seen = []; }
+    if (seen.includes(actionable.id)) return;
+    const message: JarvisMessage = {
+      id: `monitor:${actionable.id}`,
+      role: "jarvis",
+      title: "Jarvis noticed",
+      text: `${preferredName}, ${actionable.detail.charAt(0).toLowerCase()}${actionable.detail.slice(1)}. I’m keeping an eye on it; open this when you want to handle it together.`,
+      createdAt: new Date().toISOString(),
+    };
+    localStorage.setItem(key, JSON.stringify([...seen, actionable.id].slice(-100)));
+    setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+    if (!isOpen) {
+      setInAppNotification(message);
+      setUnreadProactiveCount((current) => current + 1);
+    }
+  }, [isOpen, memory.companionSettings.proactiveFollowups, monitorItems, preferredName, userId]);
 
   useEffect(() => {
     if (!isOpen || !memory.companionSettings.personalMemoryEnabled || !memory.companionSettings.proactiveFollowups) return;
@@ -2491,6 +2600,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
             <aside className="jarvis-context-panel">
               <div className="jarvis-context-heading"><span>Live Journaly context</span><i /></div>
+              <section className="jarvis-context-card jarvis-monitor-card">
+                <header><Eye size={16} /><span>Monitoring</span><b>{monitorItems.length}</b></header>
+                {monitorItems.length ? monitorItems.slice(0, 4).map((item) => (
+                  <button type="button" key={item.id} onClick={() => askJarvis(item.prompt)}>
+                    <i className={`is-${item.priority}`} aria-label={`${item.priority} priority`} />
+                    <span><strong>{item.title}</strong><small>{item.detail}</small></span><ChevronRight size={15} />
+                  </button>
+                )) : <p>Everything I’m monitoring is clear. I’ll surface something here when it becomes actionable.</p>}
+              </section>
               <section className="jarvis-context-card jarvis-mission-card">
                 <header><Command size={16} /><span>Mission Control</span><b>{missionMemories.length}</b></header>
                 {missionMemories.length ? missionMemories.slice(0, 4).map((item) => (

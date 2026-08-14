@@ -64,6 +64,7 @@ JOURNALY NUMERIC ACCURACY
 - Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
 - For win streaks, wins in a row, consecutive wins or losses, current streaks, or the year/date range of a streak, always call get_trade_streaks. Never substitute monthly performance or archive records.
+- For what Jarvis is monitoring, what needs attention, or Mission Control status, always call get_monitoring_state. Its ranked queue is authoritative; do not invent urgency from raw records.
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - For forecast-review counts, directional accuracy, execution counts, or learned patterns, always call get_forecast_learning. Copy its numerators, denominators, percentages, and evidence stage exactly; interpret them but never recalculate them.
 - For any question comparing live execution with replay/backtests for a calendar month, including why performance diverged or whether the user followed the system, always call get_monthly_reconciliation. Treat its metrics, matches, and breakdowns as authoritative. Describe causal explanations only at the evidence level returned: observed, supported, or hypothesis requiring review.
@@ -99,6 +100,7 @@ JARVIS CONVERSATION RELEVANCE
 - When activeForecast is present, follow-ups such as "what about it?", "still valid?", or "what do you think now?" refer to that forecast unless the user names another pair or trade.
 - In daily_routine mode, give a concise morning preparation or evening debrief using only Journaly forecasts, trades, execution reviews, goals, and memories. Explicitly avoid invented live-market commentary.
 - Treat mission control as the user's current goals, projects, routines, important dates, wellbeing context, promised follow-ups, open forecasts, and active Journaly contexts. When asked what needs attention, prioritize only the few items that are current or due.
+- Monitoring priority and Jarvis opinion are separate. Explain the highest-ranked actionable item naturally, but do not make low-priority context sound urgent or imply live-market awareness.
 - Maintain emotional continuity without overreading one message. Acknowledge relevant stored wellbeing context briefly, then respond to what the user is saying now. Never diagnose, dramatize, or turn ordinary emotions into a clinical interpretation.
 - Permission boundary: freely read and summarize authenticated Journaly context. Reversible calculator and profile changes may be applied only when the client marks assisted autonomy as enabled. Trades, forecasts, deletions, external messages, and consequential actions still require the explicit confirmation already defined by their action rules.
 - For a morning or forecast briefing, call get_active_forecasts before answering. For an evening debrief, call get_recent_trades and get_forecasts when those records are relevant; keep numeric claims delegated to the deterministic statistics tools.
@@ -182,6 +184,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "find_historical_patterns", description: "Deterministically retrieve exact authenticated Journaly records for any claim about similar, resembling, recurring, winning, losing, or historical trade patterns. Always cite returned IDs, dates, source, and sample size.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, outcome: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, required: ["source", "pair", "setup", "direction", "outcome", "quality", "limit"] } },
   { type: "function", name: "get_account_risk", description: "Check currency concentration across active forecasts. Forecasts do not track planned risk, and this is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_monitoring_state", description: "Get Jarvis's authoritative ranked monitoring queue: due personal follow-ups, stale or unlinked forecasts, recent trades needing execution review, and current context. Use whenever the user asks what Jarvis is monitoring or what needs attention.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_trade_journey", description: "Get the unified forecast-to-chart-to-trade journey and all open Jarvis contexts. Use for continuity questions such as what happened with an idea, how a forecast became a trade, or what Jarvis is currently tracking.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, forecastId: { type: ["string", "null"] }, tradeId: { type: ["string", "null"] } }, required: ["pair", "forecastId", "tradeId"] } },
   { type: "function", name: "calculate_position_size", description: "Calculate Journaly's exact forex position size and prepare the Position Sizing tab to be populated automatically. Reuse current calculator values supplied in session context when the user omits them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { applyToCalculator: { type: "boolean" }, pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] }, accountBalance: { type: ["number", "null"], minimum: 0 }, riskPercent: { type: ["number", "null"], minimum: 0 }, entryPrice: { type: ["number", "null"], minimum: 0 }, stopLossPrice: { type: ["number", "null"], minimum: 0 }, takeProfitPrice: { type: ["number", "null"], minimum: 0 }, quoteToUsdRate: { type: ["number", "null"], minimum: 0 } }, required: ["applyToCalculator", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate"] } },
   { type: "function", name: "manage_position_profiles", description: "Deterministically add, update, delete, or select Journaly's saved Position Sizing profiles. Match existing rows using only identifiers explicitly supplied by the user.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { operation: { type: "string", enum: ["add", "update", "delete", "set_mode"] }, rowId: { type: ["string", "null"] }, matchBalance: { type: ["number", "null"], minimum: 0 }, matchType: { type: ["string", "null"] }, matchPlatform: { type: ["string", "null"] }, balance: { type: ["number", "null"], minimum: 0 }, type: { type: ["string", "null"] }, platform: { type: ["string", "null"] }, riskPercent: { type: ["number", "null"], minimum: 0 }, profileMode: { type: ["string", "null"], enum: ["main", "half", null] } }, required: ["operation", "rowId", "matchBalance", "matchType", "matchPlatform", "balance", "type", "platform", "riskPercent", "profileMode"] } },
@@ -491,7 +494,7 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (hasActiveTradeSignal(text) || activeFollowUp) return "active_trade_management";
   if (chartImage) return "pre_trade_review";
   if (/\b(?:closed|finished|stopped\s+out|hit\s+(?:tp|target|sl)|booked|ended)\b.*\b(?:trade|position|r)\b|\b(?:trade|position)\b.*\b(?:closed|finished|won|lost|breakeven)\b/.test(text)) return "post_trade_review";
-  if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day)\b/.test(text)) return "daily_routine";
+  if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day|what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?)\b/.test(text)) return "daily_routine";
   if (/\b(?:journal|reflect|reflection|trading\s+journey|write\s+down|debrief|how\s+have\s+i\s+changed)\b/.test(text)) return "journal_reflection";
   if (/\b(?:win\s*rate|win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?)|expectancy|statistics|stats|performance|edge\s+lab|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
   const forecastFollowUp = Boolean(sessionState?.activeForecastId) && /\b(?:what\s+about\s+it|still\s+valid|what\s+do\s+you\s+think|what\s+now|check\s+it|update\s+me|the\s+idea|that\s+idea)\b/.test(text);
@@ -1744,6 +1747,113 @@ function verifiedTradeStreakAnswer(result) {
   return `Your best verified live win streak is **${best.count} wins in a row**, in **${year}** (${dates}).\n\n${currentLine}\n\nI calculated that chronologically from ${result.recordsIncluded} authenticated live trades. Breakeven or unresolved outcomes break a streak.`;
 }
 
+function buildMonitoringState(data = {}, nowValue = Date.now()) {
+  const now = typeof nowValue === "number" ? nowValue : new Date(nowValue).getTime();
+  const dayMs = 86400000;
+  const trades = Array.isArray(data.trades) ? data.trades : [];
+  const forecasts = Array.isArray(data.forecasts) ? data.forecasts : [];
+  const memories = Array.isArray(data.memories) ? data.memories : [];
+  const items = [];
+  const recordTimestamp = (item) => {
+    const direct = item?.updatedAt || item?.updated_at || item?.createdAt || item?.created_at;
+    const fallback = `${item?.date || item?.decision_date || item?.trade_date || ""}T${item?.time || item?.decision_time || item?.trade_time || "00:00"}`;
+    const timestamp = new Date(direct || fallback).getTime();
+    return Number.isFinite(timestamp) ? timestamp : null;
+  };
+
+  memories.forEach((memory) => {
+    if (memory?.operation === "delete" || !memory?.followUpAt || memory?.sensitivity === "sensitive") return;
+    const dueAt = new Date(memory.followUpAt).getTime();
+    if (!Number.isFinite(dueAt) || dueAt > now) return;
+    items.push({
+      id: `follow-up:${memory.category}:${memory.key}:${memory.followUpAt}`,
+      priority: "high",
+      category: "follow_up",
+      title: String(memory.key || "Personal follow-up").replaceAll("_", " "),
+      detail: `Follow-up due · ${memory.value || memory.key}`,
+      recordId: null,
+    });
+  });
+
+  forecasts.forEach((forecast) => {
+    const timestamp = recordTimestamp(forecast);
+    if (forecast.status === "Waiting") {
+      const stale = timestamp !== null && now - timestamp > dayMs;
+      items.push({
+        id: `forecast:${forecast.id}:${stale ? "stale" : "waiting"}`,
+        priority: stale ? "medium" : "low",
+        category: "forecast",
+        title: `${forecast.pair || "Forecast"} · ${forecast.setup || "setup"}`,
+        detail: stale ? "Waiting over 24 hours — worth a fresh check" : "Waiting for confirmation",
+        recordId: forecast.id || null,
+      });
+    }
+    const linked = trades.some((trade) => normalizePair(trade.pair) === normalizePair(forecast.pair) && matchesText(trade.setup, forecast.setup) && String(trade.direction || "").toLowerCase() === String(forecast.direction || "").toLowerCase() && String(trade.date || trade.trade_date || "") >= String(forecast.date || forecast.decision_date || ""));
+    if (forecast.status === "Taken" && !linked) {
+      items.push({
+        id: `forecast:${forecast.id}:unlinked`,
+        priority: "high",
+        category: "forecast",
+        title: `${forecast.pair || "Forecast"} taken forecast`,
+        detail: "No matching saved trade yet",
+        recordId: forecast.id || null,
+      });
+    }
+  });
+
+  trades.forEach((trade) => {
+    const timestamp = recordTimestamp(trade);
+    if (trade.executionQuality || trade.trade_quality || timestamp === null || now - timestamp > 2 * dayMs) return;
+    items.push({
+      id: `trade:${trade.id}:review`,
+      priority: "medium",
+      category: "trade_review",
+      title: `${trade.pair || "Recent trade"} execution review`,
+      detail: "Recent trade still needs a Good, Mid, or Bad rating",
+      recordId: trade.id || null,
+    });
+  });
+
+  const activePair = data.sessionState?.activePair || null;
+  const activeSetup = data.sessionState?.activeSetup || null;
+  if (activePair && !items.some((item) => item.title.startsWith(activePair))) {
+    items.push({
+      id: `context:${activePair}:${activeSetup || "general"}`,
+      priority: "low",
+      category: "context",
+      title: `${activePair}${activeSetup ? ` · ${activeSetup}` : ""}`,
+      detail: "Current conversation context",
+      recordId: null,
+    });
+  }
+
+  const priorityRank = { high: 0, medium: 1, low: 2 };
+  items.sort((a, b) => priorityRank[a.priority] - priorityRank[b.priority] || a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  return {
+    source: "authenticated_journaly_monitoring_state",
+    generatedAt: new Date(now).toISOString(),
+    items: items.slice(0, 20),
+    counts: {
+      high: items.filter((item) => item.priority === "high").length,
+      medium: items.filter((item) => item.priority === "medium").length,
+      low: items.filter((item) => item.priority === "low").length,
+      total: items.length,
+    },
+  };
+}
+
+function verifiedMonitoringAnswer(result) {
+  if (!result?.items?.length) return "Everything I’m monitoring in Journaly is clear right now. Nothing needs your attention.";
+  const actionable = result.items.filter((item) => item.priority !== "low");
+  if (!actionable.length) {
+    const quiet = result.items.slice(0, 3).map((item) => item.title).join(", ");
+    return `Nothing urgent, Pot. I’m quietly keeping ${quiet} in context, and I’ll speak up if one of them becomes actionable.`;
+  }
+  const lines = actionable.slice(0, 4).map((item, index) => `${index + 1}. **${item.title}** — ${item.detail}`);
+  const lead = actionable[0].priority === "high" ? "One thing deserves your attention first." : "Nothing is urgent, but a few things are worth a look.";
+  return `${lead}\n\n${lines.join("\n")}\n\nI’m still monitoring the lower-priority context quietly. Pick one and we’ll handle it together.`;
+}
+
 function verifiedStatisticsAnswer(result) {
   if (result?.unavailable) return `I could not verify ${result.unavailable} from the authenticated database, so I will not report a numeric result. Refresh Journaly or retry after the data connection recovers.`;
   if (result?.source === "automatic_resolved_forecast_reviews") {
@@ -2284,6 +2394,8 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_session_state":
       return data.sessionState || {};
+    case "get_monitoring_state":
+      return buildMonitoringState(data);
     case "get_trade_journey": {
       const pair = args.pair || data.sessionState?.activePair || null;
       const events = journeyFromJournal(journals, pair).filter((event) => (!args.forecastId || event.forecastId === args.forecastId) && (!args.tradeId || event.tradeId === args.tradeId));
@@ -2492,6 +2604,7 @@ async function handleJarvis(request, env) {
   };
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
+  const monitoringIntent = /\b(?:what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|monitoring\s+(?:queue|status))\b/i.test(question);
   const proactiveSchedule = requestedProactiveDelay(question);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
@@ -2572,6 +2685,7 @@ async function handleJarvis(request, env) {
     let toolCallsUsed = [];
     let verifiedMonthlyLedger = null;
     let verifiedStreakResult = null;
+    let verifiedMonitoringResult = null;
     let verifiedStatResult = null;
     let verifiedPositionSizing = null;
     let verifiedPositionProfile = null;
@@ -2589,7 +2703,11 @@ async function handleJarvis(request, env) {
 
       if (!fastLane) {
         requestBody.tools = JOURNALY_TOOLS;
-        requestBody.tool_choice = streakIntent && round === 0 ? { type: "function", name: "get_trade_streaks" } : "auto";
+        requestBody.tool_choice = streakIntent && round === 0
+          ? { type: "function", name: "get_trade_streaks" }
+          : monitoringIntent && round === 0
+            ? { type: "function", name: "get_monitoring_state" }
+            : "auto";
         requestBody.parallel_tool_calls = true;
       }
 
@@ -2631,6 +2749,7 @@ async function handleJarvis(request, env) {
           if (call.name === "manage_position_profiles") verifiedPositionProfile = toolResult;
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
           if (call.name === "get_trade_streaks") verifiedStreakResult = toolResult;
+          if (call.name === "get_monitoring_state") verifiedMonitoringResult = toolResult;
           if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
@@ -2687,6 +2806,7 @@ async function handleJarvis(request, env) {
       else if (verifiedPositionSizing) result.answer = verifiedPositionSizingAnswer(verifiedPositionSizing);
       else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStreakResult) result.answer = verifiedTradeStreakAnswer(verifiedStreakResult);
+      else if (verifiedMonitoringResult) result.answer = verifiedMonitoringAnswer(verifiedMonitoringResult);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, proactiveSchedule, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
@@ -2841,7 +2961,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildMonitoringState, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {
