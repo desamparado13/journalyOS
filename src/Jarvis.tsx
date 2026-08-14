@@ -17,6 +17,8 @@ import {
   ImagePlus,
   Mic,
   MicOff,
+  Maximize2,
+  Minimize2,
   Moon,
   Paperclip,
   Radio,
@@ -958,6 +960,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
 
 export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, positionSizing, onTradeCreated, onForecastChanged, onPositionSizingApply, onPositionProfileApply }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isAmbient, setIsAmbient] = useState(true);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -987,9 +990,11 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const compactFeedRef = useRef<HTMLDivElement>(null);
   const wasChatOpen = useRef(false);
   const tradeSaveLock = useRef(false);
   const forecastSaveLock = useRef(false);
@@ -1044,7 +1049,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isAmbient) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.setTimeout(() => inputRef.current?.focus(), 350);
@@ -1054,7 +1059,18 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", close);
     };
-  }, [isOpen]);
+  }, [isAmbient, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !isAmbient) return;
+    const focusTimer = window.setTimeout(() => compactInputRef.current?.focus(), 180);
+    const close = (event: KeyboardEvent) => event.key === "Escape" && setIsOpen(false);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.removeEventListener("keydown", close);
+    };
+  }, [isAmbient, isOpen]);
   const journey = useMemo<JarvisJourneyEvent[]>(() => {
     const pair = activeContext?.pair || null;
     const forecastEvents = forecasts.filter((item) => !pair || item.pair === pair).slice(0, 8).map((item) => ({ id: `forecast:${item.id}`, at: `${item.date}T${item.time || "00:00"}`, kind: "forecast" as const, title: `${item.pair} forecast · ${item.status}`, detail: `${item.setup} ${item.direction}`, pair: item.pair }));
@@ -1083,6 +1099,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     function openWithPrompt(event: Event) {
       const detail = (event as CustomEvent<{ prompt?: string }>).detail;
       setIsOpen(true);
+      setIsAmbient(true);
       if (detail?.prompt) setPrompt(detail.prompt.slice(0, 6000));
     }
     window.addEventListener("journaly:ask-jarvis", openWithPrompt);
@@ -1161,7 +1178,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       wasChatOpen.current = false;
       return;
     }
-    const feed = feedRef.current;
+    const feed = isAmbient ? compactFeedRef.current : feedRef.current;
     if (!feed) return;
     if (!wasChatOpen.current) {
       feed.scrollTop = feed.scrollHeight;
@@ -1169,7 +1186,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       return;
     }
     feed.scrollTo({ top: feed.scrollHeight, behavior: "smooth" });
-  }, [isOpen, messages, isThinking]);
+  }, [isAmbient, isOpen, messages, isThinking]);
 
   useEffect(() => {
     localStorage.setItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`, JSON.stringify(memory));
@@ -2094,7 +2111,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     <>
       <button
         ref={launcherRef}
-        className={`jarvis-launcher${isDraggingOrb ? " is-dragging" : ""}`}
+        className={`jarvis-launcher${isDraggingOrb ? " is-dragging" : ""}${isOpen ? " is-open" : ""}`}
         style={orbPosition ? { left: orbPosition.x, top: orbPosition.y, right: "auto", bottom: "auto" } : undefined}
         type="button"
         aria-label="Open Jarvis. Drag to reposition."
@@ -2106,6 +2123,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         onClick={() => {
           if (orbDrag.current.moved) return;
           setIsOpen(true);
+          setIsAmbient(true);
         }}
       >
         <span className="jarvis-launcher-radar" />
@@ -2114,7 +2132,39 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         <span className="jarvis-launcher-label"><strong>Jarvis</strong><small>{aiHealth?.fallbackActive ? "Limited" : "Online"}</small></span>
       </button>
 
-      {isOpen ? (
+      {isOpen && isAmbient ? (
+        <section className="jarvis-ambient" role="dialog" aria-modal="false" aria-label="Ambient Jarvis chat">
+          <header className="jarvis-ambient-header">
+            <div><span className="jarvis-ambient-core"><BrainCircuit size={17} /></span><span><strong>JARVIS</strong><small><i /> Ambient link online</small></span></div>
+            <nav aria-label="Ambient Jarvis controls">
+              <button type="button" title={voiceReplies ? "Mute spoken replies" : "Speak replies aloud"} aria-label={voiceReplies ? "Mute spoken replies" : "Speak replies aloud"} className={voiceReplies ? "is-active" : ""} onClick={() => setVoiceReplies((current) => !current)}>{voiceReplies ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
+              <button type="button" title="Open Jarvis Command Center" aria-label="Open Jarvis Command Center" onClick={() => setIsAmbient(false)}><Maximize2 size={16} /></button>
+              <button type="button" title="Close Jarvis" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={17} /></button>
+            </nav>
+          </header>
+          <div className="jarvis-ambient-context"><span>{activeContext?.pair ? `${activeContext.pair}${activeContext.setup ? ` · ${activeContext.setup}` : ""}` : "Journaly-wide context"}</span><small>You can keep scrolling. I’m still here.</small></div>
+          <div className="jarvis-ambient-feed" ref={compactFeedRef} aria-live="polite">
+            {messages.length ? messages.slice(-10).map((message) => (
+              <article className={`jarvis-ambient-message is-${message.role}`} key={message.id}>
+                <span>{message.role === "jarvis" ? "JARVIS" : "YOU"}</span>
+                {message.title ? <strong>{message.title}</strong> : null}
+                <p>{message.text}</p>
+                {message.role === "jarvis" ? <button type="button" onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={12} /> : <Volume2 size={12} />}{speakingMessageId === message.id ? " Stop" : " Listen"}</button> : null}
+              </article>
+            )) : <div className="jarvis-ambient-welcome"><BrainCircuit size={23} /><strong>I’m with you, {preferredName}.</strong><p>Scroll through Journaly and talk to me from here. I keep the same memory and context as Command Center.</p></div>}
+            {isThinking ? <div className="jarvis-ambient-thinking"><span /><span /><span /><small>Thinking…</small></div> : null}
+          </div>
+          {(tradeDraft || forecastDraft || positionSizingDraft || positionProfileDraft) ? <button className="jarvis-ambient-action" type="button" onClick={() => setIsAmbient(false)}><Check size={14} /> Action ready · review in Command Center <ChevronRight size={14} /></button> : null}
+          <form className="jarvis-ambient-composer" onSubmit={submitPrompt}>
+            <button className={`jarvis-ambient-mic${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : "Speak to Jarvis"} onClick={toggleVoiceInput}>{isListening ? <MicOff size={17} /> : voicePhase === "transcribing" ? <RefreshCcw size={17} /> : <Mic size={17} />}</button>
+            <textarea ref={compactInputRef} rows={1} value={prompt} placeholder={isListening ? "Listening…" : "Talk to Jarvis while you work…"} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askJarvis(prompt); } }} />
+            {isThinking ? <button className="jarvis-ambient-send is-stop" type="button" aria-label="Stop Jarvis" onClick={() => requestAbortRef.current?.abort()}><Square size={14} /></button> : <button className="jarvis-ambient-send" type="submit" disabled={!prompt.trim()} aria-label="Send to Jarvis"><ArrowUp size={17} /></button>}
+          </form>
+          {attachmentError ? <small className="jarvis-ambient-error">{attachmentError}</small> : null}
+        </section>
+      ) : null}
+
+      {isOpen && !isAmbient ? (
         <section className="jarvis-screen" role="dialog" aria-modal="true" aria-label="Jarvis personal and trading intelligence">
           <div className="jarvis-grid-glow" aria-hidden="true" />
           <header className="jarvis-header">
@@ -2128,6 +2178,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
             </div>
             <div className="jarvis-header-actions">
               <button className={`jarvis-voice-toggle${voiceReplies ? " is-active" : ""}`} type="button" title={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} aria-label={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} onClick={() => setVoiceReplies((current) => !current)}>{voiceReplies ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+              <button className="jarvis-close" type="button" title="Return to ambient Jarvis" aria-label="Return to ambient Jarvis" onClick={() => setIsAmbient(true)}><Minimize2 size={19} /></button>
               <button className="jarvis-close" type="button" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={20} /></button>
             </div>
           </header>
@@ -2399,7 +2450,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.8</strong><small>Mission Control / live voice / emotional continuity / assisted autonomy</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.9</strong><small>Ambient companion / Mission Control / live voice / assisted autonomy</small></div></div>
             </aside>
           </div>
         </section>
