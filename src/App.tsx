@@ -1981,6 +1981,7 @@ function calculatePositionSize({
   entryPrice,
   stopLossPrice,
   quoteToUsdRate,
+  takeProfitPrice = 0,
 }: {
   pair: string;
   balance: number;
@@ -1988,12 +1989,19 @@ function calculatePositionSize({
   entryPrice: number;
   stopLossPrice: number;
   quoteToUsdRate: number;
+  takeProfitPrice?: number;
 }) {
   const pipSize = getPipSize(pair);
   const stopPips = Math.abs(entryPrice - stopLossPrice) / pipSize;
   const riskAmount = balance * (riskPercent / 100);
   const pipValue = getPipValuePerStandardLot(pair, quoteToUsdRate);
   const lots = stopPips > 0 && pipValue > 0 ? riskAmount / (stopPips * pipValue) : 0;
+  const direction = stopLossPrice < entryPrice ? "Long" : "Short";
+  const rawRewardPips = takeProfitPrice > 0
+    ? (direction === "Long" ? takeProfitPrice - entryPrice : entryPrice - takeProfitPrice) / pipSize
+    : 0;
+  const rewardPips = rawRewardPips > 0 ? rawRewardPips : 0;
+  const rewardRisk = stopPips > 0 && rewardPips > 0 ? rewardPips / stopPips : 0;
 
   return {
     lots,
@@ -2002,6 +2010,10 @@ function calculatePositionSize({
     units: lots * 100000,
     miniLots: lots * 10,
     microLots: lots * 100,
+    direction,
+    rewardPips,
+    rewardRisk,
+    projectedProfit: riskAmount * rewardRisk,
   };
 }
 
@@ -2723,7 +2735,22 @@ export default function App() {
       entryPrice: Number(positionCalculator.entryPrice || 0),
       stopLossPrice: Number(positionCalculator.stopLossPrice || 0),
       quoteToUsdRate,
+      takeProfitPrice: Number(positionCalculator.takeProfitPrice || 0),
     });
+  }, [positionCalculator]);
+
+  const jarvisPositionSizing = useMemo(() => {
+    const positiveNumber = (value: string) => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
+    const quote = getQuoteCurrency(positionCalculator.pair);
+    return {
+      pair: positionCalculator.pair,
+      accountBalance: positiveNumber(positionCalculator.accountBalance),
+      riskPercent: positiveNumber(positionCalculator.riskPercent),
+      entryPrice: positiveNumber(positionCalculator.entryPrice),
+      stopLossPrice: positiveNumber(positionCalculator.stopLossPrice),
+      takeProfitPrice: positiveNumber(positionCalculator.takeProfitPrice),
+      quoteToUsdRate: quote === "USD" ? 1 : positiveNumber(positionCalculator.quoteToUsdRate),
+    };
   }, [positionCalculator]);
 
   const tradeAnalyticsYears = useMemo(() => {
@@ -3999,6 +4026,31 @@ export default function App() {
   async function handleJarvisForecastChanged(forecast?: { id: string; status: TradeDecisionStatus }) {
     await loadTradeDecisions();
     if (forecast?.id) void triggerForecastReview(forecast.id);
+  }
+
+  function handleJarvisPositionSizingApply(action: {
+    ready: boolean;
+    pair: string | null;
+    accountBalance: number | null;
+    riskPercent: number | null;
+    entryPrice: number | null;
+    stopLossPrice: number | null;
+    takeProfitPrice: number | null;
+    quoteToUsdRate: number | null;
+  }) {
+    if (!action.ready) return;
+    setPositionCalculator((current) => ({
+      pair: action.pair || current.pair,
+      accountBalance: action.accountBalance === null ? current.accountBalance : String(action.accountBalance),
+      riskPercent: action.riskPercent === null ? current.riskPercent : String(action.riskPercent),
+      entryPrice: action.entryPrice === null ? current.entryPrice : String(action.entryPrice),
+      stopLossPrice: action.stopLossPrice === null ? current.stopLossPrice : String(action.stopLossPrice),
+      takeProfitPrice: action.takeProfitPrice === null ? "" : String(action.takeProfitPrice),
+      quoteToUsdRate: action.quoteToUsdRate === null ? current.quoteToUsdRate : String(action.quoteToUsdRate),
+    }));
+    setTradingMode("swing");
+    setActiveView("position-sizing");
+    showToast({ tone: "success", title: "Position sizing ready", message: "Jarvis filled the calculator. No broker order was placed." });
   }
 
   async function handleForecastSubmit(event: FormEvent<HTMLFormElement>) {
@@ -6023,6 +6075,9 @@ export default function App() {
                     <span>Mini: {formatNumber(positionSize.miniLots)}</span>
                     <span>Units: {Math.round(positionSize.units).toLocaleString()}</span>
                     <span>Stop: {formatNumber(positionSize.stopPips)} pips</span>
+                    <span>Direction: {positionSize.stopPips > 0 ? positionSize.direction : "--"}</span>
+                    <span>Target: {positionSize.rewardRisk > 0 ? `${formatNumber(positionSize.rewardRisk)}R` : "--"}</span>
+                    <span>Projected: {positionSize.rewardRisk > 0 ? `$${formatNumber(positionSize.projectedProfit)}` : "--"}</span>
                   </div>
 
                   <div className="form-actions">
@@ -7325,8 +7380,10 @@ export default function App() {
           forecasts={tradeDecisions}
           session={marketSession}
           journalEntries={journalEntries}
+          positionSizing={jarvisPositionSizing}
           onTradeCreated={loadTrades}
           onForecastChanged={handleJarvisForecastChanged}
+          onPositionSizingApply={handleJarvisPositionSizingApply}
         />
       ) : null}
     </div>

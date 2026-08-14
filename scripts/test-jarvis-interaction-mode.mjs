@@ -74,6 +74,7 @@ const modelPayload = {
     missingFields: [],
   },
   forecastAction: null,
+  positionSizingAction: null,
   chartAssessment: {
     setupCandidate: "Break and retest",
     direction: "Long",

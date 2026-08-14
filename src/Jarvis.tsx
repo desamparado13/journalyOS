@@ -202,6 +202,42 @@ type JarvisForecastAction = {
   missingFields: Array<"forecastId" | "pair" | "setup" | "direction">;
 };
 
+type JarvisPositionSizingAction = {
+  applyToCalculator: boolean;
+  ready: boolean;
+  pair: string | null;
+  accountBalance: number | null;
+  riskPercent: number | null;
+  entryPrice: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  quoteToUsdRate: number | null;
+  missingFields: Array<"pair" | "accountBalance" | "riskPercent" | "entryPrice" | "stopLossPrice" | "quoteToUsdRate">;
+  result: {
+    direction: "Long" | "Short";
+    stopPips: number;
+    riskAmount: number;
+    lots: number;
+    miniLots: number;
+    microLots: number;
+    units: number;
+    rewardPips: number | null;
+    rewardRisk: number | null;
+    projectedProfit: number | null;
+    takeProfitValid: boolean | null;
+  } | null;
+};
+
+type JarvisPositionSizingContext = {
+  pair: string;
+  accountBalance: number | null;
+  riskPercent: number | null;
+  entryPrice: number | null;
+  stopLossPrice: number | null;
+  takeProfitPrice: number | null;
+  quoteToUsdRate: number | null;
+};
+
 type JarvisHealth = {
   provider: string;
   configuredModel: string | null;
@@ -232,8 +268,10 @@ type JarvisProps = {
   forecasts: JarvisForecast[];
   session: JarvisSession;
   journalEntries: Array<{ id: string; date: string; content: string; advice: string; image?: string; createdAt?: string; updatedAt?: string }>;
+  positionSizing: JarvisPositionSizingContext;
   onTradeCreated: () => void | Promise<void>;
   onForecastChanged: (forecast?: { id: string; status: NonNullable<JarvisForecastAction["status"]> }) => void | Promise<void>;
+  onPositionSizingApply: (action: JarvisPositionSizingAction) => void;
 };
 
 type JarvisLearningRecord = {
@@ -601,6 +639,41 @@ function normalizeForecastAction(value: unknown, previous: JarvisForecastAction 
   };
 }
 
+function normalizePositionSizingAction(value: unknown): JarvisPositionSizingAction | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<JarvisPositionSizingAction>;
+  const numberOrNull = (input: unknown) => Number.isFinite(input) && Number(input) > 0 ? Number(input) : null;
+  const resultCandidate = candidate.result && typeof candidate.result === "object" ? candidate.result : null;
+  const result = resultCandidate && (resultCandidate.direction === "Long" || resultCandidate.direction === "Short")
+    ? {
+        direction: resultCandidate.direction,
+        stopPips: Number(resultCandidate.stopPips || 0),
+        riskAmount: Number(resultCandidate.riskAmount || 0),
+        lots: Number(resultCandidate.lots || 0),
+        miniLots: Number(resultCandidate.miniLots || 0),
+        microLots: Number(resultCandidate.microLots || 0),
+        units: Number(resultCandidate.units || 0),
+        rewardPips: numberOrNull(resultCandidate.rewardPips),
+        rewardRisk: numberOrNull(resultCandidate.rewardRisk),
+        projectedProfit: numberOrNull(resultCandidate.projectedProfit),
+        takeProfitValid: typeof resultCandidate.takeProfitValid === "boolean" ? resultCandidate.takeProfitValid : null,
+      }
+    : null;
+  return {
+    applyToCalculator: candidate.applyToCalculator === true,
+    ready: candidate.ready === true && Boolean(result),
+    pair: typeof candidate.pair === "string" && JARVIS_TRADE_PAIRS.has(candidate.pair) ? candidate.pair : null,
+    accountBalance: numberOrNull(candidate.accountBalance),
+    riskPercent: numberOrNull(candidate.riskPercent),
+    entryPrice: numberOrNull(candidate.entryPrice),
+    stopLossPrice: numberOrNull(candidate.stopLossPrice),
+    takeProfitPrice: numberOrNull(candidate.takeProfitPrice),
+    quoteToUsdRate: numberOrNull(candidate.quoteToUsdRate),
+    missingFields: Array.isArray(candidate.missingFields) ? candidate.missingFields.filter((field): field is JarvisPositionSizingAction["missingFields"][number] => ["pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "quoteToUsdRate"].includes(String(field))) : [],
+    result,
+  };
+}
+
 function persistedForecastStatus(status: NonNullable<JarvisForecastAction["status"]>) {
   if (status === "Invalidated") return "Cancelled";
   if (status === "Skipped") return "Missed";
@@ -718,7 +791,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   return null;
 }
 
-export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, onTradeCreated, onForecastChanged }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, positionSizing, onTradeCreated, onForecastChanged, onPositionSizingApply }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
@@ -742,6 +815,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [learningSyncState, setLearningSyncState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [tradeDraft, setTradeDraft] = useState<JarvisTradeAction | null>(null);
   const [forecastDraft, setForecastDraft] = useState<JarvisForecastAction | null>(null);
+  const [positionSizingDraft, setPositionSizingDraft] = useState<JarvisPositionSizingAction | null>(null);
   const [isSavingTrade, setIsSavingTrade] = useState(false);
   const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -1493,6 +1567,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               activeForecasts: activeForecasts.length,
               learnedCases: learningRecords.length,
             },
+            positionSizing,
             sessionState: {
               activeContextExplicit: true,
               activePair: requestedPair || nextActiveContext?.pair || activeForecast?.pair || null,
@@ -1506,6 +1581,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               rollingConversation: recentHistory.slice(-8),
               pendingTradeDraft: tradeDraft,
               pendingForecastDraft: forecastDraft,
+              pendingPositionSizing: positionSizingDraft,
               workspaceContexts: workspace.contexts.map(({ id, label, pair, setup, tradeId, backtestId, forecastId, dataSource, updatedAt }) => ({ id, label, pair, setup, tradeId, backtestId, forecastId, dataSource, updatedAt })),
             },
             trades: orderedTrades.slice(0, 300).map((trade) => ({
@@ -1589,6 +1665,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }
       setTradeDraft((current) => payload.tradeAction ? normalizeTradeAction(payload.tradeAction, current) : null);
       setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
+      const nextPositionSizing = normalizePositionSizingAction(payload.positionSizingAction);
+      setPositionSizingDraft(nextPositionSizing);
+      if (nextPositionSizing?.ready && nextPositionSizing.applyToCalculator) onPositionSizingApply(nextPositionSizing);
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
@@ -1835,6 +1914,26 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                         <footer>
                           <button type="button" className="is-cancel" onClick={() => setTradeDraft(null)}>Discard</button>
                           <button type="button" className="is-confirm" disabled={tradeDraft.intent !== "ready" || isSavingTrade} onClick={() => void saveTradeDraft(tradeDraft)}><Check size={15} /> {isSavingTrade ? "Adding..." : "Confirm & add"}</button>
+                        </footer>
+                      </article>
+                    ) : null}
+                    {positionSizingDraft ? (
+                      <article className={`jarvis-trade-draft is-${positionSizingDraft.ready ? "ready" : "draft"}`} aria-label="Jarvis position sizing">
+                        <header><span>Position sizing</span><strong>{positionSizingDraft.pair || "Pair needed"}</strong></header>
+                        {positionSizingDraft.result ? (
+                          <div className="jarvis-trade-draft-grid">
+                            <p><span>Direction</span><strong>{positionSizingDraft.result.direction}</strong></p>
+                            <p><span>Standard lots</span><strong>{positionSizingDraft.result.lots.toFixed(3)}</strong></p>
+                            <p><span>Units</span><strong>{Math.round(positionSizingDraft.result.units).toLocaleString()}</strong></p>
+                            <p><span>Risk</span><strong>${positionSizingDraft.result.riskAmount.toFixed(2)}</strong></p>
+                            <p><span>Stop</span><strong>{positionSizingDraft.result.stopPips.toFixed(2)} pips</strong></p>
+                            <p><span>Target</span><strong>{positionSizingDraft.result.rewardRisk === null ? "Not supplied" : `${positionSizingDraft.result.rewardRisk.toFixed(2)}R`}</strong></p>
+                          </div>
+                        ) : null}
+                        {positionSizingDraft.missingFields.length ? <small>Jarvis still needs: {positionSizingDraft.missingFields.join(", ")}.</small> : <small>Calculated with Journaly's exact Position Sizing formula. This does not place an order.</small>}
+                        <footer>
+                          <button type="button" className="is-cancel" onClick={() => setPositionSizingDraft(null)}>Dismiss</button>
+                          <button type="button" className="is-confirm" disabled={!positionSizingDraft.ready} onClick={() => onPositionSizingApply(positionSizingDraft)}><Check size={15} /> Fill & open tab</button>
                         </footer>
                       </article>
                     ) : null}

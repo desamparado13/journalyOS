@@ -43,6 +43,15 @@ JOURNALY FORECAST ACTIONS AND LEARNING
 - Return forecastAction.intent=create or update_status only when the user is asking for a forecast write. Use ready=false while required details or an unambiguous forecast id are missing.
 - Never claim a forecast was saved or updated. Journaly shows a confirmation card, and only the authenticated client writes after explicit confirmation.
 - Learn from forecast outcomes conservatively: compare thesis, setup, direction, status, and documented outcome across records. Distinguish recurring evidence from one-off anecdotes and never invent missing text.`;
+const JARVIS_POSITION_SIZING_INSTRUCTIONS = `
+JOURNALY POSITION SIZING
+- Treat Position Sizing as a first-class Journaly tool. The current calculator values are available in CURRENT AUTHENTICATED SESSION.positionSizing.
+- For every request to calculate lots, units, risk amount, stop distance, reward-to-risk, or to fill/open the Position Sizing tab, call calculate_position_size. Never do position-sizing arithmetic yourself.
+- Reuse valid values already present in positionSizing when the user omits them. The minimum required inputs are pair, account balance, risk percent, entry price, and stop-loss price. A non-USD quote pair also requires its quote-currency-to-USD conversion rate. Take profit is optional.
+- Set applyToCalculator=true only when the user explicitly asks Jarvis to fill, set, populate, update, or open the Position Sizing tab. A calculation-only request must set it to false.
+- When the tool reports ready=true, return positionSizingAction using the exact normalized inputs and result from the tool. Explain the verified result naturally in chat, including standard lots, units, risk amount, stop pips, and R:R/projected profit when a valid take profit was supplied.
+- When required information is missing, ask only for those missing fields. Do not guess a balance, risk percentage, price, or conversion rate.
+- Position sizing is calculation and Journaly UI control only. Never claim to place, modify, or close a broker order.`;
 const JARVIS_ANALYTICS_INSTRUCTIONS = `
 JOURNALY NUMERIC ACCURACY
 - Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
@@ -140,12 +149,13 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_account_risk", description: "Check currency concentration across active forecasts. Forecasts do not track planned risk, and this is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_trade_journey", description: "Get the unified forecast-to-chart-to-trade journey and all open Jarvis contexts. Use for continuity questions such as what happened with an idea, how a forecast became a trade, or what Jarvis is currently tracking.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, forecastId: { type: ["string", "null"] }, tradeId: { type: ["string", "null"] } }, required: ["pair", "forecastId", "tradeId"] } },
+  { type: "function", name: "calculate_position_size", description: "Calculate Journaly's exact forex position size and optionally prepare the Position Sizing tab to be populated. Reuse current calculator values supplied in session context when the user omits them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { applyToCalculator: { type: "boolean" }, pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] }, accountBalance: { type: ["number", "null"], minimum: 0 }, riskPercent: { type: ["number", "null"], minimum: 0 }, entryPrice: { type: ["number", "null"], minimum: 0 }, stopLossPrice: { type: ["number", "null"], minimum: 0 }, takeProfitPrice: { type: ["number", "null"], minimum: 0 }, quoteToUsdRate: { type: ["number", "null"], minimum: 0 } }, required: ["applyToCalculator", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate"] } },
 ];
 
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "forecastAction", "chartAssessment"],
+  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "forecastAction", "positionSizingAction", "chartAssessment"],
   properties: {
     answer: { type: "string", maxLength: 12000 },
     learningSummary: { type: ["string", "null"], maxLength: 1600 },
@@ -233,6 +243,41 @@ const RESPONSE_SCHEMA = {
         status: { type: ["string", "null"], enum: ["Waiting", "Taken", "Invalidated", "Skipped", null] },
         notes: { type: ["string", "null"], maxLength: 3000 },
         missingFields: { type: "array", maxItems: 4, items: { type: "string", enum: ["forecastId", "pair", "setup", "direction"] } },
+      },
+    },
+    positionSizingAction: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["applyToCalculator", "ready", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate", "missingFields", "result"],
+      properties: {
+        applyToCalculator: { type: "boolean" },
+        ready: { type: "boolean" },
+        pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] },
+        accountBalance: { type: ["number", "null"], minimum: 0 },
+        riskPercent: { type: ["number", "null"], minimum: 0 },
+        entryPrice: { type: ["number", "null"], minimum: 0 },
+        stopLossPrice: { type: ["number", "null"], minimum: 0 },
+        takeProfitPrice: { type: ["number", "null"], minimum: 0 },
+        quoteToUsdRate: { type: ["number", "null"], minimum: 0 },
+        missingFields: { type: "array", maxItems: 6, items: { type: "string", enum: ["pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "quoteToUsdRate"] } },
+        result: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          required: ["direction", "stopPips", "riskAmount", "lots", "miniLots", "microLots", "units", "rewardPips", "rewardRisk", "projectedProfit", "takeProfitValid"],
+          properties: {
+            direction: { type: "string", enum: ["Long", "Short"] },
+            stopPips: { type: "number", minimum: 0 },
+            riskAmount: { type: "number", minimum: 0 },
+            lots: { type: "number", minimum: 0 },
+            miniLots: { type: "number", minimum: 0 },
+            microLots: { type: "number", minimum: 0 },
+            units: { type: "number", minimum: 0 },
+            rewardPips: { type: ["number", "null"], minimum: 0 },
+            rewardRisk: { type: ["number", "null"], minimum: 0 },
+            projectedProfit: { type: ["number", "null"], minimum: 0 },
+            takeProfitValid: { type: ["boolean", "null"] },
+          },
+        },
       },
     },
   },
@@ -952,12 +997,12 @@ function parseJarvisOutput(text) {
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.answer === "string") {
-      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, forecastAction: parsed.forecastAction && typeof parsed.forecastAction === "object" ? parsed.forecastAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
+      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, forecastAction: parsed.forecastAction && typeof parsed.forecastAction === "object" ? parsed.forecastAction : null, positionSizingAction: parsed.positionSizingAction && typeof parsed.positionSizingAction === "object" ? parsed.positionSizingAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
     }
   } catch {
     // Older fallback models may return plain text; keep the conversation available without storing memory.
   }
-  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, chartAssessment: null };
+  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, positionSizingAction: null, chartAssessment: null };
 }
 
 function errorCategory(status, code, message) {
@@ -1748,6 +1793,95 @@ function deterministicCoachingReport(trades, period, anchorDate) {
   return { period, ...range, previousStart, previousEnd, statistics: current, previousStatistics: previous, setupRows, text: lines.join("\n\n"), calculation: "deterministic_authenticated_live_trades" };
 }
 
+function finitePositive(value) {
+  return Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
+}
+
+function calculateJournalyPositionSize(args = {}) {
+  const supportedPairs = new Set(["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD"]);
+  const pair = supportedPairs.has(normalizePair(args.pair)) ? normalizePair(args.pair) : null;
+  const accountBalance = finitePositive(args.accountBalance);
+  const riskPercent = finitePositive(args.riskPercent);
+  const entryPrice = finitePositive(args.entryPrice);
+  const stopLossPrice = finitePositive(args.stopLossPrice);
+  const takeProfitPrice = finitePositive(args.takeProfitPrice);
+  const quoteCurrency = pair ? pair.slice(3, 6) : null;
+  const quoteToUsdRate = quoteCurrency === "USD" ? 1 : finitePositive(args.quoteToUsdRate);
+  const missingFields = [
+    !pair ? "pair" : null,
+    !accountBalance ? "accountBalance" : null,
+    !riskPercent ? "riskPercent" : null,
+    !entryPrice ? "entryPrice" : null,
+    !stopLossPrice || (entryPrice && entryPrice === stopLossPrice) ? "stopLossPrice" : null,
+    pair && quoteCurrency !== "USD" && !quoteToUsdRate ? "quoteToUsdRate" : null,
+  ].filter(Boolean);
+  const base = {
+    applyToCalculator: args.applyToCalculator === true,
+    ready: missingFields.length === 0,
+    pair,
+    accountBalance,
+    riskPercent,
+    entryPrice,
+    stopLossPrice,
+    takeProfitPrice,
+    quoteToUsdRate,
+    missingFields,
+  };
+  if (!base.ready) return { ...base, result: null, calculation: "deterministic_journaly_position_sizing" };
+
+  const pipSize = pair.endsWith("JPY") ? 0.01 : 0.0001;
+  const stopPips = Math.abs(entryPrice - stopLossPrice) / pipSize;
+  const riskAmount = accountBalance * (riskPercent / 100);
+  const pipValuePerStandardLotUsd = 100000 * pipSize * quoteToUsdRate;
+  const lots = riskAmount / (stopPips * pipValuePerStandardLotUsd);
+  const direction = stopLossPrice < entryPrice ? "Long" : "Short";
+  const rawRewardPips = takeProfitPrice
+    ? (direction === "Long" ? takeProfitPrice - entryPrice : entryPrice - takeProfitPrice) / pipSize
+    : null;
+  const takeProfitValid = rawRewardPips !== null && rawRewardPips > 0;
+  const rewardPips = takeProfitValid ? rawRewardPips : null;
+  const rewardRisk = rewardPips === null ? null : rewardPips / stopPips;
+  return {
+    ...base,
+    result: {
+      direction,
+      pipSize,
+      stopPips,
+      riskAmount,
+      pipValuePerStandardLotUsd,
+      lots,
+      miniLots: lots * 10,
+      microLots: lots * 100,
+      units: lots * 100000,
+      rewardPips,
+      rewardRisk,
+      projectedProfit: rewardRisk === null ? null : riskAmount * rewardRisk,
+      takeProfitValid: takeProfitPrice === null ? null : takeProfitValid,
+    },
+    calculation: "deterministic_journaly_position_sizing",
+  };
+}
+
+function verifiedPositionSizingAnswer(calculation) {
+  if (!calculation?.ready || !calculation?.result) {
+    const labels = { pair: "pair", accountBalance: "account balance", riskPercent: "risk percentage", entryPrice: "entry price", stopLossPrice: "stop-loss price", quoteToUsdRate: "quote-currency-to-USD rate" };
+    return `I can size it, but I still need ${calculation.missingFields.map((field) => labels[field] || field).join(", ")}.`;
+  }
+  const { result } = calculation;
+  const money = (value) => Number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const number = (value, digits = 2) => Number(value).toLocaleString("en-US", { maximumFractionDigits: digits });
+  const lines = [
+    `${calculation.pair} ${result.direction}: **${number(result.lots, 3)} standard lots** (${Math.round(result.units).toLocaleString("en-US")} units).`,
+    `Risk: **$${money(result.riskAmount)}** (${number(calculation.riskPercent, 3)}%) on a **${number(result.stopPips, 2)}-pip** stop.`,
+  ];
+  if (result.rewardRisk !== null) lines.push(`Target: **${number(result.rewardRisk, 2)}R** / about **$${money(result.projectedProfit)}** projected profit (${number(result.rewardPips, 2)} pips).`);
+  else if (calculation.takeProfitPrice && result.takeProfitValid === false) lines.push(`That take-profit price is on the wrong side for this ${result.direction.toLowerCase()} setup, so I left R:R uncalculated.`);
+  else lines.push("No take profit was supplied, so R:R and projected profit are still open.");
+  lines.push(`Breakdown: ${number(result.miniLots, 2)} mini lots / ${number(result.microLots, 2)} micro lots.`);
+  if (calculation.applyToCalculator) lines.push("I filled Journaly's Position Sizing tab with these values. No broker order was placed.");
+  return lines.join("\n\n");
+}
+
 function executeJournalyTool(name, args, data) {
   const trades = Array.isArray(data.trades) ? data.trades : [];
   const monthlyTrades = Array.isArray(data.monthlyTrades) ? data.monthlyTrades : trades;
@@ -1902,6 +2036,8 @@ function executeJournalyTool(name, args, data) {
       const relevantTrades = trades.filter((item) => (!pair || normalizePair(item.pair) === normalizePair(pair)) && (!args.tradeId || item.id === args.tradeId)).slice(0, 20);
       return { pair, workspace: data.workspace || null, events, forecasts: relevantForecasts, trades: relevantTrades };
     }
+    case "calculate_position_size":
+      return calculateJournalyPositionSize(args);
     default:
       return { error: "Unknown Journaly tool." };
   }
@@ -2066,6 +2202,7 @@ async function handleJarvis(request, env) {
     authoritativeSource: authenticatedJournaly ? "authenticated_database" : "authenticated_client_snapshot",
     imageInventory: Array.isArray(journalData?.imageInventory) ? journalData.imageInventory.slice(0, 5000) : [],
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
+    positionSizing: journalData?.positionSizing && typeof journalData.positionSizing === "object" ? journalData.positionSizing : null,
     sessionState,
     workspace: {
       ...(syncedWorkspace || {}),
@@ -2122,6 +2259,7 @@ async function handleJarvis(request, env) {
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
     relevantMemories,
     styleExamples,
+    positionSizing: toolData.positionSizing,
     availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
     historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
     auditedBacktestChartLibrary: JARVIS_BACKTEST_AUDIT_SUMMARY,
@@ -2153,11 +2291,12 @@ async function handleJarvis(request, env) {
     let toolCallsUsed = [];
     let verifiedMonthlyLedger = null;
     let verifiedStatResult = null;
+    let verifiedPositionSizing = null;
     const usage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,
@@ -2202,6 +2341,7 @@ async function handleJarvis(request, env) {
           try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
+          if (call.name === "calculate_position_size") verifiedPositionSizing = toolResult;
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
           if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
@@ -2218,15 +2358,44 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
+      if (verifiedPositionSizing) {
+        result.positionSizingAction = {
+          applyToCalculator: verifiedPositionSizing.applyToCalculator,
+          ready: verifiedPositionSizing.ready,
+          pair: verifiedPositionSizing.pair,
+          accountBalance: verifiedPositionSizing.accountBalance,
+          riskPercent: verifiedPositionSizing.riskPercent,
+          entryPrice: verifiedPositionSizing.entryPrice,
+          stopLossPrice: verifiedPositionSizing.stopLossPrice,
+          takeProfitPrice: verifiedPositionSizing.takeProfitPrice,
+          quoteToUsdRate: verifiedPositionSizing.quoteToUsdRate,
+          missingFields: verifiedPositionSizing.missingFields,
+          result: verifiedPositionSizing.result ? {
+            direction: verifiedPositionSizing.result.direction,
+            stopPips: verifiedPositionSizing.result.stopPips,
+            riskAmount: verifiedPositionSizing.result.riskAmount,
+            lots: verifiedPositionSizing.result.lots,
+            miniLots: verifiedPositionSizing.result.miniLots,
+            microLots: verifiedPositionSizing.result.microLots,
+            units: verifiedPositionSizing.result.units,
+            rewardPips: verifiedPositionSizing.result.rewardPips,
+            rewardRisk: verifiedPositionSizing.result.rewardRisk,
+            projectedProfit: verifiedPositionSizing.result.projectedProfit,
+            takeProfitValid: verifiedPositionSizing.result.takeProfitValid,
+          } : null,
+        };
+      }
       if (conversationMode === "active_trade_management") result.tradeAction = null;
       let historicalMatches = null;
       if (chartImage) {
         result.chartAssessment = enforceChartEvidenceGate(result.chartAssessment);
         historicalMatches = deterministicHistoricalMatches(result.chartAssessment, toolData.trades, toolData.sessionState?.activePair || null);
-        if (conversationMode !== "active_trade_management") {
+        if (!verifiedPositionSizing && conversationMode !== "active_trade_management") {
           result.answer = verifiedChartAnswer(result.chartAssessment, historicalMatches);
         }
-      } else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
+      }
+      if (verifiedPositionSizing) result.answer = verifiedPositionSizingAnswer(verifiedPositionSizing);
+      else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
@@ -2302,7 +2471,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
+export { archiveViewResult, calculateJournalyPositionSize, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
 
 export default {
   async fetch(request, env, ctx) {
