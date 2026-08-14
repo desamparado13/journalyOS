@@ -1552,6 +1552,18 @@ label span,
 .jarvis-rail nav button.is-active { border-color: rgba(103, 232, 249, 0.16); color: #dcfaff; background: linear-gradient(90deg, rgba(6, 182, 212, 0.13), rgba(6, 182, 212, 0.025)); }
 .jarvis-rail nav button.is-active { box-shadow: inset 2px 0 #22d3ee; }
 .jarvis-rail nav button > span { color: #67e8f9; font-size: 0.65rem; }
+.jarvis-memory-center { display: grid; gap: 7px; max-height: 260px; margin-top: 12px; overflow-y: auto; padding: 10px; border: 1px solid rgba(103, 232, 249, 0.14); border-radius: 12px; background: rgba(3, 15, 25, 0.58); }
+.jarvis-memory-center header { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid rgba(125, 211, 252, 0.09); }
+.jarvis-memory-center header strong { color: #bdeaf2; font-size: 0.7rem; }
+.jarvis-memory-center header small, .jarvis-memory-center p { margin: 0; color: #527487; font-size: 0.6rem; }
+.jarvis-memory-center > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: start; }
+.jarvis-memory-center > div span { display: grid; gap: 2px; min-width: 0; }
+.jarvis-memory-center > div strong { color: #8db6c7; font-size: 0.62rem; text-transform: capitalize; }
+.jarvis-memory-center > div small { overflow: hidden; color: #527487; font-size: 0.58rem; text-overflow: ellipsis; }
+.jarvis-memory-center > div em { color: #3e687b; font-size: 0.52rem; font-style: normal; }
+.jarvis-memory-center > div > div { display: flex; gap: 2px; }
+.jarvis-memory-center > div button { display: grid; width: 25px; height: 25px; place-items: center; border: 0; border-radius: 7px; color: #66899b; background: transparent; cursor: pointer; }
+.jarvis-memory-center > div button:hover { color: #fb7185; background: rgba(251, 113, 133, 0.08); }
 
 .jarvis-source-stack { display: grid; gap: 9px; margin-top: 30px; padding: 0 8px; }
 .jarvis-source-stack > span { margin-bottom: 3px; color: #527286; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
@@ -1684,6 +1696,7 @@ label span,
 .jarvis-voice-input.is-listening { box-shadow: 0 0 16px rgba(34, 211, 238, 0.22); animation: jarvis-status 1.2s ease-in-out infinite; }
 .jarvis-send { right: 10px; top: 12px; border: 1px solid rgba(103, 232, 249, 0.48); color: #e9feff; background: linear-gradient(145deg, #0891b2, #0e7490); box-shadow: 0 0 18px rgba(34, 211, 238, 0.18); }
 .jarvis-send:disabled { border-color: rgba(125, 211, 252, 0.09); color: #456475; background: #0a1b27; box-shadow: none; cursor: default; }
+.jarvis-send.is-stop { border-color: rgba(251, 113, 133, 0.45); background: linear-gradient(145deg, #be123c, #881337); box-shadow: 0 0 18px rgba(251, 113, 133, 0.16); }
 
 .jarvis-context-heading { justify-content: space-between; padding: 0 3px 7px; color: #638498; font-size: 0.62rem; font-weight: 850; letter-spacing: 0.13em; text-transform: uppercase; }
 .jarvis-context-heading i { margin: 0; }
@@ -1702,6 +1715,14 @@ label span,
 .jarvis-context-card button strong { color: #bad4e2; font-size: 0.72rem; }
 .jarvis-context-card button small { color: #557487; font-size: 0.61rem; }
 .jarvis-context-card button:hover strong { color: #67e8f9; }
+.jarvis-workspace-card button.is-focused { margin-inline: -7px; width: calc(100% + 14px); padding-inline: 7px; border-radius: 8px; background: rgba(34, 211, 238, 0.07); }
+.jarvis-workspace-card button.is-focused strong { color: #67e8f9; }
+.jarvis-journey-card > div { position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-top: 1px solid rgba(125, 211, 252, 0.07); }
+.jarvis-journey-card > div i { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: #38bdf8; box-shadow: 0 0 8px rgba(56, 189, 248, 0.6); }
+.jarvis-journey-card > div i.is-result { background: #2dd4bf; }
+.jarvis-journey-card > div span { display: grid; gap: 2px; min-width: 0; }
+.jarvis-journey-card > div strong { color: #a9cbd9; font-size: 0.65rem; }
+.jarvis-journey-card > div small { overflow: hidden; color: #517487; font-size: 0.58rem; text-overflow: ellipsis; white-space: nowrap; }
 .jarvis-context-card button b { font-size: 0.75rem; }
 .jarvis-context-card button b.is-positive { color: #5eead4; }
 .jarvis-context-card button b.is-negative { color: #fb7185; }

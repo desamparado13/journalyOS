@@ -15,6 +15,11 @@ const JARVIS_FORECAST_REVIEW_PREFIX = "[[JARVIS_FORECAST_REVIEW_V1]]";
 const JARVIS_FEEDBACK_PREFIX = "[[JARVIS_FEEDBACK_V1]]";
 const JARVIS_MEMORY_SYNC_PREFIX = "[[JARVIS_MEMORY_SYNC_V1]]";
 const JARVIS_SESSION_SYNC_PREFIX = "[[JARVIS_SESSION_SYNC_V1]]";
+const JARVIS_CHAT_SYNC_PREFIX = "[[JARVIS_CHAT_SYNC_V1]]";
+const JARVIS_WORKSPACE_PREFIX = "[[JARVIS_WORKSPACE_V1]]";
+const JARVIS_JOURNEY_PREFIX = "[[JARVIS_JOURNEY_V1]]";
+const JARVIS_CHART_PREFIX = "[[JARVIS_CHART_V1]]";
+const JARVIS_ROUTINE_PREFIX = "[[JARVIS_ROUTINE_V1]]";
 const JOURNALY_MONTHLY_PREFIX = "[[JOURNALY_MONTHLY:";
 const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
 JOURNALY TRADE ACTIONS
@@ -86,6 +91,8 @@ JARVIS SELECTIVE MEMORY
 - A direct statement such as "remember this", "from now on", "I always", "I prefer", or a correction of Jarvis may use confidence 0.9-1.0. An inferred recurring preference must have repeated evidence and should remain below 0.85. Return no update when uncertain.
 - When the user corrects a stored belief, replace or delete the conflicting memory rather than retaining both.
 - Memory improves continuity; it never overrides visible chart evidence, authenticated Journaly data, or the user's latest instruction.`;
+const JARVIS_SELF_REVIEW_INSTRUCTIONS = `
+Before finalizing, silently verify that the answer matches the user's latest question, preserves the active forecast or trade context, separates observed facts from inference, avoids invented live-market awareness, and sounds like a concise trading partner rather than a compliance report. Correct the answer before returning it if any check fails. Do not narrate this checklist unless asked.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -132,6 +139,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "find_historical_patterns", description: "Deterministically retrieve exact authenticated Journaly records for any claim about similar, resembling, recurring, winning, losing, or historical trade patterns. Always cite returned IDs, dates, source, and sample size.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, outcome: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, required: ["source", "pair", "setup", "direction", "outcome", "quality", "limit"] } },
   { type: "function", name: "get_account_risk", description: "Check currency concentration across active forecasts. Forecasts do not track planned risk, and this is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_trade_journey", description: "Get the unified forecast-to-chart-to-trade journey and all open Jarvis contexts. Use for continuity questions such as what happened with an idea, how a forecast became a trade, or what Jarvis is currently tracking.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, forecastId: { type: ["string", "null"] }, tradeId: { type: ["string", "null"] } }, required: ["pair", "forecastId", "tradeId"] } },
 ];
 
 const RESPONSE_SCHEMA = {
@@ -429,7 +437,7 @@ function feedbackStyleExamples(journals, limit = 10) {
 
 function isJarvisInternalJournalContent(content) {
   const value = String(content || "");
-  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX].some((prefix) => value.startsWith(prefix));
+  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX].some((prefix) => value.startsWith(prefix));
 }
 
 function syncedMemoriesFromJournal(journals, limit = 40) {
@@ -466,6 +474,32 @@ function syncedSessionFromJournal(journals) {
     }
   }).sort((a, b) => String(b.syncedAt).localeCompare(String(a.syncedAt)));
   return records[0]?.state || null;
+}
+
+function latestInternalState(journals, prefix) {
+  if (!Array.isArray(journals)) return null;
+  const records = journals.flatMap((entry) => {
+    const content = String(entry?.content || "");
+    if (!content.startsWith(prefix)) return [];
+    try {
+      const value = JSON.parse(content.slice(prefix.length).trim());
+      return [{ value, syncedAt: value?.syncedAt || value?.updatedAt || entry?.updated_at || entry?.created_at || "" }];
+    } catch { return []; }
+  }).sort((a, b) => String(b.syncedAt).localeCompare(String(a.syncedAt)));
+  return records[0]?.value || null;
+}
+
+function journeyFromJournal(journals, pair = null) {
+  return (journals || []).flatMap((entry) => {
+    const content = String(entry?.content || "");
+    const prefix = content.startsWith(JARVIS_JOURNEY_PREFIX) ? JARVIS_JOURNEY_PREFIX : content.startsWith(JARVIS_CHART_PREFIX) ? JARVIS_CHART_PREFIX : null;
+    if (!prefix) return [];
+    try {
+      const value = JSON.parse(content.slice(prefix.length).trim());
+      if (pair && value?.pair && normalizePair(value.pair) !== normalizePair(pair)) return [];
+      return [{ ...value, journalEntryId: entry.id, eventAt: value.linkedAt || value.capturedAt || entry.updated_at || entry.created_at || entry.entry_date }];
+    } catch { return []; }
+  }).sort((a, b) => String(b.eventAt).localeCompare(String(a.eventAt))).slice(0, 30);
 }
 
 const FORECAST_REVIEW_SCHEMA = {
@@ -1861,6 +1895,13 @@ function executeJournalyTool(name, args, data) {
     }
     case "get_session_state":
       return data.sessionState || {};
+    case "get_trade_journey": {
+      const pair = args.pair || data.sessionState?.activePair || null;
+      const events = journeyFromJournal(journals, pair).filter((event) => (!args.forecastId || event.forecastId === args.forecastId) && (!args.tradeId || event.tradeId === args.tradeId));
+      const relevantForecasts = forecasts.filter((item) => (!pair || normalizePair(item.pair) === normalizePair(pair)) && (!args.forecastId || item.id === args.forecastId)).slice(0, 20);
+      const relevantTrades = trades.filter((item) => (!pair || normalizePair(item.pair) === normalizePair(pair)) && (!args.tradeId || item.id === args.tradeId)).slice(0, 20);
+      return { pair, workspace: data.workspace || null, events, forecasts: relevantForecasts, trades: relevantTrades };
+    }
     default:
       return { error: "Unknown Journaly tool." };
   }
@@ -1997,6 +2038,7 @@ async function handleJarvis(request, env) {
   });
   const suppliedSessionState = journalData?.sessionState && typeof journalData.sessionState === "object" ? journalData.sessionState : {};
   const syncedSessionState = syncedSessionFromJournal(journalRows);
+  const syncedWorkspace = latestInternalState(journalRows, JARVIS_WORKSPACE_PREFIX);
   const sessionState = syncedSessionState && suppliedSessionState.activeContextExplicit !== true ? {
     ...suppliedSessionState,
     activePair: suppliedSessionState.activePair ?? syncedSessionState.pair ?? null,
@@ -2025,6 +2067,11 @@ async function handleJarvis(request, env) {
     imageInventory: Array.isArray(journalData?.imageInventory) ? journalData.imageInventory.slice(0, 5000) : [],
     learningRecords: Array.isArray(journalData?.learningRecords) ? journalData.learningRecords.slice(0, 80) : [],
     sessionState,
+    workspace: {
+      ...(syncedWorkspace || {}),
+      contexts: [...(Array.isArray(sessionState?.workspaceContexts) ? sessionState.workspaceContexts : []), ...(Array.isArray(syncedWorkspace?.contexts) ? syncedWorkspace.contexts : [])]
+        .filter((item, index, all) => item?.id && all.findIndex((candidate) => candidate?.id === item.id) === index).slice(0, 8),
+    },
   };
   const chartImage = validChartImage(body?.chartImage);
   const previousChartImage = validChartImage(body?.previousChartImage);
@@ -2070,6 +2117,8 @@ async function handleJarvis(request, env) {
       reasonCancelled: activeForecast.reasonCancelled,
       notes: activeForecast.notes,
     } : null,
+    workspace: { focusId: toolData.workspace?.focusId || null, contexts: Array.isArray(toolData.workspace?.contexts) ? toolData.workspace.contexts.slice(0, 8) : [] },
+    recentJourney: journeyFromJournal(journalRows, toolData.sessionState?.activePair || null).slice(0, 10),
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
     relevantMemories,
     styleExamples,
@@ -2108,7 +2157,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,
@@ -2179,11 +2228,71 @@ async function handleJarvis(request, env) {
         }
       } else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], usage: usageSummary(model, usage) });
+      return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
   }
 
   return json({ error: "Jarvis could not reach its conversational AI.", category: lastCategory, fallbackAllowed: true }, 502);
+}
+
+async function handleVoice(request, env) {
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid request body." }, 400); }
+  const authorization = await authorizeOwner(request, env, body?.userId);
+  if (authorization.error) return authorization.error;
+  const text = typeof body?.text === "string" ? body.text.trim().slice(0, 4096) : "";
+  if (!text) return json({ error: "Speech text is required." }, 400);
+  if (!env.OPENAI_API_KEY) return json({ error: "Dedicated Jarvis voice is not configured." }, 503);
+  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.OPENAI_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: env.OPENAI_JARVIS_VOICE_MODEL || "gpt-4o-mini-tts", voice: env.OPENAI_JARVIS_VOICE || "cedar", input: text, response_format: "mp3", speed: 0.98, instructions: "Speak like a calm, highly capable personal AI companion: warm, concise, confident, natural, and never theatrical or robotic." }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    return json({ error: error?.error?.message || "Jarvis voice could not generate audio." }, response.status);
+  }
+  return new Response(response.body, { status: 200, headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+}
+
+async function handleRoutine(request, env) {
+  if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+  if (!env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${env.CRON_SECRET}`) return json({ error: "Unauthorized" }, 401);
+  const baseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+  const userId = env.JARVIS_ROUTINE_USER_ID || env.PUSHOVER_OWNER_USER_ID;
+  if (!baseUrl || !serviceKey || !userId) return json({ error: "Jarvis background routine needs Supabase service access and an owner user id." }, 503);
+  const headers = { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, "content-type": "application/json" };
+  const read = async (table, select) => {
+    const response = await fetch(`${baseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}&user_id=eq.${encodeURIComponent(userId)}&order=updated_at.desc&limit=200`, { headers });
+    if (!response.ok) throw new Error(`Could not read ${table}`);
+    return response.json();
+  };
+  try {
+    const [forecasts, trades, journals] = await Promise.all([
+      read("trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,updated_at"),
+      read("trades", "id,trade_date,trade_time,pair,setup,direction,trade_quality,updated_at"),
+      read("journal_entries", "id,entry_date,content,updated_at"),
+    ]);
+    const today = isoDateInManila();
+    if (journals.some((entry) => String(entry.content || "").startsWith(JARVIS_ROUTINE_PREFIX) && entry.entry_date === today)) return json({ ok: true, duplicate: true, sent: false });
+    const stale = forecasts.filter((item) => item.status === "Waiting" && Date.now() - new Date(item.updated_at || `${item.decision_date}T${item.decision_time || "00:00"}`).getTime() > 24 * 60 * 60 * 1000);
+    const unlinked = forecasts.filter((item) => item.status === "Taken" && !trades.some((trade) => trade.pair === item.pair && trade.setup === item.setup && trade.direction === item.direction && trade.trade_date >= item.decision_date));
+    const unreviewed = trades.filter((trade) => !trade.trade_quality && trade.trade_date >= shiftIsoDate(today, -1));
+    const lines = [
+      stale.length ? `${stale.length} waiting forecast${stale.length === 1 ? " is" : "s are"} over 24 hours old.` : "",
+      unlinked.length ? `${unlinked.length} Taken forecast${unlinked.length === 1 ? " is" : "s are"} not linked to a saved trade.` : "",
+      unreviewed.length ? `${unreviewed.length} recent trade${unreviewed.length === 1 ? " still needs" : "s still need"} an execution review.` : "",
+    ].filter(Boolean);
+    if (!lines.length) return json({ ok: true, sent: false, reason: "nothing_due" });
+    await sendPushover(env, { title: "JARVIS — EVENING CHECK-IN", message: `${lines.join("\n")}\n\nOpen Journaly when you’re ready; I’ll pick up the context there.`, priority: 0 });
+    const content = `${JARVIS_ROUTINE_PREFIX}\n${JSON.stringify({ date: today, staleForecasts: stale.map((item) => item.id), unlinkedForecasts: unlinked.map((item) => item.id), unreviewedTrades: unreviewed.map((item) => item.id), sentAt: new Date().toISOString() })}`;
+    await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content, advice: "Jarvis background evening check-in sent.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
+    return json({ ok: true, sent: true, counts: { stale: stale.length, unlinked: unlinked.length, unreviewed: unreviewed.length } });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Jarvis background routine failed." }, 503);
+  }
 }
 
 export { archiveViewResult, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
@@ -2195,6 +2304,8 @@ export default {
     if (url.pathname === "/api/jarvis/forecast-review") return handleForecastReview(request, env);
     if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
     if (url.pathname === "/api/jarvis/health") return withDashboardCors(request, await handleHealth(request, env));
+    if (url.pathname === "/api/jarvis/voice") return withDashboardCors(request, await handleVoice(request, env));
+    if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
     if (url.pathname === "/api/jarvis/pushover/test") return withDashboardCors(request, await handlePushoverTest(request, env));
 
