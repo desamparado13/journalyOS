@@ -65,6 +65,7 @@ JOURNALY NUMERIC ACCURACY
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
 - For win streaks, wins in a row, consecutive wins or losses, current streaks, or the year/date range of a streak, always call get_trade_streaks. Never substitute monthly performance or archive records.
 - For what Jarvis is monitoring, what needs attention, or Mission Control status, always call get_monitoring_state. Its ranked queue is authoritative; do not invent urgency from raw records.
+- When the user asks why Jarvis messaged, notified, interrupted, or alerted them, always call get_last_jarvis_alert and explain the exact stored trigger. Never guess from the conversation.
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - For forecast-review counts, directional accuracy, execution counts, or learned patterns, always call get_forecast_learning. Copy its numerators, denominators, percentages, and evidence stage exactly; interpret them but never recalculate them.
 - For any question comparing live execution with replay/backtests for a calendar month, including why performance diverged or whether the user followed the system, always call get_monthly_reconciliation. Treat its metrics, matches, and breakdowns as authoritative. Describe causal explanations only at the evidence level returned: observed, supported, or hypothesis requiring review.
@@ -184,7 +185,8 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "find_historical_patterns", description: "Deterministically retrieve exact authenticated Journaly records for any claim about similar, resembling, recurring, winning, losing, or historical trade patterns. Always cite returned IDs, dates, source, and sample size.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { source: { type: "string", enum: ["live", "backtest"] }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, outcome: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, limit: { type: "integer", minimum: 1, maximum: 20 } }, required: ["source", "pair", "setup", "direction", "outcome", "quality", "limit"] } },
   { type: "function", name: "get_account_risk", description: "Check currency concentration across active forecasts. Forecasts do not track planned risk, and this is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
-  { type: "function", name: "get_monitoring_state", description: "Get Jarvis's authoritative ranked monitoring queue: due personal follow-ups, stale or unlinked forecasts, recent trades needing execution review, and current context. Use whenever the user asks what Jarvis is monitoring or what needs attention.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_monitoring_state", description: "Get Jarvis's authoritative ranked Autopilot queue: due personal follow-ups, stale or unlinked forecasts, incomplete or forgotten trades, and current context. Use whenever the user asks what Jarvis is monitoring or what needs attention.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
+  { type: "function", name: "get_last_jarvis_alert", description: "Get the latest persistent Jarvis alert or autopilot briefing and its exact stored trigger. Use when the user asks why Jarvis messaged, notified, interrupted, or alerted them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_trade_journey", description: "Get the unified forecast-to-chart-to-trade journey and all open Jarvis contexts. Use for continuity questions such as what happened with an idea, how a forecast became a trade, or what Jarvis is currently tracking.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, forecastId: { type: ["string", "null"] }, tradeId: { type: ["string", "null"] } }, required: ["pair", "forecastId", "tradeId"] } },
   { type: "function", name: "calculate_position_size", description: "Calculate Journaly's exact forex position size and prepare the Position Sizing tab to be populated automatically. Reuse current calculator values supplied in session context when the user omits them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { applyToCalculator: { type: "boolean" }, pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] }, accountBalance: { type: ["number", "null"], minimum: 0 }, riskPercent: { type: ["number", "null"], minimum: 0 }, entryPrice: { type: ["number", "null"], minimum: 0 }, stopLossPrice: { type: ["number", "null"], minimum: 0 }, takeProfitPrice: { type: ["number", "null"], minimum: 0 }, quoteToUsdRate: { type: ["number", "null"], minimum: 0 } }, required: ["applyToCalculator", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate"] } },
   { type: "function", name: "manage_position_profiles", description: "Deterministically add, update, delete, or select Journaly's saved Position Sizing profiles. Match existing rows using only identifiers explicitly supplied by the user.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { operation: { type: "string", enum: ["add", "update", "delete", "set_mode"] }, rowId: { type: ["string", "null"] }, matchBalance: { type: ["number", "null"], minimum: 0 }, matchType: { type: ["string", "null"] }, matchPlatform: { type: ["string", "null"] }, balance: { type: ["number", "null"], minimum: 0 }, type: { type: ["string", "null"] }, platform: { type: ["string", "null"] }, riskPercent: { type: ["number", "null"], minimum: 0 }, profileMode: { type: ["string", "null"], enum: ["main", "half", null] } }, required: ["operation", "rowId", "matchBalance", "matchType", "matchPlatform", "balance", "type", "platform", "riskPercent", "profileMode"] } },
@@ -443,7 +445,7 @@ async function loadAuthenticatedRows(request, env, userId, table, select, order)
 async function loadAuthenticatedJournalyData(request, env, userId) {
   if (env.JARVIS_AUTH_BYPASS_USER_ID) return null;
   const [trades, backtests, decisions, journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications] = await Promise.all([
-    loadAuthenticatedRows(request, env, userId, "trades", "id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,trade_quality,source_app,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at", "trade_date.desc,trade_time.desc,id.desc"),
+    loadAuthenticatedRows(request, env, userId, "trades", "id,trade_date,trade_time,pair,setup,direction,mae,pnl_r,result,notes,trade_quality,screenshot_url,source_app,duration_minutes,stop_loss_pips,mae_pips,finalized_at,created_at,updated_at", "trade_date.desc,trade_time.desc,id.desc"),
     loadAuthenticatedRows(request, env, userId, "backtests", "id,trade_date,trade_time,pair,setup,direction,duration_minutes,stop_loss_pips,mae_pips,pnl_r,result,notes,scale_in,source_app,created_at,updated_at", "trade_date.desc,trade_time.desc,id.desc"),
     loadAuthenticatedRows(request, env, userId, "trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,entry_plan,stop_loss,take_profit,risk_percent,reason_to_take,reason_cancelled,outcome,notes,result_r,created_at,updated_at", "decision_date.desc,decision_time.desc,id.desc"),
     loadAuthenticatedRows(request, env, userId, "journal_entries", "id,entry_date,content,advice,pair,related_trade_id,related_discipline_id,created_at,updated_at", "entry_date.desc,created_at.desc,id.desc"),
@@ -453,9 +455,9 @@ async function loadAuthenticatedJournalyData(request, env, userId) {
     loadAuthenticatedRows(request, env, userId, "jarvis_pair_state", "id,ticker,timeframe,status,event,price,mrh,mrl,bullish_break_count,bearish_break_count,last_candle_timestamp,updated_at", "updated_at.desc,id.desc"),
     loadAuthenticatedRows(request, env, userId, "jarvis_notifications", "id,event_id,ticker,timeframe,break_count,candle_timestamp,message,read_at,created_at", "created_at.desc,id.desc"),
   ]);
-  const mapTrade = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, executionQuality: row.trade_quality, notes: row.notes, mae: Number(row.mae || 0), stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, finalizedAt: row.finalized_at, sourceApp: row.source_app });
+  const mapTrade = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, executionQuality: row.trade_quality, notes: row.notes, screenshot: row.screenshot_url || "", mae: Number(row.mae || 0), maeRecorded: row.mae != null, stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, finalizedAt: row.finalized_at, sourceApp: row.source_app, createdAt: row.created_at, updatedAt: row.updated_at });
   const mapBacktest = (row) => ({ id: row.id, date: row.trade_date, time: String(row.trade_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, pnlR: Number(row.pnl_r || 0), outcome: row.result, notes: row.notes, stopLossPips: row.stop_loss_pips == null ? null : Number(row.stop_loss_pips), maePips: row.mae_pips == null ? null : Number(row.mae_pips), durationMinutes: row.duration_minutes, scaleIn: row.scale_in, sourceApp: row.source_app });
-  const mapDecision = (row) => ({ id: row.id, date: row.decision_date, time: String(row.decision_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, status: row.status === "Cancelled" ? "Invalidated" : row.status === "Missed" ? "Skipped" : row.status, entryPlan: row.entry_plan, stopLoss: row.stop_loss, takeProfit: row.take_profit, plannedRiskPercent: row.risk_percent == null ? null : Number(row.risk_percent), reasonToTake: row.reason_to_take, reasonCancelled: row.reason_cancelled, outcome: row.outcome, notes: row.notes, resultR: Number(row.result_r || 0) });
+  const mapDecision = (row) => ({ id: row.id, date: row.decision_date, time: String(row.decision_time || "").slice(0, 5), pair: row.pair, setup: row.setup, direction: row.direction, status: row.status === "Cancelled" ? "Invalidated" : row.status === "Missed" ? "Skipped" : row.status, entryPlan: row.entry_plan, stopLoss: row.stop_loss, takeProfit: row.take_profit, plannedRiskPercent: row.risk_percent == null ? null : Number(row.risk_percent), reasonToTake: row.reason_to_take, reasonCancelled: row.reason_cancelled, outcome: row.outcome, notes: row.notes, resultR: Number(row.result_r || 0), createdAt: row.created_at, updatedAt: row.updated_at });
   const unavailableSurfaces = Object.entries({ trades, backtests, tradeDecisions: decisions, journalEntries: journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications }).filter(([, value]) => !Array.isArray(value)).map(([name]) => name);
   return { trades: trades?.map(mapTrade) || null, backtests: backtests?.map(mapBacktest) || null, forecasts: decisions?.map(mapDecision) || null, journals, daytradeLive, daytradeBacktests, tradingViewEvents, pairStates, notifications, unavailableSurfaces };
 }
@@ -494,7 +496,7 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (hasActiveTradeSignal(text) || activeFollowUp) return "active_trade_management";
   if (chartImage) return "pre_trade_review";
   if (/\b(?:closed|finished|stopped\s+out|hit\s+(?:tp|target|sl)|booked|ended)\b.*\b(?:trade|position|r)\b|\b(?:trade|position)\b.*\b(?:closed|finished|won|lost|breakeven)\b/.test(text)) return "post_trade_review";
-  if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day|what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?)\b/.test(text)) return "daily_routine";
+  if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day|what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|why\s+did\s+you\s+(?:message|notify|interrupt|alert)\s+me)\b/.test(text)) return "daily_routine";
   if (/\b(?:journal|reflect|reflection|trading\s+journey|write\s+down|debrief|how\s+have\s+i\s+changed)\b/.test(text)) return "journal_reflection";
   if (/\b(?:win\s*rate|win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?)|expectancy|statistics|stats|performance|edge\s+lab|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
   const forecastFollowUp = Boolean(sessionState?.activeForecastId) && /\b(?:what\s+about\s+it|still\s+valid|what\s+do\s+you\s+think|what\s+now|check\s+it|update\s+me|the\s+idea|that\s+idea)\b/.test(text);
@@ -1803,13 +1805,27 @@ function buildMonitoringState(data = {}, nowValue = Date.now()) {
 
   trades.forEach((trade) => {
     const timestamp = recordTimestamp(trade);
-    if (trade.executionQuality || trade.trade_quality || timestamp === null || now - timestamp > 2 * dayMs) return;
+    const age = timestamp === null ? 0 : now - timestamp;
+    const finalized = trade.finalizedAt || trade.finalized_at || null;
+    const quality = trade.executionQuality || trade.trade_quality || null;
+    const maeRecorded = trade.maeRecorded ?? trade.mae != null;
+    const maePips = trade.maePips ?? trade.mae_pips ?? null;
+    const missing = [
+      !finalized ? "final review" : "",
+      !quality ? "execution rating" : "",
+      !String(trade.notes || "").trim() ? "notes" : "",
+      !(trade.screenshot || trade.screenshot_url) ? "chart" : "",
+      !maeRecorded && maePips == null ? "MAE" : "",
+      !(trade.outcome || trade.result) ? "result" : "",
+    ].filter(Boolean);
+    if (!missing.length) return;
+    const forgotten = age > dayMs;
     items.push({
-      id: `trade:${trade.id}:review`,
-      priority: "medium",
+      id: `trade:${trade.id}:incomplete:${missing.join("-")}`,
+      priority: forgotten || finalized ? "medium" : "low",
       category: "trade_review",
-      title: `${trade.pair || "Recent trade"} execution review`,
-      detail: "Recent trade still needs a Good, Mid, or Bad rating",
+      title: `${trade.pair || "Recent trade"} incomplete trade`,
+      detail: `${forgotten ? "Forgotten trade" : "Trade still in progress"} · missing ${missing.join(", ")}`,
       recordId: trade.id || null,
     });
   });
@@ -1852,6 +1868,61 @@ function verifiedMonitoringAnswer(result) {
   const lines = actionable.slice(0, 4).map((item, index) => `${index + 1}. **${item.title}** — ${item.detail}`);
   const lead = actionable[0].priority === "high" ? "One thing deserves your attention first." : "Nothing is urgent, but a few things are worth a look.";
   return `${lead}\n\n${lines.join("\n")}\n\nI’m still monitoring the lower-priority context quietly. Pick one and we’ll handle it together.`;
+}
+
+function buildAutopilotSnapshot(trades = [], forecasts = [], savedAt = new Date().toISOString()) {
+  const signature = (parts) => parts.map((part) => part == null ? "" : String(part)).join("|");
+  return {
+    savedAt,
+    trades: Object.fromEntries(trades.map((trade) => [trade.id, signature([trade.updatedAt || trade.updated_at, trade.outcome || trade.result, trade.executionQuality || trade.trade_quality, trade.notes, trade.finalizedAt || trade.finalized_at, trade.mae, trade.maePips ?? trade.mae_pips, trade.screenshot || trade.screenshot_url])])),
+    forecasts: Object.fromEntries(forecasts.map((forecast) => [forecast.id, signature([forecast.updatedAt || forecast.updated_at, forecast.status, forecast.outcome, forecast.resultR ?? forecast.result_r, forecast.notes])])),
+  };
+}
+
+function compareAutopilotSnapshots(previous, current) {
+  if (!previous?.trades || !previous?.forecasts) return { tradeChanges: 0, forecastChanges: 0, total: 0, details: [] };
+  const details = [];
+  Object.entries(current.trades || {}).forEach(([id, value]) => {
+    if (!Object.hasOwn(previous.trades, id)) details.push({ category: "trade", id, change: "added" });
+    else if (previous.trades[id] !== value) details.push({ category: "trade", id, change: "updated" });
+  });
+  Object.entries(current.forecasts || {}).forEach(([id, value]) => {
+    if (!Object.hasOwn(previous.forecasts, id)) details.push({ category: "forecast", id, change: "added" });
+    else if (previous.forecasts[id] !== value) details.push({ category: "forecast", id, change: "updated" });
+  });
+  return {
+    tradeChanges: details.filter((item) => item.category === "trade").length,
+    forecastChanges: details.filter((item) => item.category === "forecast").length,
+    total: details.length,
+    details: details.slice(0, 20),
+  };
+}
+
+function lastJarvisAlertResult(journals = []) {
+  for (const entry of journals) {
+    const content = String(entry?.content || "");
+    if (!content.startsWith(JARVIS_PROACTIVE_PREFIX)) continue;
+    try {
+      const alert = JSON.parse(content.slice(JARVIS_PROACTIVE_PREFIX.length).trim());
+      return {
+        source: "persistent_jarvis_alert",
+        found: true,
+        id: alert.id || entry.id || null,
+        title: alert.title || "Jarvis message",
+        text: alert.text || "",
+        kind: alert.kind || "proactive",
+        trigger: alert.trigger || null,
+        createdAt: alert.createdAt || entry.created_at || entry.updated_at || null,
+      };
+    } catch { /* ignore malformed internal records */ }
+  }
+  return { source: "persistent_jarvis_alert", found: false };
+}
+
+function verifiedLastAlertAnswer(result) {
+  if (!result?.found) return "I can’t find a stored Jarvis alert to explain, so I won’t invent a reason.";
+  const reason = result.trigger?.summary || result.trigger?.detail || result.text;
+  return `I messaged you because **${reason || "an Autopilot check became actionable"}**. That was the exact stored trigger for “${result.title}”${result.createdAt ? ` at ${result.createdAt}` : ""}.`;
 }
 
 function verifiedStatisticsAnswer(result) {
@@ -2396,6 +2467,8 @@ function executeJournalyTool(name, args, data) {
       return data.sessionState || {};
     case "get_monitoring_state":
       return buildMonitoringState(data);
+    case "get_last_jarvis_alert":
+      return lastJarvisAlertResult(journals);
     case "get_trade_journey": {
       const pair = args.pair || data.sessionState?.activePair || null;
       const events = journeyFromJournal(journals, pair).filter((event) => (!args.forecastId || event.forecastId === args.forecastId) && (!args.tradeId || event.tradeId === args.tradeId));
@@ -2605,6 +2678,7 @@ async function handleJarvis(request, env) {
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
   const monitoringIntent = /\b(?:what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|monitoring\s+(?:queue|status))\b/i.test(question);
+  const alertExplanationIntent = /\b(?:why\s+did\s+you\s+(?:message|notify|interrupt|alert)\s+me|why\s+(?:this|that)\s+(?:message|notification|alert)|what\s+triggered\s+(?:this|that|your)\s+(?:message|notification|alert))\b/i.test(question);
   const proactiveSchedule = requestedProactiveDelay(question);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
@@ -2686,6 +2760,7 @@ async function handleJarvis(request, env) {
     let verifiedMonthlyLedger = null;
     let verifiedStreakResult = null;
     let verifiedMonitoringResult = null;
+    let verifiedLastAlertResult = null;
     let verifiedStatResult = null;
     let verifiedPositionSizing = null;
     let verifiedPositionProfile = null;
@@ -2707,6 +2782,8 @@ async function handleJarvis(request, env) {
           ? { type: "function", name: "get_trade_streaks" }
           : monitoringIntent && round === 0
             ? { type: "function", name: "get_monitoring_state" }
+            : alertExplanationIntent && round === 0
+              ? { type: "function", name: "get_last_jarvis_alert" }
             : "auto";
         requestBody.parallel_tool_calls = true;
       }
@@ -2750,6 +2827,7 @@ async function handleJarvis(request, env) {
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
           if (call.name === "get_trade_streaks") verifiedStreakResult = toolResult;
           if (call.name === "get_monitoring_state") verifiedMonitoringResult = toolResult;
+          if (call.name === "get_last_jarvis_alert") verifiedLastAlertResult = toolResult;
           if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
@@ -2807,6 +2885,7 @@ async function handleJarvis(request, env) {
       else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStreakResult) result.answer = verifiedTradeStreakAnswer(verifiedStreakResult);
       else if (verifiedMonitoringResult) result.answer = verifiedMonitoringAnswer(verifiedMonitoringResult);
+      else if (verifiedLastAlertResult) result.answer = verifiedLastAlertAnswer(verifiedLastAlertResult);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, proactiveSchedule, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
@@ -2922,46 +3001,59 @@ async function handleRoutine(request, env) {
   };
   try {
     const [forecasts, trades, journals] = await Promise.all([
-      read("trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,updated_at"),
-      read("trades", "id,trade_date,trade_time,pair,setup,direction,trade_quality,updated_at"),
+      read("trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,outcome,result_r,notes,created_at,updated_at"),
+      read("trades", "id,trade_date,trade_time,pair,setup,direction,mae,mae_pips,result,notes,trade_quality,screenshot_url,finalized_at,created_at,updated_at"),
       read("journal_entries", "id,entry_date,content,updated_at"),
     ]);
     const today = isoDateInManila();
-    if (journals.some((entry) => String(entry.content || "").startsWith(JARVIS_ROUTINE_PREFIX) && entry.entry_date === today)) return json({ ok: true, duplicate: true, sent: false });
+    const routineUrl = new URL(request.url);
+    const requestedPeriod = routineUrl.pathname.endsWith("routine-morning") ? "morning" : routineUrl.pathname.endsWith("routine-evening") ? "evening" : routineUrl.searchParams.get("period");
+    const manilaHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Manila", hour: "2-digit", hour12: false }).format(new Date()));
+    const period = requestedPeriod === "morning" || requestedPeriod === "evening" ? requestedPeriod : manilaHour < 12 ? "morning" : "evening";
+    const routineRecords = journals.flatMap((entry) => {
+      const content = String(entry.content || "");
+      if (!content.startsWith(JARVIS_ROUTINE_PREFIX)) return [];
+      try { return [{ entry, value: JSON.parse(content.slice(JARVIS_ROUTINE_PREFIX.length).trim()) }]; } catch { return []; }
+    });
+    if (routineRecords.some(({ entry, value }) => entry.entry_date === today && (value.period || "evening") === period)) return json({ ok: true, duplicate: true, sent: false, period });
     const syncedMemories = syncedMemoriesFromJournal(journals);
     const proactivePreference = [...syncedMemories].reverse().find((memory) => memory?.category === "preference" && memory?.key === "companion_proactive_followups");
     if (String(proactivePreference?.value || "true").toLowerCase() === "false") return json({ ok: true, sent: false, reason: "proactive_followups_disabled" });
-    const stale = forecasts.filter((item) => item.status === "Waiting" && Date.now() - new Date(item.updated_at || `${item.decision_date}T${item.decision_time || "00:00"}`).getTime() > 24 * 60 * 60 * 1000);
-    const unlinked = forecasts.filter((item) => item.status === "Taken" && !trades.some((trade) => trade.pair === item.pair && trade.setup === item.setup && trade.direction === item.direction && trade.trade_date >= item.decision_date));
-    const unreviewed = trades.filter((trade) => !trade.trade_quality && trade.trade_date >= shiftIsoDate(today, -1));
+    const normalizedForecasts = forecasts.map((item) => ({ ...item, status: item.status === "Cancelled" ? "Invalidated" : item.status === "Missed" ? "Skipped" : item.status }));
+    const monitoring = buildMonitoringState({ trades, forecasts: normalizedForecasts, memories: syncedMemories });
+    const actionable = monitoring.items.filter((item) => item.priority !== "low");
+    const snapshot = buildAutopilotSnapshot(trades, normalizedForecasts);
+    const previousSnapshot = routineRecords.find(({ value }) => value?.snapshot)?.value?.snapshot || null;
+    const changes = compareAutopilotSnapshots(previousSnapshot, snapshot);
     const dueFollowUps = syncedMemories.filter((memory) => memory?.operation !== "delete" && memory?.sensitivity !== "sensitive" && memory?.followUpAt && new Date(memory.followUpAt).getTime() <= Date.now()).slice(0, 3);
     const lines = [
-      ...dueFollowUps.map((memory) => `Follow-up: ${String(memory.value || memory.key).replace(/[.!?]+$/, "")}.`),
-      stale.length ? `${stale.length} waiting forecast${stale.length === 1 ? " is" : "s are"} over 24 hours old.` : "",
-      unlinked.length ? `${unlinked.length} Taken forecast${unlinked.length === 1 ? " is" : "s are"} not linked to a saved trade.` : "",
-      unreviewed.length ? `${unreviewed.length} recent trade${unreviewed.length === 1 ? " still needs" : "s still need"} an execution review.` : "",
+      changes.total ? `${changes.total} Journaly item${changes.total === 1 ? " changed" : "s changed"} since my last background check (${changes.tradeChanges} trade, ${changes.forecastChanges} forecast).` : "",
+      ...actionable.slice(0, 4).map((item) => `${item.title}: ${item.detail}.`),
     ].filter(Boolean);
+    const salutation = period === "morning" ? "Morning, Pot." : "Evening, Pot.";
     const message = lines.length
-      ? `Hey Pot. A quick check-in from me:\n\n${lines.join("\n")}\n\nNo rush—open Journaly when you’re ready and we’ll pick it up there.`
-      : "Hey Pot. Nothing urgent needs your attention in Journaly today—I just wanted to check in. How are you doing?";
-    await sendPushover(env, { title: "JARVIS", message, priority: 0 });
-    const proactiveId = `routine:${today}`;
-    const proactiveContent = `${JARVIS_PROACTIVE_PREFIX}\n${JSON.stringify({ id: proactiveId, title: lines.length ? "Jarvis check-in" : "Just checking in", text: message, createdAt: new Date().toISOString(), kind: lines.length ? "attention" : "greeting" })}`;
+      ? `${salutation}\n\n${lines.join("\n")}\n\nI’m keeping the rest quiet. Open Journaly when you want to handle one together.`
+      : `${salutation} Nothing needs your attention in Journaly right now. I’m still keeping watch.`;
+    const briefingTitle = period === "morning" ? "Morning briefing" : "Evening debrief";
+    await sendPushover(env, { title: `JARVIS · ${briefingTitle}`, message, priority: 0 });
+    const proactiveId = `routine:${period}:${today}`;
+    const trigger = { summary: actionable[0]?.detail || (changes.total ? `${changes.total} Journaly items changed since the last check` : "Scheduled Autopilot briefing"), itemId: actionable[0]?.id || null, priority: actionable[0]?.priority || "low", changeCount: changes.total };
+    const proactiveContent = `${JARVIS_PROACTIVE_PREFIX}\n${JSON.stringify({ id: proactiveId, title: briefingTitle, text: message, createdAt: new Date().toISOString(), kind: `autopilot_${period}`, trigger })}`;
     await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content: proactiveContent, advice: "Persistent proactive Jarvis message.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
     if (dueFollowUps.length) {
       const syncedAt = new Date().toISOString();
       const updates = dueFollowUps.map((memory) => ({ operation: "upsert", category: memory.category, key: memory.key, value: memory.value, confidence: Math.max(0.9, Number(memory.confidence) || 0.9), source: "explicit", sensitivity: memory.sensitivity === "sensitive" ? "sensitive" : "normal", followUpAt: null }));
       await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content: `${JARVIS_MEMORY_SYNC_PREFIX}\n${JSON.stringify({ updates, syncedAt })}`, advice: "Jarvis completed scheduled follow-ups.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: syncedAt }) });
     }
-    const content = `${JARVIS_ROUTINE_PREFIX}\n${JSON.stringify({ date: today, staleForecasts: stale.map((item) => item.id), unlinkedForecasts: unlinked.map((item) => item.id), unreviewedTrades: unreviewed.map((item) => item.id), sentAt: new Date().toISOString() })}`;
-    await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content, advice: "Jarvis background evening check-in sent.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
-    return json({ ok: true, sent: true, proactiveId, counts: { stale: stale.length, unlinked: unlinked.length, unreviewed: unreviewed.length } });
+    const content = `${JARVIS_ROUTINE_PREFIX}\n${JSON.stringify({ date: today, period, monitoringIds: monitoring.items.map((item) => item.id), changes, snapshot, sentAt: new Date().toISOString() })}`;
+    await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content, advice: `Jarvis background ${briefingTitle.toLowerCase()} sent.`, image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
+    return json({ ok: true, sent: true, proactiveId, period, counts: monitoring.counts, changes });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Jarvis background routine failed." }, 503);
   }
 }
 
-export { archiveViewResult, buildMonitoringState, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildMonitoringState, calculateJournalyPositionSize, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {
@@ -2973,7 +3065,7 @@ export default {
     if (url.pathname === "/api/jarvis/voice") return withDashboardCors(request, await handleVoice(request, env));
     if (url.pathname === "/api/jarvis/proactive" || url.pathname === "/api/jarvis/proactive/send") return handleProactiveSend(request, env);
     if (url.pathname === "/api/jarvis/transcribe") return withDashboardCors(request, await handleTranscription(request, env));
-    if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
+    if (["/api/jarvis/routine", "/api/jarvis/routine-morning", "/api/jarvis/routine-evening"].includes(url.pathname)) return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
     if (url.pathname === "/api/jarvis/pushover/test") return withDashboardCors(request, await handlePushoverTest(request, env));
     const response = await env.ASSETS.fetch(request);

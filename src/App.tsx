@@ -374,6 +374,7 @@ type Trade = {
   setup: string;
   direction: Direction;
   mae: number;
+  maeRecorded: boolean;
   pnl: number;
   result: Result;
   notes: string;
@@ -1835,6 +1836,7 @@ function toTrade(row: TradeRow): Trade {
     setup: row.setup,
     direction: normalizeDirection(row.direction),
     mae: Number(row.mae || 0),
+    maeRecorded: row.mae !== null && row.mae !== undefined,
     pnl: Number(row.pnl_r || 0),
     result: row.result,
     notes: row.notes || "",

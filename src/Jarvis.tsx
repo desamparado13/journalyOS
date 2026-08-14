@@ -47,9 +47,10 @@ const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
 const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
 const JARVIS_VOICE_REPLIES_KEY_PREFIX = "journaly-os-jarvis-voice-replies-v1";
-const JARVIS_MISSION_SEEN_KEY_PREFIX = "journaly-os-jarvis-mission-seen-v1";
 const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
 const JARVIS_MONITOR_NOTIFIED_KEY_PREFIX = "journaly-os-jarvis-monitor-notified-v1";
+const JARVIS_OBSERVATION_SNAPSHOT_KEY_PREFIX = "journaly-os-jarvis-observation-v1";
+const JARVIS_AUTOPILOT_BRIEFING_KEY_PREFIX = "journaly-os-jarvis-autopilot-briefing-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -79,11 +80,17 @@ type JarvisTrade = {
   pair: string;
   setup: string;
   direction: string;
+  mae: number;
+  maeRecorded: boolean;
+  maePips: number | null;
   pnl: number;
   result: string;
   quality: "Good" | "Mid" | "Bad" | null;
   notes: string;
   screenshot: string;
+  finalizedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type JarvisBacktest = {
@@ -118,6 +125,8 @@ type JarvisForecast = {
   outcome: string;
   resultR: number;
   notes: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type JarvisSession = {
@@ -142,10 +151,16 @@ type JarvisMessage = {
 type JarvisMonitorItem = {
   id: string;
   priority: "high" | "medium" | "low";
-  category: "follow_up" | "forecast" | "trade_review" | "context";
+  category: "follow_up" | "forecast" | "trade_review" | "context" | "change";
   title: string;
   detail: string;
   prompt: string;
+};
+
+type JarvisObservationSnapshot = {
+  savedAt: string;
+  trades: Record<string, string>;
+  forecasts: Record<string, string>;
 };
 
 type JarvisActiveContext = {
@@ -1024,6 +1039,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [unreadProactiveCount, setUnreadProactiveCount] = useState(0);
   const [inAppNotification, setInAppNotification] = useState<JarvisMessage | null>(null);
   const [monitorClock, setMonitorClock] = useState(() => Date.now());
+  const [recentChanges, setRecentChanges] = useState<JarvisMonitorItem[]>([]);
+  const [observationReady, setObservationReady] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1044,6 +1061,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceStopTimerRef = useRef<number | null>(null);
+  const observationTimerRef = useRef<number | null>(null);
   const proactiveCheckinRef = useRef(new Set<string>());
   const isOpenRef = useRef(isOpen);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
@@ -1065,9 +1083,13 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       })
       .slice(0, 8);
   }, [memory.companionSettings.sensitiveMemoryEnabled, memory.memories]);
-  const dueMissionCount = missionMemories.filter((item) => item.followUpAt && new Date(item.followUpAt).getTime() <= Date.now()).length;
+  const observationSnapshot = useMemo<JarvisObservationSnapshot>(() => ({
+    savedAt: new Date().toISOString(),
+    trades: Object.fromEntries(trades.map((trade) => [trade.id, [trade.updatedAt, trade.result, trade.quality || "", trade.notes, trade.finalizedAt || "", trade.maeRecorded, trade.mae, trade.maePips ?? "", Boolean(trade.screenshot)].join("|")])),
+    forecasts: Object.fromEntries(forecasts.map((forecast) => [forecast.id, [forecast.updatedAt, forecast.status, forecast.outcome, forecast.resultR, forecast.notes].join("|")])),
+  }), [forecasts, trades]);
   const monitorItems = useMemo<JarvisMonitorItem[]>(() => {
-    const items: JarvisMonitorItem[] = [];
+    const items: JarvisMonitorItem[] = [...recentChanges];
     const dayMs = 86400000;
     const recordTime = (date: string, time = "00:00") => new Date(`${date}T${time || "00:00"}`).getTime();
 
@@ -1108,14 +1130,26 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }
     });
 
-    trades.filter((trade) => !trade.quality && monitorClock - recordTime(trade.date, trade.time) <= 2 * dayMs).forEach((trade) => {
+    trades.forEach((trade) => {
+      const timestamp = recordTime(trade.date, trade.time);
+      const age = Number.isFinite(timestamp) ? monitorClock - timestamp : 0;
+      const missing = [
+        !trade.finalizedAt ? "final review" : "",
+        !trade.quality ? "execution rating" : "",
+        !trade.notes.trim() ? "notes" : "",
+        !trade.screenshot ? "chart" : "",
+        !trade.maeRecorded && trade.maePips === null ? "MAE" : "",
+        !trade.result ? "result" : "",
+      ].filter(Boolean);
+      if (!missing.length) return;
+      const forgotten = age > dayMs;
       items.push({
-        id: `trade:${trade.id}:review`,
-        priority: "medium",
+        id: `trade:${trade.id}:incomplete:${missing.join("-")}`,
+        priority: forgotten || trade.finalizedAt ? "medium" : "low",
         category: "trade_review",
-        title: `${trade.pair} execution review`,
-        detail: "Recent trade still needs a Good, Mid, or Bad rating",
-        prompt: `Help me review the execution quality of my recent ${trade.pair} ${trade.setup} trade. Use the saved record and ask only for evidence that would materially change the rating.`,
+        title: `${trade.pair} incomplete trade`,
+        detail: `${forgotten ? "Forgotten trade" : "Trade still in progress"} · missing ${missing.join(", ")}`,
+        prompt: `Help me complete my ${trade.date} ${trade.pair} ${trade.setup} trade. It is missing ${missing.join(", ")}. Use the exact saved record and guide me to the next useful action.`,
       });
     });
 
@@ -1132,7 +1166,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
     const priority = { high: 0, medium: 1, low: 2 } as const;
     return items.sort((a, b) => priority[a.priority] - priority[b.priority] || a.title.localeCompare(b.title)).slice(0, 12);
-  }, [activeContext?.pair, activeContext?.setup, forecasts, missionMemories, monitorClock, trades]);
+  }, [activeContext?.pair, activeContext?.setup, forecasts, missionMemories, monitorClock, recentChanges, trades]);
   const recentFeedback = useMemo(() => journalEntries.filter((entry) => entry.content.startsWith(JARVIS_FEEDBACK_PREFIX) && Date.now() - new Date(entry.createdAt || entry.updatedAt || entry.date).getTime() <= 7 * 86400000), [journalEntries]);
   const learningRecords = useMemo(() => {
     const records = [...journalEntries.map(decodeLearningRecord).filter((record): record is JarvisLearningRecord => Boolean(record)), ...sessionLearningRecords];
@@ -1305,6 +1339,39 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, []);
 
   useEffect(() => {
+    if (observationTimerRef.current) window.clearTimeout(observationTimerRef.current);
+    observationTimerRef.current = window.setTimeout(() => {
+      const key = `${JARVIS_OBSERVATION_SNAPSHOT_KEY_PREFIX}:${userId}`;
+      let previous: JarvisObservationSnapshot | null = null;
+      try {
+        const stored = JSON.parse(localStorage.getItem(key) || "null");
+        if (stored?.trades && stored?.forecasts) previous = stored;
+      } catch { previous = null; }
+      const currentCount = Object.keys(observationSnapshot.trades).length + Object.keys(observationSnapshot.forecasts).length;
+      const previousCount = previous ? Object.keys(previous.trades).length + Object.keys(previous.forecasts).length : 0;
+      if (!currentCount && previousCount) return;
+      if (!currentCount && !missionMemories.length) return;
+      const changes: JarvisMonitorItem[] = [];
+      if (previous) {
+        trades.forEach((trade) => {
+          const prior = previous?.trades[trade.id];
+          if (!prior) changes.push({ id: `change:trade:${trade.id}:new`, priority: "medium", category: "change", title: `New ${trade.pair} trade`, detail: `${trade.setup} ${trade.direction} was added since my last check`, prompt: `Brief me on the new ${trade.date} ${trade.pair} trade and tell me the next useful Journaly action.` });
+          else if (prior !== observationSnapshot.trades[trade.id]) changes.push({ id: `change:trade:${trade.id}:updated:${trade.updatedAt}`, priority: "low", category: "change", title: `${trade.pair} trade updated`, detail: "The saved trade changed since my last check", prompt: `Tell me what is currently saved for my ${trade.date} ${trade.pair} trade and whether anything still needs attention.` });
+        });
+        forecasts.forEach((forecast) => {
+          const prior = previous?.forecasts[forecast.id];
+          if (!prior) changes.push({ id: `change:forecast:${forecast.id}:new`, priority: "medium", category: "change", title: `New ${forecast.pair} forecast`, detail: `${forecast.setup} ${forecast.direction} was added since my last check`, prompt: `Brief me on my new ${forecast.pair} forecast using its saved thesis and status.` });
+          else if (prior !== observationSnapshot.forecasts[forecast.id]) changes.push({ id: `change:forecast:${forecast.id}:updated:${forecast.updatedAt}`, priority: forecast.status === "Taken" ? "medium" : "low", category: "change", title: `${forecast.pair} forecast changed`, detail: `Status is now ${forecast.status}`, prompt: `Explain the latest saved change to my ${forecast.pair} forecast and what I should do next in Journaly.` });
+        });
+      }
+      localStorage.setItem(key, JSON.stringify(observationSnapshot));
+      setRecentChanges(changes.slice(0, 8));
+      setObservationReady(true);
+    }, 1400);
+    return () => { if (observationTimerRef.current) window.clearTimeout(observationTimerRef.current); };
+  }, [forecasts, missionMemories.length, observationSnapshot, trades, userId]);
+
+  useEffect(() => {
     if (!memory.companionSettings.proactiveFollowups) return;
     const actionable = monitorItems.find((item) => item.priority !== "low");
     if (!actionable) return;
@@ -1316,7 +1383,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     } catch { seen = []; }
     if (seen.includes(actionable.id)) return;
     const message: JarvisMessage = {
-      id: `monitor:${actionable.id}`,
+      id: `proactive:client:${actionable.id}`,
       role: "jarvis",
       title: "Jarvis noticed",
       text: `${preferredName}, ${actionable.detail.charAt(0).toLowerCase()}${actionable.detail.slice(1)}. I’m keeping an eye on it; open this when you want to handle it together.`,
@@ -1324,6 +1391,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     };
     localStorage.setItem(key, JSON.stringify([...seen, actionable.id].slice(-100)));
     setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+    void persistAutopilotAlert(message, actionable);
     if (!isOpen) {
       setInAppNotification(message);
       setUnreadProactiveCount((current) => current + 1);
@@ -1417,24 +1485,28 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, []);
 
   useEffect(() => {
-    if (!isOpen || !memory.companionSettings.proactiveFollowups || (!activeForecasts.length && !activeContext && !missionMemories.length && !recentFeedback.length)) return;
+    if (!isOpen || !observationReady || !memory.companionSettings.proactiveFollowups) return;
     const today = new Date().toISOString().slice(0, 10);
-    const key = `${JARVIS_MISSION_SEEN_KEY_PREFIX}:${userId}`;
-    if (localStorage.getItem(key) === today) return;
-    localStorage.setItem(key, today);
-    const parts: string[] = [];
-    if (dueMissionCount) parts.push(`${dueMissionCount} personal follow-up${dueMissionCount === 1 ? " is" : "s are"} due`);
-    else if (missionMemories.length) parts.push(`${missionMemories.length} active life ${missionMemories.length === 1 ? "thread is" : "threads are"} in memory`);
-    if (activeForecasts.length) parts.push(`${activeForecasts.length} forecast${activeForecasts.length === 1 ? " is" : "s are"} still waiting`);
-    if (activeContext?.pair) parts.push(`${activeContext.pair}${activeContext.setup ? ` ${activeContext.setup}` : ""} is still in context`);
-    if (recentFeedback.length >= 2) parts.push(`I have ${recentFeedback.length} recent feedback notes to calibrate from`);
+    const hour = new Date().getHours();
+    const period = hour < 12 ? "morning" : hour >= 17 ? "evening" : "daytime";
+    const key = `${JARVIS_AUTOPILOT_BRIEFING_KEY_PREFIX}:${userId}`;
+    const briefingId = `${today}:${period}`;
+    if (localStorage.getItem(key) === briefingId) return;
+    localStorage.setItem(key, briefingId);
+    const actionable = monitorItems.filter((item) => item.priority !== "low");
+    const changed = monitorItems.filter((item) => item.category === "change");
+    const greeting = period === "morning" ? `Morning, ${preferredName}.` : period === "evening" ? `Evening, ${preferredName}.` : `Welcome back, ${preferredName}.`;
+    const changeLine = changed.length ? `${changed.length} thing${changed.length === 1 ? " changed" : "s changed"} since my last check.` : "Nothing unexpected changed since my last check.";
+    const attentionLine = actionable.length
+      ? `${actionable.length} item${actionable.length === 1 ? " needs" : "s need"} attention; first is ${actionable[0].title.toLowerCase()}: ${actionable[0].detail.toLowerCase()}.`
+      : "Nothing needs your attention right now.";
     setMessages((current) => [...current, {
       id: crypto.randomUUID(),
       role: "jarvis",
-      title: "Mission Control",
-      text: `Quick continuity check, ${preferredName}: ${parts.join("; ")}. Want the short briefing, or shall we focus on one thing?`,
+      title: period === "morning" ? "Morning briefing" : period === "evening" ? "Evening debrief" : "Autopilot update",
+      text: `${greeting} ${changeLine} ${attentionLine} I’ll keep the rest quiet unless it becomes actionable.`,
     }]);
-  }, [activeContext, activeForecasts.length, dueMissionCount, isOpen, memory.companionSettings.proactiveFollowups, missionMemories.length, preferredName, recentFeedback.length, userId]);
+  }, [isOpen, memory.companionSettings.proactiveFollowups, monitorItems, observationReady, preferredName, userId]);
 
   useEffect(() => {
     localStorage.setItem(`${JARVIS_SPEND_KEY_PREFIX}:${userId}`, JSON.stringify(spend));
@@ -1542,6 +1614,22 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const record = decodeLearningRecord({ id: data.id, date: data.entry_date, content: data.content, advice: data.advice || "" });
     if (record) setSessionLearningRecords((current) => [...current, record]);
     setLearningSyncState("saved");
+  }
+
+  async function persistAutopilotAlert(message: JarvisMessage, item: JarvisMonitorItem) {
+    if (!supabase) return;
+    const createdAt = message.createdAt || new Date().toISOString();
+    await supabase.from("journal_entries").insert({
+      user_id: userId,
+      entry_date: createdAt.slice(0, 10),
+      content: `${JARVIS_PROACTIVE_PREFIX}\n${JSON.stringify({ id: `client:${item.id}`, title: message.title || "Jarvis noticed", text: message.text, createdAt, kind: "autopilot_monitoring", trigger: { summary: item.detail, itemId: item.id, priority: item.priority, category: item.category } })}`,
+      advice: "Persistent Jarvis Autopilot alert.",
+      image_url: "",
+      pair: null,
+      related_trade_id: item.category === "trade_review" ? item.id.split(":")[1] || null : null,
+      related_discipline_id: item.category === "forecast" ? item.id.split(":")[1] || null : null,
+      updated_at: createdAt,
+    });
   }
 
   async function saveMessageFeedback(message: JarvisMessage, reason: JarvisFeedbackReason) {
@@ -2601,7 +2689,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
             <aside className="jarvis-context-panel">
               <div className="jarvis-context-heading"><span>Live Journaly context</span><i /></div>
               <section className="jarvis-context-card jarvis-monitor-card">
-                <header><Eye size={16} /><span>Monitoring</span><b>{monitorItems.length}</b></header>
+                <header><Eye size={16} /><span>Autopilot monitoring</span><b>{monitorItems.length}</b></header>
                 {monitorItems.length ? monitorItems.slice(0, 4).map((item) => (
                   <button type="button" key={item.id} onClick={() => askJarvis(item.prompt)}>
                     <i className={`is-${item.priority}`} aria-label={`${item.priority} priority`} />
