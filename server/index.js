@@ -88,6 +88,13 @@ JARVIS CHART TRUST CONTRACT
 - A visibly failed mandatory strategy condition may justify SKIP or INVALIDATED. A mandatory condition that is merely outside the screenshot is unknown, not failed.
 - TAKE requires every mandatory setup component to be visibly supported. Otherwise, prefer WATCH when the idea remains plausible and SKIP only when visible evidence conflicts with the playbook.
 - For Flag+, higher-timeframe alignment must be visible. For EU timed entry, the session window must be visible. Do not infer either from the user's label.`;
+const JARVIS_EDGE_COMPANION_INSTRUCTIONS = `
+AUTHORIZED EDGE COMPANION
+- CURRENT AUTHENTICATED SESSION.sessionState.edgeBrowserContext is present only when the user explicitly shared one TradingView tab through the Journaly Edge Companion.
+- Treat its pair, timeframe, title, chart label, URL, and observedAt timestamp as structured browser context. Use the pair to maintain conversational and Journaly-record context.
+- This structured context is not chart pixels, a broker connection, or a tick-quality live market feed. A companion visual snapshot may separately arrive as the current chart image; only then apply the chart evidence rules to visible candles, structure, and annotations.
+- If the user asks for visual chart analysis without attaching an image, explain what structured context is available and ask them to paste the chart. If the context is stale or absent, say the Edge tab is not currently connected.
+- Never imply access to unrelated browser tabs. The companion is limited to the one TradingView tab the user authorized and can be disconnected at any time.`;
 const JARVIS_CONVERSATION_INSTRUCTIONS = `
 JARVIS CONVERSATION RELEVANCE
 - Act like a natural, attentive friend as well as a trading assistant. Match the topic and emotional weight of the user's latest message.
@@ -511,7 +518,7 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (forecastFollowUp || /\b(?:forecast|watchlist|watching|invalidated|skipped\s+idea)\b/.test(text)) return "forecast_management";
   if (/\b(?:log|add|record|save)\b.*\b(?:trade|position)\b|\b(?:taking|entering|opening)\b.*\b(?:trade|position|long|short)\b/.test(text)) return "trade_logging";
   if (/^(?:hey|hi|hello|yo|thanks|thank\s+you|good\s+(?:morning|afternoon|evening)|what's\s+up|whats\s+up|how\s+are\s+you)[!,.\s]*$/.test(text)) return "casual_conversation";
-  const tradingLanguage = /\b(?:trade|trading|market|chart|pair|forex|setup|entry|stop|target|position|risk|lot|pips?|backtest|forecast|journal|audusd|eurusd|eurjpy|audjpy|gbpusd|nzdjpy|euraud)\b/.test(text);
+  const tradingLanguage = /\b(?:trade|trading|market|chart|pair|forex|setup|entry|stop|target|position|risk|lot|pips?|backtest|forecast|journal|tradingview|edge\s+tab|browser\s+companion|audusd|eurusd|eurjpy|audjpy|gbpusd|nzdjpy|euraud)\b/.test(text);
   return tradingLanguage ? "general_trading_conversation" : "personal_conversation";
 }
 
@@ -2832,7 +2839,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
+      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_EDGE_COMPANION_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: fastLane ? 420 : 1100,
       store: false,

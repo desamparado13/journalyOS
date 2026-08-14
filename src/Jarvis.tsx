@@ -51,6 +51,8 @@ const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
 const JARVIS_MONITOR_NOTIFIED_KEY_PREFIX = "journaly-os-jarvis-monitor-notified-v1";
 const JARVIS_OBSERVATION_SNAPSHOT_KEY_PREFIX = "journaly-os-jarvis-observation-v1";
 const JARVIS_AUTOPILOT_BRIEFING_KEY_PREFIX = "journaly-os-jarvis-autopilot-briefing-v1";
+const JARVIS_EDGE_PAGE_SOURCE = "journaly-os";
+const JARVIS_EDGE_EXTENSION_SOURCE = "journaly-edge-companion";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -171,6 +173,26 @@ type JarvisActiveContext = {
   forecastId: string | null;
   dataSource: "live" | "backtest" | "forecast" | null;
   updatedAt: string;
+};
+
+type JarvisEdgeContext = {
+  source: "TradingView";
+  pair: string | null;
+  timeframe: string | null;
+  title: string;
+  url: string;
+  chartLabel: string | null;
+  observedAt: string;
+  screenshot: string | null;
+  screenshotObservedAt: string | null;
+  tabId: number;
+};
+
+type JarvisEdgeCompanionState = {
+  checked: boolean;
+  installed: boolean;
+  connected: boolean;
+  context: JarvisEdgeContext | null;
 };
 
 type JarvisWorkspace = {
@@ -673,6 +695,38 @@ function readJarvisActiveContext(userId: string): JarvisActiveContext | null {
   }
 }
 
+function normalizeEdgeCompanionState(value: unknown): JarvisEdgeCompanionState {
+  const state = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const candidate = state.context && typeof state.context === "object" ? state.context as Record<string, unknown> : null;
+  let context: JarvisEdgeContext | null = null;
+  if (candidate && typeof candidate.url === "string" && typeof candidate.observedAt === "string") {
+    try {
+      const url = new URL(candidate.url);
+      const hostname = url.hostname.toLowerCase();
+      const observedAt = new Date(candidate.observedAt).getTime();
+      const pair = typeof candidate.pair === "string" && JARVIS_TRADE_PAIRS.has(candidate.pair.toUpperCase()) ? candidate.pair.toUpperCase() : null;
+      const screenshot = typeof candidate.screenshot === "string" && candidate.screenshot.startsWith("data:image/jpeg;base64,") && candidate.screenshot.length <= 5_500_000 ? candidate.screenshot : null;
+      if ((hostname === "tradingview.com" || hostname.endsWith(".tradingview.com")) && Number.isFinite(observedAt) && Date.now() - observedAt < 5 * 60 * 1000) {
+        context = {
+          source: "TradingView",
+          pair,
+          timeframe: typeof candidate.timeframe === "string" ? candidate.timeframe.slice(0, 40) : null,
+          title: typeof candidate.title === "string" ? candidate.title.slice(0, 240) : "TradingView chart",
+          url: url.toString(),
+          chartLabel: typeof candidate.chartLabel === "string" ? candidate.chartLabel.slice(0, 240) : null,
+          observedAt: candidate.observedAt,
+          screenshot,
+          screenshotObservedAt: screenshot && typeof candidate.screenshotObservedAt === "string" ? candidate.screenshotObservedAt : null,
+          tabId: Number.isInteger(candidate.tabId) ? Number(candidate.tabId) : 0,
+        };
+      }
+    } catch {
+      context = null;
+    }
+  }
+  return { checked: true, installed: state.installed === true, connected: state.connected === true && Boolean(context), context };
+}
+
 function syncedMemoryUpdates(entries: JarvisProps["journalEntries"]): JarvisMemoryUpdate[] {
   return entries.flatMap((entry) => {
     if (!entry.content.startsWith(JARVIS_MEMORY_SYNC_PREFIX)) return [];
@@ -1046,6 +1100,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [monitorClock, setMonitorClock] = useState(() => Date.now());
   const [recentChanges, setRecentChanges] = useState<JarvisMonitorItem[]>([]);
   const [observationReady, setObservationReady] = useState(false);
+  const [edgeCompanion, setEdgeCompanion] = useState<JarvisEdgeCompanionState>({ checked: false, installed: false, connected: false, context: null });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1475,6 +1530,41 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, [activeContext, userId]);
 
   useEffect(() => {
+    const requestState = () => window.postMessage({ source: JARVIS_EDGE_PAGE_SOURCE, type: "JOURNALY_EDGE_REQUEST" }, window.location.origin);
+    const receiveState = (event: MessageEvent) => {
+      if (event.source !== window || event.origin !== window.location.origin || event.data?.source !== JARVIS_EDGE_EXTENSION_SOURCE) return;
+      if (event.data.type === "JOURNALY_EDGE_READY") requestState();
+      if (event.data.type === "JOURNALY_EDGE_STATE") setEdgeCompanion(normalizeEdgeCompanionState(event.data.state));
+    };
+    window.addEventListener("message", receiveState);
+    requestState();
+    const poll = window.setInterval(requestState, 5000);
+    const unavailable = window.setTimeout(() => setEdgeCompanion((current) => current.checked ? current : { ...current, checked: true }), 1200);
+    return () => {
+      window.removeEventListener("message", receiveState);
+      window.clearInterval(poll);
+      window.clearTimeout(unavailable);
+    };
+  }, []);
+
+  useEffect(() => {
+    const pair = edgeCompanion.context?.pair;
+    if (!edgeCompanion.connected || !pair) return;
+    const matchingPendingTrades = trades.filter((trade) => !trade.finalizedAt && trade.pair.toUpperCase() === pair);
+    const matchingTrade = matchingPendingTrades.length === 1 ? matchingPendingTrades[0] : null;
+    if (activeContext?.pair === pair && activeContext.tradeId === (matchingTrade?.id || null)) return;
+    setAndSyncActiveContext({
+      pair,
+      setup: matchingTrade?.setup || null,
+      tradeId: matchingTrade?.id || null,
+      backtestId: null,
+      forecastId: null,
+      dataSource: matchingTrade ? "live" : null,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [activeContext?.pair, activeContext?.tradeId, edgeCompanion.connected, edgeCompanion.context?.pair, trades]);
+
+  useEffect(() => {
     localStorage.setItem(`${JARVIS_VOICE_REPLIES_KEY_PREFIX}:${userId}`, String(voiceReplies));
     if (!voiceReplies && "speechSynthesis" in window) window.speechSynthesis.cancel();
   }, [userId, voiceReplies]);
@@ -1784,6 +1874,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const update: JarvisMemoryUpdate = { operation: "upsert", category: "preference", key: memoryKey, value: String(value), confidence: 1, source: "explicit", sensitivity: "normal", followUpAt: null };
     setMemory((current) => applyMemoryUpdates(current, [update]));
     void persistMemoryUpdates([update]);
+  }
+
+  function requestEdgeCompanionState() {
+    window.postMessage({ source: JARVIS_EDGE_PAGE_SOURCE, type: "JOURNALY_EDGE_REQUEST" }, window.location.origin);
+  }
+
+  function disconnectEdgeCompanion() {
+    window.postMessage({ source: JARVIS_EDGE_PAGE_SOURCE, type: "JOURNALY_EDGE_DISCONNECT" }, window.location.origin);
+    setEdgeCompanion((current) => ({ ...current, connected: false, context: null }));
   }
 
   async function persistActiveContext(next: JarvisActiveContext | null) {
@@ -2109,12 +2208,16 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }
 
   async function askJarvis(nextPrompt: string) {
-    const imageForRequest = attachedImage;
+    const visiblePrompt = nextPrompt.trim();
+    const wantsEdgeSnapshot = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup|what.{0,30}(?:see|notice)|edge\s+tab|tradingview/i.test(visiblePrompt);
+    const edgeSnapshot = wantsEdgeSnapshot && edgeCompanion.connected && edgeCompanion.context?.screenshot
+      ? { dataUrl: edgeCompanion.context.screenshot, name: `${edgeCompanion.context.pair || "TradingView"}_${edgeCompanion.context.timeframe || "chart"}_Edge-live.jpg` }
+      : null;
+    const imageForRequest = attachedImage || edgeSnapshot;
     const previousChartCandidate = lastChartImage || persistedLastChart;
     const previousChartForRequest = imageForRequest && previousChartCandidate && imageForRequest.dataUrl !== previousChartCandidate.dataUrl && imageForRequest.dataUrl.length + previousChartCandidate.dataUrl.length <= 3_800_000
       ? previousChartCandidate
       : null;
-    const visiblePrompt = nextPrompt.trim();
     const cleanPrompt = visiblePrompt || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
     if (forecastDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
@@ -2242,6 +2345,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               pendingTradeDraft: tradeDraft,
               pendingForecastDraft: forecastDraft,
               pendingPositionSizing: positionSizingDraft,
+              edgeBrowserContext: edgeCompanion.connected ? edgeCompanion.context : null,
               workspaceContexts: workspace.contexts.map(({ id, label, pair, setup, tradeId, backtestId, forecastId, dataSource, updatedAt }) => ({ id, label, pair, setup, tradeId, backtestId, forecastId, dataSource, updatedAt })),
             },
             trades: orderedTrades.slice(0, 300).map((trade) => ({
@@ -2474,7 +2578,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <button type="button" title="Close Jarvis" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={17} /></button>
             </nav>
           </header>
-          <div className="jarvis-ambient-context"><span>{activeContext?.pair ? `${activeContext.pair}${activeContext.setup ? ` · ${activeContext.setup}` : ""}` : "Journaly-wide context"}</span><small>You can keep scrolling. I’m still here.</small></div>
+          <div className="jarvis-ambient-context"><span>{edgeCompanion.connected && edgeCompanion.context?.pair ? `${edgeCompanion.context.pair}${edgeCompanion.context.timeframe ? ` · ${edgeCompanion.context.timeframe}` : ""} · Edge tab` : activeContext?.pair ? `${activeContext.pair}${activeContext.setup ? ` · ${activeContext.setup}` : ""}` : "Journaly-wide context"}</span><small>{edgeCompanion.connected ? "Authorized TradingView context is live." : "You can keep scrolling. I’m still here."}</small></div>
           <div className="jarvis-ambient-feed" ref={compactFeedRef} aria-live="polite">
             {messages.length ? messages.slice(-10).map((message) => (
               <article className={`jarvis-ambient-message is-${message.role}`} key={message.id}>
@@ -2545,6 +2649,21 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 {memory.memories.some((item) => !["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"].includes(item.category)) ? <button className="jarvis-forget-personal" type="button" onClick={forgetAllPersonalMemories}><Trash2 size={12} /> Forget all personal memories</button> : null}
               </section> : null}
 
+              <section className={`jarvis-edge-companion${edgeCompanion.connected ? " is-connected" : ""}`} aria-label="Microsoft Edge tab companion">
+                <header><span><Radio size={14} /> Edge tab companion</span><strong>{edgeCompanion.connected ? "LIVE" : edgeCompanion.installed ? "READY" : "OFFLINE"}</strong></header>
+                {edgeCompanion.connected && edgeCompanion.context ? (
+                  <>
+                    <p><strong>{edgeCompanion.context.pair || "TradingView chart"}{edgeCompanion.context.timeframe ? ` · ${edgeCompanion.context.timeframe}` : ""}</strong><small>One authorized TradingView tab · context {new Date(edgeCompanion.context.observedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}{edgeCompanion.context.screenshotObservedAt ? ` · visual ${new Date(edgeCompanion.context.screenshotObservedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</small></p>
+                    <div><button type="button" onClick={requestEdgeCompanionState}><RefreshCcw size={12} /> Refresh</button><button type="button" onClick={disconnectEdgeCompanion}><X size={12} /> Disconnect</button></div>
+                  </>
+                ) : edgeCompanion.installed ? (
+                  <><p><strong>Companion installed</strong><small>Open your TradingView chart and click the Journaly extension icon to authorize that tab.</small></p><button type="button" onClick={requestEdgeCompanionState}><RefreshCcw size={12} /> Check connection</button></>
+                ) : (
+                  <><p><strong>Connect one TradingView tab</strong><small>Download the private companion, extract it, then load the folder from edge://extensions.</small></p><a href="/downloads/journaly-edge-companion.zip" download>Download Edge Companion</a><details><summary>Installation steps</summary><ol><li>Extract the downloaded ZIP.</li><li>Open edge://extensions and enable Developer mode.</li><li>Choose Load unpacked and select the extracted folder.</li><li>Open TradingView and click the extension icon.</li></ol></details></>
+                )}
+                <em><ShieldCheck size={11} /> Explicit tab only · structured context + visible snapshot · no broker control.</em>
+              </section>
+
               <div className="jarvis-source-stack">
                 <span>Knowledge sources</span>
                 <div className={aiHealth?.apiReachable === false ? "is-pending" : ""}>
@@ -2564,7 +2683,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
                 <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} memor{memory.memories.length === 1 ? "y" : "ies"} · private controls · cross-device sync</small></p></div>
                 <div><BookOpenCheck size={13} /><p><strong>Learning archive</strong><small>{learningSyncState === "saving" ? "Saving latest insight…" : learningSyncState === "error" ? "Latest insight stayed in chat" : "Summaries synced · images stay lightweight"}</small></p></div>
-                <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
+                <div className={edgeCompanion.connected ? "" : "is-pending"}>{edgeCompanion.connected ? <Radio size={13} /> : <CircleDot size={13} />}<p><strong>Authorized Edge context</strong><small>{edgeCompanion.connected && edgeCompanion.context ? `${edgeCompanion.context.pair || "TradingView"}${edgeCompanion.context.timeframe ? ` · ${edgeCompanion.context.timeframe}` : ""} · structured context only` : "No TradingView tab shared"}</small></p></div>
               </div>
 
               <section className="jarvis-brain-card" title={`${brainBreakdown}. This is a Journaly-side estimate of Jarvis records, not Supabase's total database measurement.`} aria-label={`Jarvis brain size approximately ${brainSize.text}`}>
