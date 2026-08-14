@@ -11,7 +11,6 @@
     "analyze:jarvis-backtests": "node scripts/analyze-jarvis-backtests.mjs",
     "test:jarvis": "node scripts/test-jarvis-api.mjs",
     "test:position-sizing": "node scripts/test-position-sizing.mjs",
-    "test:drive-backup": "node scripts/test-google-drive-backup.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

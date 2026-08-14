@@ -87,7 +87,6 @@ const ownerKnowledge = [
 ].join("\n\n");
 
 await cp("server/index.js", "dist/server/index.js");
-await cp("server/google-drive-backup.js", "dist/server/google-drive-backup.js");
 await writeFile("dist/server/jarvis-knowledge.js", [
   `export const JARVIS_SYSTEM_PROMPT = ${JSON.stringify(completePrompt)};`,
   `export const JARVIS_OWNER_KNOWLEDGE = ${JSON.stringify(ownerKnowledge)};`,

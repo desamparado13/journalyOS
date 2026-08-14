@@ -40,7 +40,6 @@ import {
   TrendingDown,
   TrendingUp,
   BellRing,
-  CloudUpload,
   X,
 } from "lucide-react";
 import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -49,7 +48,6 @@ import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
 import Jarvis, { JARVIS_CHART_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX } from "./Jarvis";
 import PushoverAlerts from "./PushoverAlerts";
-import GoogleDriveBackup from "./GoogleDriveBackup";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
@@ -329,8 +327,7 @@ type AppView =
   | "backtesting-analytics"
   | "add-backtest"
   | "view-backtests"
-  | "jarvis-events"
-  | "drive-backup";
+  | "jarvis-events";
 
 const appViews: readonly AppView[] = [
   "dashboard",
@@ -357,7 +354,6 @@ const appViews: readonly AppView[] = [
   "add-backtest",
   "view-backtests",
   "jarvis-events",
-  "drive-backup",
 ];
 
 type SessionUser = {
@@ -5111,14 +5107,6 @@ export default function App() {
             <BellRing size={18} />
             Pushover alerts
           </button> : null}
-          {currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? <button
-            className={activeView === "drive-backup" ? "is-active" : ""}
-            type="button"
-            onClick={() => setActiveView("drive-backup")}
-          >
-            <CloudUpload size={18} />
-            Backup vault
-          </button> : null}
             </>
           ) : (
             dayTradeNavigation.map(({ view, label, icon: Icon }) => (
@@ -5936,10 +5924,6 @@ export default function App() {
 
         {activeView === "jarvis-events" && currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
           <PushoverAlerts userId={currentUser.id} displayName={accountProfile.displayName || "Pot"} />
-        ) : null}
-
-        {activeView === "drive-backup" && currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
-          <GoogleDriveBackup />
         ) : null}
 
         {activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis" ? (

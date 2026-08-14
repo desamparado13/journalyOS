@@ -1,5 +1,4 @@
 import { JARVIS_BACKTEST_ANALYSES, JARVIS_BACKTEST_AUDIT_SUMMARY, JARVIS_OWNER_KNOWLEDGE, JARVIS_REFERENCE_ANALYSES, JARVIS_REFERENCE_SUMMARY, JARVIS_STRATEGY_RULES, JARVIS_SYSTEM_PROMPT } from "./jarvis-knowledge.js";
-import { handleGoogleDriveBackup } from "./google-drive-backup.js";
 
 const FALLBACK_MODELS = ["gpt-5.6-luna", "gpt-4.1-mini"];
 const MAX_QUESTION_LENGTH = 6000;
@@ -2636,10 +2635,6 @@ export default {
     if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
     if (url.pathname === "/api/jarvis/pushover/test") return withDashboardCors(request, await handlePushoverTest(request, env));
-    if (url.pathname === "/api/jarvis/google-drive") return handleGoogleDriveBackup(request, env);
-    if (url.pathname === "/api/jarvis/google-drive-callback") return handleGoogleDriveBackup(request, env);
-    if (url.pathname === "/api/jarvis/drive-backup-routine") return handleGoogleDriveBackup(request, env);
-
     const response = await env.ASSETS.fetch(request);
     if (response.status !== 404 || url.pathname.includes(".")) return response;
     return env.ASSETS.fetch(new Request(new URL("/index.html", request.url), request));
