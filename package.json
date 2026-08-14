@@ -15,6 +15,7 @@
     "test:voice": "node scripts/test-jarvis-voice.mjs",
     "test:position-sizing": "node scripts/test-position-sizing.mjs",
     "test:streaks": "node scripts/test-jarvis-streaks.mjs",
+    "test:edge-views": "node scripts/test-jarvis-edge-views.mjs",
     "test:proactive": "node scripts/test-jarvis-proactive.mjs",
     "test:monitoring": "node scripts/test-jarvis-monitoring.mjs",
     "test:autopilot": "node scripts/test-jarvis-autopilot-routine.mjs",

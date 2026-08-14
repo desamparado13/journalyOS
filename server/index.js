@@ -506,7 +506,7 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (/\b(?:closed|finished|stopped\s+out|hit\s+(?:tp|target|sl)|booked|ended)\b.*\b(?:trade|position|r)\b|\b(?:trade|position)\b.*\b(?:closed|finished|won|lost|breakeven)\b/.test(text)) return "post_trade_review";
   if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day|what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|why\s+did\s+you\s+(?:message|notify|interrupt|alert)\s+me)\b/.test(text)) return "daily_routine";
   if (/\b(?:journal|reflect|reflection|trading\s+journey|write\s+down|debrief|how\s+have\s+i\s+changed)\b/.test(text)) return "journal_reflection";
-  if (/\b(?:win\s*rate|win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?)|expectancy|statistics|stats|performance|edge\s+lab|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
+  if (/\b(?:win\s*rate|win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?)|expectancy|statistics|stats|performance|edge\s+lab|edge\s+clock|session\s+edge|week\s+edge|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
   const forecastFollowUp = Boolean(sessionState?.activeForecastId) && /\b(?:what\s+about\s+it|still\s+valid|what\s+do\s+you\s+think|what\s+now|check\s+it|update\s+me|the\s+idea|that\s+idea)\b/.test(text);
   if (forecastFollowUp || /\b(?:forecast|watchlist|watching|invalidated|skipped\s+idea)\b/.test(text)) return "forecast_management";
   if (/\b(?:log|add|record|save)\b.*\b(?:trade|position)\b|\b(?:taking|entering|opening)\b.*\b(?:trade|position|long|short)\b/.test(text)) return "trade_logging";
@@ -1627,6 +1627,41 @@ function archiveViewResult(data, args) {
   return { ...base, summary: archiveStats(records), byPair: pairRows, bySetup: setupRows, byDirection: byDirection(), byOutcome: byOutcome(), byQuality: byQuality(), bestPair: pairRows[0] || null, weakestPair: [...pairRows].sort((a, b) => a.totalR - b.totalR)[0] || null, bestSetup: setupRows[0] || null, weakestSetup: [...setupRows].sort((a, b) => a.totalR - b.totalR)[0] || null };
 }
 
+function requestedArchiveViews(question) {
+  const text = String(question || "").toLowerCase();
+  const views = [];
+  if (/\bedge\s*clock\b|\bhour(?:ly)?\s+edge\b/.test(text)) views.push("edge_clock");
+  if (/\bsession\s+edge\b/.test(text)) views.push("session_edge");
+  if (/\bweek\s+edge\b|\bweekday\s+edge\b/.test(text)) views.push("week_edge");
+  return views;
+}
+
+function verifiedArchiveViewsAnswer(results) {
+  const unique = [...new Map((Array.isArray(results) ? results : [])
+    .filter((result) => result?.source === "trade_archive_full_access")
+    .map((result) => [result.view, result])).values()];
+  if (unique.length === 1) return verifiedStatisticsAnswer(unique[0]);
+  if (!unique.length) return null;
+
+  const signedR = (value) => `${Number(value) >= 0 ? "+" : ""}${Number(value || 0).toFixed(2)}R`;
+  const groupText = (group) => group ? `${group.label} (${signedR(group.totalR)} across ${group.trades} record${group.trades === 1 ? "" : "s"})` : "no matching records";
+  const lines = unique.map((result) => {
+    if (result.view === "edge_clock") return `- **Edge Clock:** strongest hour ${groupText(result.bestHour)}; weakest hour ${groupText(result.weakestHour)}.`;
+    if (result.view === "session_edge") {
+      const active = Array.isArray(result.bySession) ? result.bySession.filter((group) => group.trades > 0) : [];
+      return `- **Session Edge:** strongest session ${groupText(active[0])}; weakest session ${groupText([...active].sort((a, b) => a.totalR - b.totalR)[0])}.`;
+    }
+    if (result.view === "week_edge") {
+      const active = Array.isArray(result.days) ? result.days.filter((day) => day.trades > 0) : [];
+      const weakest = [...active].sort((a, b) => a.totalR - b.totalR)[0] || null;
+      return `- **Week Edge:** strongest weekday ${groupText(result.bestDay)}; weakest weekday ${groupText(weakest)}.`;
+    }
+    return `- **${String(result.view).replaceAll("_", " ")}:** ${result.recordsIncluded} matching records.`;
+  });
+  const coverage = Math.max(...unique.map((result) => Number(result.recordsIncluded || result.summary?.trades || 0)));
+  return `I verified all ${unique.length} requested Edge views across ${coverage} matching archive records:\n\n${lines.join("\n")}\n\nThese are observed timing patterns calculated deterministically from the authenticated archive, not proof that the time or session caused the outcomes.`;
+}
+
 function forecastEvidenceStage(sampleSize, knownDirection, consistencyPercent) {
   if (sampleSize < 5) return "Candidate";
   if (sampleSize >= 30 && knownDirection >= 25 && consistencyPercent !== null && consistencyPercent >= 75) return "Strong";
@@ -2687,6 +2722,7 @@ async function handleJarvis(request, env) {
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
   const monitoringIntent = /\b(?:what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|monitoring\s+(?:queue|status))\b/i.test(question);
   const alertExplanationIntent = /\b(?:why\s+did\s+you\s+(?:message|notify|interrupt|alert)\s+me|why\s+(?:this|that)\s+(?:message|notification|alert)|what\s+triggered\s+(?:this|that|your)\s+(?:message|notification|alert))\b/i.test(question);
+  const explicitlyRequestedArchiveViews = requestedArchiveViews(question);
   const proactiveSchedule = requestedProactiveDelay(question);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
@@ -2789,6 +2825,7 @@ async function handleJarvis(request, env) {
     let verifiedMonitoringResult = null;
     let verifiedLastAlertResult = null;
     let verifiedStatResult = null;
+    let verifiedArchiveResults = [];
     let verifiedPositionSizing = null;
     let verifiedPositionProfile = null;
     const usage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
@@ -2855,7 +2892,8 @@ async function handleJarvis(request, env) {
           if (call.name === "get_trade_streaks") verifiedStreakResult = toolResult;
           if (call.name === "get_monitoring_state") verifiedMonitoringResult = toolResult;
           if (call.name === "get_last_jarvis_alert") verifiedLastAlertResult = toolResult;
-          if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
+          if (call.name === "get_archive_view") verifiedArchiveResults.push(toolResult);
+          else if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
         roundInput = [...roundInput, ...(payload.output || []), ...outputs];
@@ -2952,6 +2990,25 @@ async function handleJarvis(request, env) {
         };
       }
       if (verifiedPositionProfile) result.positionProfileAction = verifiedPositionProfile;
+      if (explicitlyRequestedArchiveViews.length) {
+        const existingViews = new Set(verifiedArchiveResults.map((archiveResult) => archiveResult?.view));
+        const inheritedFilters = verifiedArchiveResults[0]?.filters || {};
+        for (const view of explicitlyRequestedArchiveViews) {
+          if (existingViews.has(view)) continue;
+          verifiedArchiveResults.push(archiveViewResult(toolData, {
+            view,
+            source: inheritedFilters.source || "both",
+            pair: inheritedFilters.pair || null,
+            setup: inheritedFilters.setup || null,
+            direction: inheritedFilters.direction || null,
+            quality: inheritedFilters.quality || null,
+            month: inheritedFilters.month || null,
+            year: inheritedFilters.year || null,
+            period: inheritedFilters.period || null,
+            limit: inheritedFilters.limit || 500,
+          }));
+        }
+      }
       if (conversationMode === "active_trade_management" && result.tradeAction?.intent !== "update_pending") result.tradeAction = null;
       if (!result.tradeAction && isStatusQuestion(question) && tradeWriteTarget) {
         result.answer = `No. The authenticated journal still shows ${Number(tradeWriteTarget.pnlR || 0).toFixed(2)}R, ${tradeWriteTarget.screenshot ? "a saved screenshot" : "no screenshot"}, and Pending final. I will not claim it is updated until Journaly confirms the database write.`;
@@ -2970,6 +3027,7 @@ async function handleJarvis(request, env) {
       else if (verifiedStreakResult) result.answer = verifiedTradeStreakAnswer(verifiedStreakResult);
       else if (verifiedMonitoringResult) result.answer = verifiedMonitoringAnswer(verifiedMonitoringResult);
       else if (verifiedLastAlertResult) result.answer = verifiedLastAlertAnswer(verifiedLastAlertResult);
+      else if (verifiedArchiveResults.length) result.answer = verifiedArchiveViewsAnswer(verifiedArchiveResults) || result.answer;
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, proactiveSchedule, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
@@ -3137,7 +3195,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, buildAutopilotSnapshot, buildMonitoringState, calculateJournalyPositionSize, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildMonitoringState, calculateJournalyPositionSize, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {
