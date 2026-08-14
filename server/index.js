@@ -1799,6 +1799,69 @@ function verifiedTradeStreakAnswer(result) {
   return `Your best verified live win streak is **${best.count} wins in a row**, in **${year}** (${dates}).\n\n${currentLine}\n\nI calculated that chronologically from ${result.recordsIncluded} authenticated live trades. Breakeven or unresolved outcomes break a streak.`;
 }
 
+function buildJarvisContextGraph(data = {}) {
+  const session = data.sessionState && typeof data.sessionState === "object" ? data.sessionState : {};
+  const nodes = new Map();
+  const edges = new Map();
+  const addNode = (id, type, label, metadata = {}) => {
+    if (!id) return null;
+    const key = String(id);
+    nodes.set(key, { id: key, type, label: String(label || type), metadata });
+    return key;
+  };
+  const addEdge = (from, to, relation, metadata = {}) => {
+    if (!from || !to) return;
+    const id = `${from}|${relation}|${to}`;
+    edges.set(id, { id, from, to, relation, metadata });
+  };
+
+  const pairId = session.activePair ? addNode(`pair:${normalizePair(session.activePair)}`, "pair", normalizePair(session.activePair), { active: true }) : null;
+  const activeTrade = (data.trades || []).find((trade) => String(trade.id) === String(session.activeTradeId));
+  const activeForecast = (data.forecasts || []).find((forecast) => String(forecast.id) === String(session.activeForecastId));
+  const activeBacktest = (data.backtests || []).find((backtest) => String(backtest.id) === String(session.activeBacktestId));
+  const tradeId = activeTrade ? addNode(`trade:${activeTrade.id}`, "trade", `${activeTrade.pair} ${activeTrade.setup}`, { recordId: activeTrade.id, finalized: Boolean(activeTrade.finalizedAt) }) : null;
+  const forecastId = activeForecast ? addNode(`forecast:${activeForecast.id}`, "forecast", `${activeForecast.pair} ${activeForecast.setup}`, { recordId: activeForecast.id, status: activeForecast.status }) : null;
+  const backtestId = activeBacktest ? addNode(`backtest:${activeBacktest.id}`, "backtest", `${activeBacktest.pair} ${activeBacktest.setup}`, { recordId: activeBacktest.id }) : null;
+  [tradeId, forecastId, backtestId].forEach((id) => addEdge(pairId, id, "focuses_on"));
+  if (tradeId && forecastId) addEdge(forecastId, tradeId, "became_trade");
+
+  const browser = session.edgeBrowserContext;
+  const chartId = browser?.url ? addNode(`chart:${String(browser.url).slice(0, 180)}`, "chart", `${browser.pair || "TradingView"}${browser.timeframe ? ` ${browser.timeframe}` : ""}`, { source: "authorized_browser", observedAt: browser.observedAt, screenshotObservedAt: browser.screenshotObservedAt || null }) : null;
+  addEdge(chartId, pairId, "shows_pair");
+  addEdge(chartId, tradeId || forecastId || backtestId, "provides_evidence_for");
+
+  if (session.lastJarvisDecision) {
+    const decisionId = addNode(`decision:${session.lastJarvisDecision}:${String(session.lastDecisionAt || "current")}`, "decision", session.lastJarvisDecision, { current: true });
+    addEdge(decisionId, chartId || tradeId || forecastId || pairId, "assesses");
+  }
+
+  const turns = Array.isArray(session.rollingConversation) ? session.rollingConversation.slice(-8) : [];
+  let priorTurn = null;
+  turns.forEach((turn, index) => {
+    const turnId = addNode(`conversation:${index}`, "conversation_turn", turn.role || "turn", { role: turn.role, content: String(turn.content || "").slice(0, 240) });
+    addEdge(priorTurn, turnId, "followed_by");
+    addEdge(turnId, chartId || tradeId || forecastId || pairId, "discusses");
+    priorTurn = turnId;
+  });
+
+  (data.journals || []).slice(-40).forEach((entry) => {
+    const content = String(entry?.content || "");
+    if (!content.startsWith(JARVIS_JOURNEY_PREFIX) && !content.startsWith(JARVIS_CHART_PREFIX)) return;
+    const prefix = content.startsWith(JARVIS_JOURNEY_PREFIX) ? JARVIS_JOURNEY_PREFIX : JARVIS_CHART_PREFIX;
+    try {
+      const value = JSON.parse(content.slice(prefix.length).trim());
+      const journalId = addNode(`journal:${entry.id}`, prefix === JARVIS_CHART_PREFIX ? "chart_checkpoint" : "journal_event", value.type || value.name || entry.entry_date || "Journal event", { recordId: entry.id, at: value.at || value.createdAt || entry.updated_at || entry.created_at });
+      const linkedTrade = value.tradeId || entry.related_trade_id;
+      const linkedForecast = value.forecastId || entry.related_discipline_id;
+      if (linkedTrade) addEdge(journalId, addNode(`trade:${linkedTrade}`, "trade", `Trade ${linkedTrade}`, { recordId: linkedTrade }), "documents");
+      if (linkedForecast) addEdge(journalId, addNode(`forecast:${linkedForecast}`, "forecast", `Forecast ${linkedForecast}`, { recordId: linkedForecast }), "documents");
+      addEdge(journalId, pairId, "relates_to");
+    } catch { /* malformed historical internal rows stay excluded */ }
+  });
+
+  return { version: 1, generatedAt: new Date().toISOString(), activeNodeIds: [chartId, tradeId, forecastId, backtestId, pairId].filter(Boolean), nodes: [...nodes.values()].slice(-40), edges: [...edges.values()].slice(-80) };
+}
+
 function buildMonitoringState(data = {}, nowValue = Date.now()) {
   const now = typeof nowValue === "number" ? nowValue : new Date(nowValue).getTime();
   const dayMs = 86400000;
@@ -1879,6 +1942,24 @@ function buildMonitoringState(data = {}, nowValue = Date.now()) {
       recordId: trade.id || null,
     });
   });
+
+  const recentTrades = [...trades].sort((a, b) => String(b.updatedAt || b.updated_at || `${b.date || ""}T${b.time || ""}`).localeCompare(String(a.updatedAt || a.updated_at || `${a.date || ""}T${a.time || ""}`))).slice(0, 10);
+  const earlyExits = recentTrades.filter((trade) => /\b(?:cut|clos(?:e|ed)|exit(?:ed)?)\b[\s\S]{0,45}\b(?:early|too soon|fear|scared|afraid)\b/i.test(String(trade.notes || "")));
+  if (earlyExits.length >= 2) items.push({ id: `behavior:early-exits:${earlyExits.map((trade) => trade.id).join("-")}`, priority: earlyExits.length >= 3 ? "high" : "medium", category: "trade_review", title: "Repeated early exits", detail: `${earlyExits.length} of the latest ${recentTrades.length} trades mention exiting early — review whether fear overrode the plan`, recordId: earlyExits[0]?.id || null });
+
+  const currentRisk = finiteNumber(data.positionSizing?.riskPercent);
+  const profileRisks = (data.positionSizing?.profiles || []).map((profile) => finiteNumber(profile.riskPercent)).filter((value) => value !== null && value > 0).sort((a, b) => a - b);
+  const typicalRisk = profileRisks.length ? profileRisks[Math.floor(profileRisks.length / 2)] * (data.positionSizing?.profileMode === "half" ? 0.5 : 1) : null;
+  if (currentRisk !== null && typicalRisk !== null && currentRisk >= typicalRisk * 1.5 && currentRisk - typicalRisk >= 0.25) items.push({ id: `risk:calculator:${currentRisk}:${typicalRisk}`, priority: currentRisk >= typicalRisk * 2 ? "high" : "medium", category: "context", title: "Position risk above profile", detail: `Calculator risk is ${currentRisk.toFixed(2)}% versus the active profile baseline of ${typicalRisk.toFixed(2)}%`, recordId: null });
+
+  const activePairNormalized = normalizePair(data.sessionState?.activePair || "");
+  const invalidationEvent = (data.tradingViewEvents || []).find((event) => {
+    const eventName = String(event.event || event.event_type || "").toUpperCase();
+    const eventPair = normalizePair(event.ticker || event.symbol || "");
+    const timestamp = new Date(event.event_timestamp || event.created_at || 0).getTime();
+    return /INVALID|STOP|MRH_BREAK|MRL_BREAK/.test(eventName) && (!activePairNormalized || eventPair === activePairNormalized) && Number.isFinite(timestamp) && now - timestamp < 2 * 60 * 60 * 1000;
+  });
+  if (invalidationEvent) items.push({ id: `market:${invalidationEvent.id || invalidationEvent.event_timestamp}:invalidation`, priority: "high", category: "change", title: `${normalizePair(invalidationEvent.ticker || invalidationEvent.symbol) || "Active chart"} invalidation signal`, detail: `${String(invalidationEvent.event || invalidationEvent.event_type).replaceAll("_", " ")} received from the authenticated TradingView webhook`, recordId: invalidationEvent.id || null });
 
   const activePair = data.sessionState?.activePair || null;
   const activeSetup = data.sessionState?.activeSetup || null;
@@ -2793,6 +2874,7 @@ async function handleJarvis(request, env) {
     } : null,
     workspace: { focusId: toolData.workspace?.focusId || null, contexts: Array.isArray(toolData.workspace?.contexts) ? toolData.workspace.contexts.slice(0, 8) : [] },
     recentJourney: journeyFromJournal(journalRows, toolData.sessionState?.activePair || null).slice(0, 10),
+    contextGraph: buildJarvisContextGraph(toolData),
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
     relevantMemories,
     styleExamples,
@@ -3143,16 +3225,17 @@ async function handleRoutine(request, env) {
     if (owners.length !== 1) return json({ error: "Jarvis could not identify one unambiguous Journaly owner for this routine." }, 503);
     userId = owners[0];
   }
-  const read = async (table, select) => {
-    const response = await fetch(`${baseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}&user_id=eq.${encodeURIComponent(userId)}&order=updated_at.desc&limit=200`, { headers });
+  const read = async (table, select, order = "updated_at.desc") => {
+    const response = await fetch(`${baseUrl}/rest/v1/${table}?select=${encodeURIComponent(select)}&user_id=eq.${encodeURIComponent(userId)}&order=${encodeURIComponent(order)}&limit=200`, { headers });
     if (!response.ok) throw new Error(`Could not read ${table}`);
     return response.json();
   };
   try {
-    const [forecasts, trades, journals] = await Promise.all([
+    const [forecasts, trades, journals, tradingViewEvents] = await Promise.all([
       read("trade_decisions", "id,decision_date,decision_time,pair,setup,direction,status,outcome,result_r,notes,created_at,updated_at"),
       read("trades", "id,trade_date,trade_time,pair,setup,direction,mae,mae_pips,result,notes,trade_quality,screenshot_url,finalized_at,created_at,updated_at"),
       read("journal_entries", "id,entry_date,content,updated_at"),
+      read("jarvis_tradingview_events", "id,ticker,timeframe,event,event_timestamp,price,received_at", "received_at.desc"),
     ]);
     const today = isoDateInManila();
     const routineUrl = new URL(request.url);
@@ -3169,7 +3252,7 @@ async function handleRoutine(request, env) {
     const proactivePreference = [...syncedMemories].reverse().find((memory) => memory?.category === "preference" && memory?.key === "companion_proactive_followups");
     if (String(proactivePreference?.value || "true").toLowerCase() === "false") return json({ ok: true, sent: false, reason: "proactive_followups_disabled" });
     const normalizedForecasts = forecasts.map((item) => ({ ...item, status: item.status === "Cancelled" ? "Invalidated" : item.status === "Missed" ? "Skipped" : item.status }));
-    const monitoring = buildMonitoringState({ trades, forecasts: normalizedForecasts, memories: syncedMemories });
+    const monitoring = buildMonitoringState({ trades, forecasts: normalizedForecasts, memories: syncedMemories, tradingViewEvents });
     const actionable = monitoring.items.filter((item) => item.priority !== "low");
     const snapshot = buildAutopilotSnapshot(trades, normalizedForecasts);
     const previousSnapshot = routineRecords.find(({ value }) => value?.snapshot)?.value?.snapshot || null;
@@ -3202,7 +3285,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, buildAutopilotSnapshot, buildMonitoringState, calculateJournalyPositionSize, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {

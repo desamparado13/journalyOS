@@ -46,7 +46,7 @@ import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, 
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
-import Jarvis, { JARVIS_CHART_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX } from "./Jarvis";
+import Jarvis, { JARVIS_ACTION_RECEIPT_PREFIX, JARVIS_CHART_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX } from "./Jarvis";
 import PushoverAlerts from "./PushoverAlerts";
 import logoUrl from "../assets/logo.svg";
 
@@ -2357,7 +2357,7 @@ export default function App() {
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const dailyJournalEntries = useMemo(
-    () => journalEntries.filter((entry) => entry.kind === "daily" && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix))),
+    () => journalEntries.filter((entry) => entry.kind === "daily" && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ACTION_RECEIPT_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix))),
     [journalEntries],
   );
   const forecastReviews = useMemo(() => {
@@ -3163,7 +3163,7 @@ export default function App() {
     const monthEnded = new Date(year, month, 1).getTime() <= new Date().setHours(0, 0, 0, 0);
     const resolvedForecasts = tradeDecisions.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && entry.status !== "Waiting");
     const reviewedForecasts = resolvedForecasts.filter((entry) => forecastReviews.has(entry.id));
-    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix)));
+    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ACTION_RECEIPT_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix)));
 
     return {
       actual,
@@ -3539,8 +3539,8 @@ export default function App() {
     }
   }
 
-  async function loadTrades() {
-    if (!currentUser || !supabase) return;
+  async function loadTrades(expectedTradeId?: string): Promise<boolean> {
+    if (!currentUser || !supabase) return false;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -3586,8 +3586,10 @@ export default function App() {
         }));
       });
       void hydrateTradeScreenshots(loadedTrades.map((trade) => trade.id));
+      return !expectedTradeId || loadedTrades.some((trade) => trade.id === expectedTradeId);
     } catch (error) {
       setSyncMessage(error instanceof Error ? `Could not load trades: ${error.message}` : "Could not load trades.");
+      return false;
     } finally {
       setIsSyncing(false);
     }
@@ -3940,8 +3942,8 @@ export default function App() {
     }
   }
 
-  async function loadTradeDecisions() {
-    if (!currentUser || !supabase) return;
+  async function loadTradeDecisions(expected?: { id: string; status: TradeDecisionStatus }): Promise<boolean> {
+    if (!currentUser || !supabase) return false;
 
     setIsSyncing(true);
     setSyncMessage("");
@@ -3959,12 +3961,15 @@ export default function App() {
 
       if (error) {
         setSyncMessage(`Could not load forecasts: ${error.message}`);
-        return;
+        return false;
       }
 
-      setTradeDecisions(((data || []) as TradeDecisionRow[]).map(toTradeDecision));
+      const loadedDecisions = ((data || []) as TradeDecisionRow[]).map(toTradeDecision);
+      setTradeDecisions(loadedDecisions);
+      return !expected || loadedDecisions.some((decision) => decision.id === expected.id && decision.status === expected.status);
     } catch (error) {
       setSyncMessage(error instanceof Error ? `Could not load forecasts: ${error.message}` : "Could not load forecasts.");
+      return false;
     } finally {
       setIsSyncing(false);
     }
@@ -4039,8 +4044,9 @@ export default function App() {
   }
 
   async function handleJarvisForecastChanged(forecast?: { id: string; status: TradeDecisionStatus }) {
-    await loadTradeDecisions();
+    const refreshed = await loadTradeDecisions(forecast);
     if (forecast?.id) void triggerForecastReview(forecast.id);
+    return refreshed;
   }
 
   function handleJarvisPositionSizingApply(action: {

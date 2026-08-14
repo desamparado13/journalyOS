@@ -12,6 +12,7 @@
     "analyze:jarvis-backtests": "node scripts/analyze-jarvis-backtests.mjs",
     "test:jarvis": "node scripts/test-jarvis-api.mjs",
     "test:trade-update": "node scripts/test-jarvis-trade-update.mjs",
+    "test:action-engine": "node scripts/test-jarvis-action-engine.mjs",
     "test:latency-routing": "node scripts/test-jarvis-latency-routing.mjs",
     "test:voice": "node scripts/test-jarvis-voice.mjs",
     "test:position-sizing": "node scripts/test-position-sizing.mjs",

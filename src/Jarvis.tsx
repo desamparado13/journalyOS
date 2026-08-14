@@ -71,9 +71,10 @@ export const JARVIS_JOURNEY_PREFIX = "[[JARVIS_JOURNEY_V1]]";
 export const JARVIS_CHART_PREFIX = "[[JARVIS_CHART_V1]]";
 export const JARVIS_ROUTINE_PREFIX = "[[JARVIS_ROUTINE_V1]]";
 export const JARVIS_PROACTIVE_PREFIX = "[[JARVIS_PROACTIVE_V1]]";
+export const JARVIS_ACTION_RECEIPT_PREFIX = "[[JARVIS_ACTION_RECEIPT_V1]]";
 export const JARVIS_GOOGLE_DRIVE_PREFIX = "[[JARVIS_GOOGLE_DRIVE_V1]]";
 const SUPABASE_FREE_DATABASE_BYTES = 500 * 1024 * 1024;
-const JARVIS_BRAIN_PREFIXES = [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX] as const;
+const JARVIS_BRAIN_PREFIXES = [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ACTION_RECEIPT_PREFIX] as const;
 
 type JarvisTrade = {
   id: string;
@@ -193,6 +194,16 @@ type JarvisEdgeCompanionState = {
   installed: boolean;
   connected: boolean;
   context: JarvisEdgeContext | null;
+};
+
+type JarvisActionReceipt = {
+  id: string;
+  action: "trade_create" | "trade_update" | "trade_finalize" | "forecast_create" | "forecast_update";
+  entityId: string;
+  verifiedAt: string;
+  databaseWriteVerified: true;
+  uiRefreshCompleted: true;
+  summary: string;
 };
 
 type JarvisWorkspace = {
@@ -349,8 +360,8 @@ type JarvisProps = {
   session: JarvisSession;
   journalEntries: Array<{ id: string; date: string; content: string; advice: string; image?: string; createdAt?: string; updatedAt?: string }>;
   positionSizing: JarvisPositionSizingContext;
-  onTradeCreated: () => void | Promise<void>;
-  onForecastChanged: (forecast?: { id: string; status: NonNullable<JarvisForecastAction["status"]> }) => void | Promise<void>;
+  onTradeCreated: (expectedTradeId?: string) => boolean | Promise<boolean>;
+  onForecastChanged: (forecast?: { id: string; status: NonNullable<JarvisForecastAction["status"]> }) => boolean | Promise<boolean>;
   onPositionSizingApply: (action: JarvisPositionSizingAction) => void;
   onPositionProfileApply: (action: JarvisPositionProfileAction) => void;
 };
@@ -1080,6 +1091,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [voiceReplies, setVoiceReplies] = useState(() => readVoiceReplies(userId));
   const [isListening, setIsListening] = useState(false);
   const [voicePhase, setVoicePhase] = useState<"idle" | "listening" | "transcribing">("idle");
+  const [continuousVoiceActive, setContinuousVoiceActive] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
@@ -1101,6 +1113,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [recentChanges, setRecentChanges] = useState<JarvisMonitorItem[]>([]);
   const [observationReady, setObservationReady] = useState(false);
   const [edgeCompanion, setEdgeCompanion] = useState<JarvisEdgeCompanionState>({ checked: false, installed: false, connected: false, context: null });
+  const [lastActionReceipt, setLastActionReceipt] = useState<JarvisActionReceipt | null>(() => decodeLatestInternal<JarvisActionReceipt>(journalEntries, JARVIS_ACTION_RECEIPT_PREFIX)?.value || null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1121,6 +1134,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceStopTimerRef = useRef<number | null>(null);
+  const continuousVoiceRef = useRef(false);
+  const isListeningRef = useRef(false);
+  const voicePhaseRef = useRef<"idle" | "listening" | "transcribing">("idle");
+  const isThinkingRef = useRef(false);
   const observationTimerRef = useRef<number | null>(null);
   const proactiveCheckinRef = useRef(new Set<string>());
   const isOpenRef = useRef(isOpen);
@@ -1213,6 +1230,32 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       });
     });
 
+    const recentTrades = latestFirst(trades).slice(0, 10);
+    const earlyExits = recentTrades.filter((trade) => /\b(?:cut|clos(?:e|ed)|exit(?:ed)?)\b[\s\S]{0,45}\b(?:early|too soon|fear|scared|afraid)\b/i.test(trade.notes));
+    if (earlyExits.length >= 2) {
+      items.push({
+        id: `behavior:early-exits:${earlyExits.map((trade) => trade.id).join("-")}`,
+        priority: earlyExits.length >= 3 ? "high" : "medium",
+        category: "trade_review",
+        title: "Repeated early exits",
+        detail: `${earlyExits.length} of your latest ${recentTrades.length} trades mention exiting early`,
+        prompt: "Review my recent early exits. Compare my saved notes and results, identify whether fear overrode the plan, and give me one concrete interruption rule for the next trade.",
+      });
+    }
+
+    const profileRisks = positionSizing.profiles.map((profile) => profile.riskPercent).filter((risk) => Number.isFinite(risk) && risk > 0).sort((a, b) => a - b);
+    const typicalRisk = profileRisks.length ? profileRisks[Math.floor(profileRisks.length / 2)] * (positionSizing.profileMode === "half" ? 0.5 : 1) : null;
+    if (positionSizing.riskPercent !== null && typicalRisk !== null && positionSizing.riskPercent >= typicalRisk * 1.5 && positionSizing.riskPercent - typicalRisk >= 0.25) {
+      items.push({
+        id: `risk:calculator:${positionSizing.riskPercent}:${typicalRisk}`,
+        priority: positionSizing.riskPercent >= typicalRisk * 2 ? "high" : "medium",
+        category: "context",
+        title: "Position risk above profile",
+        detail: `${positionSizing.riskPercent.toFixed(2)}% calculator risk versus ${typicalRisk.toFixed(2)}% active profile baseline`,
+        prompt: "Check my current position sizing against my active risk profile and explain the exact risk anomaly before I proceed.",
+      });
+    }
+
     if (activeContext?.pair && !items.some((item) => item.title.startsWith(activeContext.pair || ""))) {
       items.push({
         id: `context:${activeContext.pair}:${activeContext.setup || "general"}`,
@@ -1226,7 +1269,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
     const priority = { high: 0, medium: 1, low: 2 } as const;
     return items.sort((a, b) => priority[a.priority] - priority[b.priority] || a.title.localeCompare(b.title)).slice(0, 12);
-  }, [activeContext?.pair, activeContext?.setup, forecasts, missionMemories, monitorClock, recentChanges, trades]);
+  }, [activeContext?.pair, activeContext?.setup, forecasts, missionMemories, monitorClock, positionSizing.profileMode, positionSizing.profiles, positionSizing.riskPercent, recentChanges, trades]);
   const recentFeedback = useMemo(() => journalEntries.filter((entry) => entry.content.startsWith(JARVIS_FEEDBACK_PREFIX) && Date.now() - new Date(entry.createdAt || entry.updatedAt || entry.date).getTime() <= 7 * 86400000), [journalEntries]);
   const learningRecords = useMemo(() => {
     const records = [...journalEntries.map(decodeLearningRecord).filter((record): record is JarvisLearningRecord => Boolean(record)), ...sessionLearningRecords];
@@ -1364,6 +1407,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   useEffect(() => {
     isOpenRef.current = isOpen;
   }, [isOpen]);
+
+  useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+  useEffect(() => { voicePhaseRef.current = voicePhase; }, [voicePhase]);
+  useEffect(() => { isThinkingRef.current = isThinking; }, [isThinking]);
 
   useEffect(() => {
     const storedMessages = messages.slice(-30).map(({ imagePreview: _imagePreview, ...message }) => message);
@@ -1839,6 +1886,17 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     });
   }
 
+  async function recordVerifiedAction(action: JarvisActionReceipt["action"], entityId: string, summary: string) {
+    if (!supabase) return;
+    const receipt: JarvisActionReceipt = { id: crypto.randomUUID(), action, entityId, verifiedAt: new Date().toISOString(), databaseWriteVerified: true, uiRefreshCompleted: true, summary };
+    setLastActionReceipt(receipt);
+    await supabase.from("journal_entries").insert({
+      user_id: userId, entry_date: receipt.verifiedAt.slice(0, 10), content: `${JARVIS_ACTION_RECEIPT_PREFIX}\n${JSON.stringify(receipt)}`,
+      advice: `Verified Jarvis action receipt: ${summary}`, image_url: "", pair: activeContext?.pair || null,
+      related_trade_id: action.startsWith("trade_") ? entityId : null, related_discipline_id: action.startsWith("forecast_") ? entityId : null, updated_at: receipt.verifiedAt,
+    });
+  }
+
   function forgetMemory(item: JarvisMemoryState["memories"][number]) {
     const update: JarvisMemoryUpdate = { operation: "delete", category: item.category, key: item.key, value: "", confidence: 1, source: "explicit", sensitivity: item.sensitivity || "normal", followUpAt: null };
     setMemory((current) => applyMemoryUpdates(current, [update]));
@@ -1934,19 +1992,19 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const blob = await response.blob();
       const audio = new Audio(URL.createObjectURL(blob));
       audioRef.current = audio;
-      audio.onended = () => { URL.revokeObjectURL(audio.src); setSpeakingMessageId(null); };
-      audio.onerror = () => setSpeakingMessageId(null);
+      audio.onended = () => { URL.revokeObjectURL(audio.src); setSpeakingMessageId(null); resumeContinuousVoice(); };
+      audio.onerror = () => { setSpeakingMessageId(null); resumeContinuousVoice(); };
       await audio.play();
       return;
     } catch {
       // Browser speech keeps Jarvis available if the dedicated voice endpoint is temporarily unavailable.
     }
-    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") { setSpeakingMessageId(null); return; }
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") { setSpeakingMessageId(null); resumeContinuousVoice(); return; }
     const utterance = new SpeechSynthesisUtterance(message.text);
     utterance.rate = 0.96;
     utterance.pitch = 0.92;
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
+    utterance.onend = () => { setSpeakingMessageId(null); resumeContinuousVoice(); };
+    utterance.onerror = () => { setSpeakingMessageId(null); resumeContinuousVoice(); };
     window.speechSynthesis.speak(utterance);
   }
 
@@ -1990,6 +2048,19 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     else speechRecognitionRef.current?.stop();
   }
 
+  function stopContinuousVoice() {
+    continuousVoiceRef.current = false;
+    setContinuousVoiceActive(false);
+    stopVoiceInput();
+  }
+
+  function resumeContinuousVoice() {
+    window.setTimeout(() => {
+      if (!continuousVoiceRef.current || isListeningRef.current || voicePhaseRef.current !== "idle" || isThinkingRef.current) return;
+      void toggleVoiceInput(true);
+    }, 450);
+  }
+
   async function transcribeVoice(blob: Blob) {
     setIsListening(false);
     setVoicePhase("transcribing");
@@ -2026,12 +2097,20 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }
   }
 
-  async function toggleVoiceInput() {
-    if (voicePhase === "transcribing") return;
-    if (isListening) {
+  async function toggleVoiceInput(fromContinuousLoop = false) {
+    if (voicePhaseRef.current === "transcribing") return;
+    if (isListeningRef.current) {
+      if (!fromContinuousLoop) stopContinuousVoice();
       stopVoiceInput();
       return;
     }
+    if (!fromContinuousLoop && memory.companionSettings.handsFreeVoice) {
+      continuousVoiceRef.current = true;
+      setContinuousVoiceActive(true);
+      setVoiceReplies(true);
+    }
+    audioRef.current?.pause();
+    window.speechSynthesis.cancel();
     setAttachmentError("Requesting microphone access…");
     if (typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia) {
       try {
@@ -2043,6 +2122,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         voiceChunksRef.current = [];
         recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
         recorder.onerror = () => {
+          stopContinuousVoice();
           setAttachmentError("The microphone stopped unexpectedly. Please try again.");
           setIsListening(false);
           setVoicePhase("idle");
@@ -2061,6 +2141,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         voiceStopTimerRef.current = window.setTimeout(stopVoiceInput, 45_000);
         return;
       } catch (error) {
+        stopContinuousVoice();
         const name = error instanceof DOMException ? error.name : "";
         setAttachmentError(name === "NotAllowedError"
           ? "Microphone access is blocked. Allow the microphone for Journaly in your browser settings, then try again."
@@ -2100,13 +2181,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           screenshot_url: finalScreenshot,
           finalized_at: finalizedAt,
           updated_at: now.toISOString(),
-        }).eq("id", existing.id).eq("user_id", userId).is("finalized_at", null).select("id").maybeSingle();
+        }).eq("id", existing.id).eq("user_id", userId).is("finalized_at", null).select("id,pnl_r,result,finalized_at,screenshot_url,notes,mae").maybeSingle();
         if (error) throw error;
         if (!updatedTrade) throw new Error("That trade was finalized or removed before the update could be saved.");
+        if (Number(updatedTrade.pnl_r) !== pnl || updatedTrade.result !== result || String(updatedTrade.finalized_at || "") !== String(finalizedAt || "")) throw new Error("Journaly returned a trade state that did not match the requested update.");
         setTradeDraft(null);
         setTradeDraftImage(null);
-        await onTradeCreated();
-        setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: finalizedAt ? "Trade finalized" : "Trade updated", text: finalizedAt ? `${pair} now shows ${formatR(pnl)} (${result}) with its final screenshot and notes. The journal record is now locked.` : `${pair} now shows ${formatR(pnl)} (${result}). It remains pending final until you add the required screenshot and finalize it.` }]);
+        if (!await onTradeCreated(existing.id)) throw new Error("The trade was saved, but Journaly could not verify the refreshed trade row yet.");
+        await recordVerifiedAction(finalizedAt ? "trade_finalize" : "trade_update", existing.id, `${pair} ${formatR(pnl)} ${result}`);
+        setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: finalizedAt ? "Trade finalized · Verified" : "Trade updated · Verified", text: finalizedAt ? `${pair} now shows ${formatR(pnl)} (${result}) with its final screenshot and notes. The database returned the saved row, the journal refreshed, and the record is now locked.` : `${pair} now shows ${formatR(pnl)} (${result}). The database returned the saved row and the journal refreshed. It remains pending final until you add the required screenshot.` }]);
         return true;
       }
       const { data, error } = await supabase.from("trades").insert({
@@ -2128,11 +2211,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         duration_minutes: null,
         finalized_at: null,
         updated_at: now.toISOString(),
-      }).select("id").single();
+      }).select("id,pair,setup,direction,pnl_r,result").single();
       if (error) {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: `Journaly could not save that trade: ${error.message}` }]);
         return false;
       }
+      if (!data?.id || data.pair !== pair || data.setup !== draft.setup || data.direction !== direction || Number(data.pnl_r) !== pnl || data.result !== result) throw new Error("Journaly returned a trade state that did not match the requested new trade.");
       setTradeDraft(null);
       setTradeDraftImage(null);
       const linkedForecast = forecasts.find((forecast) => forecast.id === activeContext?.forecastId)
@@ -2145,8 +2229,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           advice: "Jarvis linked this forecast to its executed trade.", image_url: "", pair, related_trade_id: data.id, related_discipline_id: linkedForecast.id, updated_at: now.toISOString(),
         });
       }
-      await onTradeCreated();
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade added", text: `${pair} ${direction.toLowerCase()} is now in your Journaly trade log. I used only the fields available in Add Trade.` }]);
+      if (!await onTradeCreated(data.id)) throw new Error("The trade was saved, but Journaly could not verify the refreshed trade row yet.");
+      await recordVerifiedAction("trade_create", data.id, `${pair} ${direction} trade created`);
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade added · Verified", text: `${pair} ${direction.toLowerCase()} is now in your Journaly trade log. The database returned the saved row and the journal refreshed.` }]);
       return true;
     } catch (error) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: error instanceof Error ? error.message : "Journaly could not save that trade." }]);
@@ -2197,8 +2282,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       } else if (draft.forecastId && activeContext?.forecastId === draft.forecastId && !["Waiting", "Taken"].includes(draft.status)) {
         setAndSyncActiveContext(null);
       }
-      await onForecastChanged(data?.id ? { id: data.id, status: draft.status } : undefined);
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: actionLabel, text: draft.intent === "create" ? `${draft.pair} ${draft.direction?.toLowerCase()} is now waiting in Forecasts.` : `The ${draft.pair || "selected"} forecast is now marked ${draft.status}.` }]);
+      if (!data?.id || String(data.status || "").toLowerCase() !== String(persistedForecastStatus(draft.status)).toLowerCase()) throw new Error("Journaly returned a forecast state that did not match the requested action.");
+      if (!await onForecastChanged(data?.id ? { id: data.id, status: draft.status } : undefined)) throw new Error("The forecast was saved, but Journaly could not verify the refreshed forecast list yet.");
+      await recordVerifiedAction(draft.intent === "create" ? "forecast_create" : "forecast_update", data.id, `${draft.pair || savedForecast?.pair || "Forecast"} ${draft.status}`);
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: `${actionLabel} · Verified`, text: draft.intent === "create" ? `${draft.pair} ${draft.direction?.toLowerCase()} is now waiting in Forecasts. The database returned the saved row and the forecast list refreshed.` : `The ${draft.pair || "selected"} forecast is now marked ${draft.status}. The database returned the saved row and the forecast list refreshed.` }]);
     } catch (error) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Forecast not updated", text: error instanceof Error ? error.message : "Journaly could not save that forecast action." }]);
     } finally {
@@ -2573,7 +2660,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           <header className="jarvis-ambient-header">
             <div><span className="jarvis-ambient-core"><BrainCircuit size={17} /></span><span><strong>JARVIS</strong><small><i /> Ambient link online</small></span></div>
             <nav aria-label="Ambient Jarvis controls">
-              <button type="button" title={voiceReplies ? "Mute spoken replies" : "Speak replies aloud"} aria-label={voiceReplies ? "Mute spoken replies" : "Speak replies aloud"} className={voiceReplies ? "is-active" : ""} onClick={() => setVoiceReplies((current) => !current)}>{voiceReplies ? <Volume2 size={16} /> : <VolumeX size={16} />}</button>
+              <button type="button" title={continuousVoiceActive ? "Stop continuous voice" : "Start continuous voice"} aria-label={continuousVoiceActive ? "Stop continuous voice" : "Start continuous voice"} className={continuousVoiceActive ? "is-active" : ""} onClick={() => continuousVoiceActive ? stopContinuousVoice() : void toggleVoiceInput(false)}>{continuousVoiceActive ? <MicOff size={16} /> : <Mic size={16} />}</button>
               <button type="button" title="Open Jarvis Command Center" aria-label="Open Jarvis Command Center" onClick={() => setIsAmbient(false)}><Maximize2 size={16} /></button>
               <button type="button" title="Close Jarvis" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={17} /></button>
             </nav>
@@ -2592,7 +2679,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           </div>
           {(tradeDraft || forecastDraft || positionSizingDraft || positionProfileDraft) ? <button className="jarvis-ambient-action" type="button" onClick={() => setIsAmbient(false)}><Check size={14} /> Action ready · review in Command Center <ChevronRight size={14} /></button> : null}
           <form className="jarvis-ambient-composer" onSubmit={submitPrompt}>
-            <button className={`jarvis-ambient-mic${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : "Speak to Jarvis"} onClick={toggleVoiceInput}>{isListening ? <MicOff size={17} /> : voicePhase === "transcribing" ? <RefreshCcw size={17} /> : <Mic size={17} />}</button>
+            <button className={`jarvis-ambient-mic${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : "Speak to Jarvis"} onClick={() => void toggleVoiceInput(false)}>{isListening ? <MicOff size={17} /> : voicePhase === "transcribing" ? <RefreshCcw size={17} /> : <Mic size={17} />}</button>
             {attachedImage ? <div className="jarvis-ambient-attachment"><img src={attachedImage.dataUrl} alt="Pasted chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove pasted image"><X size={13} /></button></div> : null}
             <textarea ref={compactInputRef} rows={1} value={prompt} placeholder={isListening ? "Listening…" : attachedImage ? "Ask Jarvis about this chart…" : "Talk to Jarvis while you work…"} onChange={(event) => setPrompt(event.target.value)} onPaste={pasteImage} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askJarvis(prompt); } }} />
             {isThinking ? <button className="jarvis-ambient-send is-stop" type="button" aria-label="Stop Jarvis" onClick={() => requestAbortRef.current?.abort()}><Square size={14} /></button> : <button className="jarvis-ambient-send" type="submit" disabled={!prompt.trim() && !attachedImage} aria-label="Send to Jarvis"><ArrowUp size={17} /></button>}
@@ -2643,7 +2730,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   <button type="button" aria-pressed={memory.companionSettings.sensitiveMemoryEnabled} className={memory.companionSettings.sensitiveMemoryEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("sensitiveMemoryEnabled", !memory.companionSettings.sensitiveMemoryEnabled)}><span><strong>Sensitive memory</strong><small>{memory.companionSettings.sensitiveMemoryEnabled ? "Allowed when relevant" : "Not added to durable memory"}</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.proactiveFollowups} className={memory.companionSettings.proactiveFollowups ? "is-enabled" : ""} onClick={() => updateCompanionSetting("proactiveFollowups", !memory.companionSettings.proactiveFollowups)}><span><strong>Natural follow-ups</strong><small>Remember to ask how things went</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.autonomyMode === "assist"} className={memory.companionSettings.autonomyMode === "assist" ? "is-enabled" : ""} onClick={() => updateCompanionSetting("autonomyMode", memory.companionSettings.autonomyMode === "assist" ? "observe" : "assist")}><span><strong>Assisted autonomy</strong><small>{memory.companionSettings.autonomyMode === "assist" ? "Fill calculators and profiles for you" : "Suggest changes, then wait for approval"}</small></span><i /></button>
-                  <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) setVoiceReplies(true); }}><span><strong>Spoken answers</strong><small>{memory.companionSettings.handsFreeVoice ? "Speech sends instantly and Jarvis answers aloud" : "Speech sends instantly; Jarvis answers in text"}</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) { setVoiceReplies(true); continuousVoiceRef.current = true; setContinuousVoiceActive(true); void toggleVoiceInput(true); } else stopContinuousVoice(); }}><span><strong>Continuous voice</strong><small>{continuousVoiceActive ? "Listening → answering aloud → listening again" : memory.companionSettings.handsFreeVoice ? "Ready — tap a microphone to begin" : "Hands-free turn-taking is off"}</small></span><i /></button>
                 </div>
                 {memory.memories.length ? memory.memories.slice().reverse().map((item) => <div className="jarvis-memory-item" key={`${item.category}:${item.key}`}><span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}</small><em>{item.category.replaceAll("_", " ")} · {item.source === "inferred" ? "learned pattern" : "you told Jarvis"}{item.followUpAt ? ` · follow up ${new Date(item.followUpAt).toLocaleDateString()}` : ""}{Date.now() - new Date(item.updatedAt).getTime() > 90 * 86400000 ? " · review" : ""}</em></span><div><button type="button" title="Edit this memory" aria-label={`Edit ${item.key.replaceAll("_", " ")}`} onClick={() => editMemory(item)}><RefreshCcw size={12} /></button><button type="button" title="Forget this memory" aria-label={`Forget ${item.key.replaceAll("_", " ")}`} onClick={() => forgetMemory(item)}><Trash2 size={13} /></button></div></div>) : <p>No durable personal memories yet. Say “remember this” whenever something matters.</p>}
                 {memory.memories.some((item) => !["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"].includes(item.category)) ? <button className="jarvis-forget-personal" type="button" onClick={forgetAllPersonalMemories}><Trash2 size={12} /> Forget all personal memories</button> : null}
@@ -2683,6 +2770,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
                 <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} memor{memory.memories.length === 1 ? "y" : "ies"} · private controls · cross-device sync</small></p></div>
                 <div><BookOpenCheck size={13} /><p><strong>Learning archive</strong><small>{learningSyncState === "saving" ? "Saving latest insight…" : learningSyncState === "error" ? "Latest insight stayed in chat" : "Summaries synced · images stay lightweight"}</small></p></div>
+                <div className={lastActionReceipt ? "" : "is-pending"}>{lastActionReceipt ? <ShieldCheck size={13} /> : <CircleDot size={13} />}<p><strong>Verified action engine</strong><small>{lastActionReceipt ? `${lastActionReceipt.summary} · DB confirmed + UI refreshed` : "No verified action in this session yet"}</small></p></div>
                 <div className={edgeCompanion.connected ? "" : "is-pending"}>{edgeCompanion.connected ? <Radio size={13} /> : <CircleDot size={13} />}<p><strong>Authorized Edge context</strong><small>{edgeCompanion.connected && edgeCompanion.context ? `${edgeCompanion.context.pair || "TradingView"}${edgeCompanion.context.timeframe ? ` · ${edgeCompanion.context.timeframe}` : ""} · structured context only` : "No TradingView tab shared"}</small></p></div>
               </div>
 
@@ -2842,7 +2930,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <form className={`jarvis-composer${attachedImage ? " has-attachment" : ""}`} onSubmit={submitPrompt}>
                 <input ref={fileInputRef} className="jarvis-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseImage} />
                 <button className="jarvis-attach" type="button" title="Attach a chart screenshot" aria-label="Attach a chart screenshot" onClick={() => fileInputRef.current?.click()}><ImagePlus size={19} /></button>
-                <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-pressed={isListening} onClick={toggleVoiceInput}>{isListening ? <MicOff size={18} /> : voicePhase === "transcribing" ? <RefreshCcw size={18} /> : <Mic size={18} />}</button>
+                <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-pressed={isListening} onClick={() => void toggleVoiceInput(false)}>{isListening ? <MicOff size={18} /> : voicePhase === "transcribing" ? <RefreshCcw size={18} /> : <Mic size={18} />}</button>
                 {attachedImage ? <div className="jarvis-attachment-preview"><img src={attachedImage.dataUrl} alt="Chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove attached image"><X size={14} /></button></div> : null}
                 <textarea
                   ref={inputRef}
