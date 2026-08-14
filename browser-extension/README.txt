@@ -1,7 +1,7 @@
 JOURNALY EDGE COMPANION
 
 1. Extract this ZIP to a permanent folder.
-2. In Microsoft Edge, open edge://extensions.
+2. In Microsoft Edge, open edge://extensions. In Brave, open brave://extensions.
 3. Turn on Developer mode, choose Load unpacked, and select that folder.
 4. Open the TradingView chart you want Jarvis to observe.
 5. Click the Journaly Edge Companion extension icon. The ON badge means that one tab is shared.

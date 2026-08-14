@@ -1,6 +1,7 @@
 const STATE_KEY = "journalyEdgeCompanionStateV1";
 const JOURNALY_URLS = [
   "https://journaly-os-daytrade.sandaraslark.chatgpt.site/*",
+  "https://journaly-os.vercel.app/*",
   "http://localhost/*",
   "http://127.0.0.1/*",
 ];

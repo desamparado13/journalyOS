@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Journaly Edge Companion",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Explicitly share one TradingView tab with Jarvis in Journaly OS.",
   "permissions": ["activeTab", "scripting", "storage", "tabs"],
   "host_permissions": [
     "https://www.tradingview.com/*",
     "https://*.tradingview.com/*",
-    "https://journaly-os-daytrade.sandaraslark.chatgpt.site/*"
+    "https://journaly-os-daytrade.sandaraslark.chatgpt.site/*",
+    "https://journaly-os.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -19,6 +20,7 @@
     {
       "matches": [
         "https://journaly-os-daytrade.sandaraslark.chatgpt.site/*",
+        "https://journaly-os.vercel.app/*",
         "http://localhost/*",
         "http://127.0.0.1/*"
       ],
