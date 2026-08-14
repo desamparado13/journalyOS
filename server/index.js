@@ -95,13 +95,28 @@ JARVIS CONVERSATION RELEVANCE
 - Do not repeatedly reassure the user that old context is stale. Once context is absent, simply stop mentioning it.`;
 const JARVIS_MEMORY_INSTRUCTIONS = `
 JARVIS SELECTIVE MEMORY
-- Create memoryUpdates only for durable information that will still be useful in future conversations: an explicit preference, correction, personal term, stable risk or trading rule, recurring mistake acknowledged by the user, or meaningful long-term goal.
+- Jarvis is both Pot's trusted real-life companion and trading partner. Personal conversation is a first-class job; never force it back toward markets or Journaly.
+- Create memoryUpdates only for durable information that will still be useful in future conversations: identity, preferences, relationships, important life events or dates, routines, interests, personal values, ongoing projects, wellbeing context, explicit boundaries, corrections, personal terms, stable trading/risk rules, recurring acknowledged mistakes, or meaningful goals.
 - Do not store current market conditions, one trade's temporary state, guesses about the user, casual emotions, greetings, or facts already present in authenticated records.
-- A direct statement such as "remember this", "from now on", "I always", "I prefer", or a correction of Jarvis may use confidence 0.9-1.0. An inferred recurring preference must have repeated evidence and should remain below 0.85. Return no update when uncertain.
+- Read companionSettings before producing memoryUpdates. When personalMemoryEnabled=false, return no personal memory updates. When inferenceMode=explicit_only, store only direct facts or explicit requests and set source=explicit. In balanced mode, a genuinely recurring pattern may use source=inferred, but only after repeated evidence and below 0.85 confidence.
+- Tag health, grief, relationship conflict, finances, trauma, religion, sexuality, or similarly private information as sensitivity=sensitive. When sensitiveMemoryEnabled=false, do not retain it even if useful; acknowledge it naturally in the current conversation without storing it.
+- Never retain passwords, API keys, authentication codes, precise financial-account credentials, private keys, or other secrets. Never infer a medical or mental-health diagnosis.
+- A direct statement such as "remember this", "from now on", "I always", "I prefer", or a correction of Jarvis may use confidence 0.9-1.0 and source=explicit. An inferred recurring preference must have repeated evidence and should remain below 0.85. Return no update when uncertain.
+- followUpAt is optional. Use an ISO-8601 timestamp only when the user mentions a concrete future event or asks Jarvis to check back; otherwise return null. Do not invent a date. Proactive follow-up is allowed only when proactiveFollowups=true.
 - When the user corrects a stored belief, replace or delete the conflicting memory rather than retaining both.
-- Memory improves continuity; it never overrides visible chart evidence, authenticated Journaly data, or the user's latest instruction.`;
+- Use personal memories naturally: remember names and ongoing stories, ask a relevant follow-up when it fits, celebrate wins, sit with difficult moments, and be honest when context is missing. Do not list memories back mechanically, interrogate the user, manufacture intimacy, claim consciousness, or imply that Jarvis replaces human relationships.
+- Memory improves continuity; it never overrides the user's latest instruction, visible chart evidence, or authenticated Journaly data.`;
+const JARVIS_COMPANION_INSTRUCTIONS = `
+JARVIS LIFE COMPANION
+- For personal_conversation and casual_conversation, respond like a warm, highly capable long-term friend: attentive, grounded, natural, occasionally playful, and willing to have an opinion without becoming controlling.
+- Stay with the user's real topic. Work, family, relationships, routines, hobbies, ambitions, hard days, celebrations, and ordinary life are all valid Jarvis conversations with no trading reference required.
+- Use relevant personal context subtly. A good follow-up sounds like "How did the interview go?" rather than "My memory database says you had an interview."
+- Distinguish remembering from assuming. If a detail may have changed, ask naturally instead of asserting it.
+- Support emotion without pretending to be a therapist or diagnosing. For immediate danger, self-harm, abuse, or a medical emergency, prioritize real-world human or emergency help.
+- Challenge Pot respectfully when honesty is more useful than agreement. Never manipulate dependence, guilt the user for leaving, or claim to be their only or real human friend.
+- Companion warmth must not weaken trading evidence, position-sizing arithmetic, privacy rules, or confirmation requirements.`;
 const JARVIS_SELF_REVIEW_INSTRUCTIONS = `
-Before finalizing, silently verify that the answer matches the user's latest question, preserves the active forecast or trade context, separates observed facts from inference, avoids invented live-market awareness, and sounds like a concise trading partner rather than a compliance report. Correct the answer before returning it if any check fails. Do not narrate this checklist unless asked.`;
+Before finalizing, silently verify that the answer matches the user's latest question, stays in personal conversation when the user is talking about life, preserves active forecast or trade context only when relevant, separates remembered facts from inference, avoids invented live-market awareness, respects companion privacy settings, and sounds like a natural trusted companion rather than a compliance report. Correct the answer before returning it if any check fails. Do not narrate this checklist unless asked.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -194,17 +209,20 @@ const RESPONSE_SCHEMA = {
     },
     memoryUpdates: {
       type: "array",
-      maxItems: 4,
+      maxItems: 6,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["operation", "category", "key", "value", "confidence"],
+        required: ["operation", "category", "key", "value", "confidence", "source", "sensitivity", "followUpAt"],
         properties: {
           operation: { type: "string", enum: ["upsert", "delete"] },
-          category: { type: "string", enum: ["identity", "preference", "trading_rule", "risk_rule", "mistake", "goal", "terminology", "ui_preference"] },
+          category: { type: "string", enum: ["identity", "preference", "relationship", "life_event", "important_date", "routine", "interest", "personal_value", "project", "wellbeing", "boundary", "trading_rule", "risk_rule", "mistake", "goal", "terminology", "ui_preference"] },
           key: { type: "string", maxLength: 80 },
           value: { type: "string", maxLength: 800 },
           confidence: { type: "number", minimum: 0, maximum: 1 },
+          source: { type: "string", enum: ["explicit", "inferred"] },
+          sensitivity: { type: "string", enum: ["normal", "sensitive"] },
+          followUpAt: { type: ["string", "null"], maxLength: 40 },
         },
       },
     },
@@ -433,7 +451,8 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (forecastFollowUp || /\b(?:forecast|watchlist|watching|invalidated|skipped\s+idea)\b/.test(text)) return "forecast_management";
   if (/\b(?:log|add|record|save)\b.*\b(?:trade|position)\b|\b(?:taking|entering|opening)\b.*\b(?:trade|position|long|short)\b/.test(text)) return "trade_logging";
   if (/^(?:hey|hi|hello|yo|thanks|thank\s+you|good\s+(?:morning|afternoon|evening)|what's\s+up|whats\s+up|how\s+are\s+you)[!,.\s]*$/.test(text)) return "casual_conversation";
-  return "general_trading_conversation";
+  const tradingLanguage = /\b(?:trade|trading|market|chart|pair|forex|setup|entry|stop|target|position|risk|lot|pips?|backtest|forecast|journal|audusd|eurusd|eurjpy|audjpy|gbpusd|nzdjpy|euraud)\b/.test(text);
+  return tradingLanguage ? "general_trading_conversation" : "personal_conversation";
 }
 
 function detectChartInteractionMode(question, chartImage) {
@@ -444,15 +463,18 @@ function detectChartInteractionMode(question, chartImage) {
 function selectRelevantMemories(memories, question, conversationMode, limit = 12) {
   if (!Array.isArray(memories)) return [];
   const terms = new Set(String(question || "").toLowerCase().match(/[a-z0-9]{3,}/g) || []);
-  const alwaysRelevant = new Set(["identity", "preference", "risk_rule", "trading_rule", "terminology"]);
+  const personalMode = conversationMode === "personal_conversation" || conversationMode === "casual_conversation";
+  const alwaysRelevant = new Set(["identity", "preference", "personal_value", "boundary", "risk_rule", "trading_rule", "terminology"]);
   return memories
     .filter((memory) => memory && memory.operation !== "delete" && typeof memory.value === "string")
     .map((memory, index) => {
       const haystack = `${memory.category || ""} ${memory.key || ""} ${memory.value}`.toLowerCase();
       const tokenMatches = [...terms].filter((term) => haystack.includes(term)).length;
       const modeBoost = conversationMode === "active_trade_management" && ["risk_rule", "trading_rule", "mistake"].includes(memory.category) ? 3 : 0;
+      const personalBoost = personalMode && ["relationship", "life_event", "important_date", "routine", "interest", "personal_value", "project", "wellbeing", "goal", "boundary"].includes(memory.category) ? 3 : 0;
+      const followUpBoost = personalMode && memory.followUpAt && new Date(memory.followUpAt).getTime() <= Date.now() ? 5 : 0;
       const stableBoost = alwaysRelevant.has(memory.category) ? 2 : 0;
-      return { memory, score: tokenMatches * 4 + modeBoost + stableBoost + index / Math.max(memories.length, 1) };
+      return { memory, score: tokenMatches * 4 + modeBoost + personalBoost + followUpBoost + stableBoost + index / Math.max(memories.length, 1) };
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
@@ -485,7 +507,7 @@ function isJarvisInternalJournalContent(content) {
   return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX].some((prefix) => value.startsWith(prefix));
 }
 
-function syncedMemoriesFromJournal(journals, limit = 40) {
+function syncedMemoriesFromJournal(journals, limit = 120) {
   if (!Array.isArray(journals)) return [];
   const updates = journals.flatMap((entry) => {
     const content = String(entry?.content || "");
@@ -2164,6 +2186,12 @@ async function handleJarvis(request, env) {
       username,
       preferredName: typeof suppliedProfile?.preferredName === "string" ? suppliedProfile.preferredName.slice(0, 80) : null,
       preferences: suppliedProfile?.preferences || {},
+      companionSettings: {
+        personalMemoryEnabled: suppliedProfile?.companionSettings?.personalMemoryEnabled !== false,
+        inferenceMode: suppliedProfile?.companionSettings?.inferenceMode === "explicit_only" ? "explicit_only" : "balanced",
+        sensitiveMemoryEnabled: suppliedProfile?.companionSettings?.sensitiveMemoryEnabled === true,
+        proactiveFollowups: suppliedProfile?.companionSettings?.proactiveFollowups !== false,
+      },
   };
   const journalRows = authenticatedJournaly?.journals || [];
   const clientMemories = Array.isArray(suppliedProfile?.memories) ? suppliedProfile.memories.slice(-40) : [];
@@ -2184,9 +2212,18 @@ async function handleJarvis(request, env) {
     activeForecastId: suppliedSessionState.activeForecastId ?? syncedSessionState.forecastId ?? null,
     activeDataSource: suppliedSessionState.activeDataSource ?? syncedSessionState.dataSource ?? null,
   } : suppliedSessionState;
+  const tradingMemoryCategories = new Set(["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"]);
+  const visibleMemories = [...mergedMemories.values()].filter((memory) => {
+    if (memory?.operation === "delete") return false;
+    if (memory?.category === "preference" && String(memory?.key || "").startsWith("companion_")) return false;
+    if (!profile.companionSettings.personalMemoryEnabled && !tradingMemoryCategories.has(memory?.category)) return false;
+    if (!profile.companionSettings.sensitiveMemoryEnabled && memory?.sensitivity === "sensitive") return false;
+    if (profile.companionSettings.inferenceMode === "explicit_only" && memory?.source === "inferred") return false;
+    return true;
+  });
   const toolData = {
     profile,
-    memories: [...mergedMemories.values()].slice(-40),
+    memories: visibleMemories.slice(-120),
     trades: authenticatedJournaly?.trades || (Array.isArray(journalData?.trades) ? journalData.trades : Array.isArray(journalData?.recentTrades) ? journalData.recentTrades : []),
     monthlyTrades: authenticatedJournaly?.trades || (Array.isArray(journalData?.monthlyTrades) ? journalData.monthlyTrades : Array.isArray(journalData?.trades) ? journalData.trades : []),
     monthlyLedgerSource: authenticatedJournaly?.trades ? "authenticated_database" : "authenticated_client_snapshot",
@@ -2296,7 +2333,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
+      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: 1100,
       store: false,

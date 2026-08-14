@@ -1552,7 +1552,7 @@ label span,
 .jarvis-rail nav button.is-active { border-color: rgba(103, 232, 249, 0.16); color: #dcfaff; background: linear-gradient(90deg, rgba(6, 182, 212, 0.13), rgba(6, 182, 212, 0.025)); }
 .jarvis-rail nav button.is-active { box-shadow: inset 2px 0 #22d3ee; }
 .jarvis-rail nav button > span { color: #67e8f9; font-size: 0.65rem; }
-.jarvis-memory-center { display: grid; gap: 7px; max-height: 260px; margin-top: 12px; overflow-y: auto; padding: 10px; border: 1px solid rgba(103, 232, 249, 0.14); border-radius: 12px; background: rgba(3, 15, 25, 0.58); }
+.jarvis-memory-center { display: grid; gap: 7px; max-height: 520px; margin-top: 12px; overflow-y: auto; padding: 10px; border: 1px solid rgba(103, 232, 249, 0.14); border-radius: 12px; background: rgba(3, 15, 25, 0.58); }
 .jarvis-memory-center header { display: grid; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid rgba(125, 211, 252, 0.09); }
 .jarvis-memory-center header strong { color: #bdeaf2; font-size: 0.7rem; }
 .jarvis-memory-center header small, .jarvis-memory-center p { margin: 0; color: #527487; font-size: 0.6rem; }
@@ -1564,6 +1564,20 @@ label span,
 .jarvis-memory-center > div > div { display: flex; gap: 2px; }
 .jarvis-memory-center > div button { display: grid; width: 25px; height: 25px; place-items: center; border: 0; border-radius: 7px; color: #66899b; background: transparent; cursor: pointer; }
 .jarvis-memory-center > div button:hover { color: #fb7185; background: rgba(251, 113, 133, 0.08); }
+.jarvis-memory-center > .jarvis-companion-settings { display: grid; grid-template-columns: 1fr; gap: 5px; padding: 4px 0 8px; border-bottom: 1px solid rgba(125, 211, 252, 0.09); }
+.jarvis-memory-center > .jarvis-companion-settings > button { display: grid; width: 100%; height: auto; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 8px; border: 1px solid rgba(125, 211, 252, 0.08); border-radius: 9px; color: #7397a8; text-align: left; background: rgba(4, 20, 31, 0.7); }
+.jarvis-memory-center > .jarvis-companion-settings > button:hover { color: #bdeaf2; border-color: rgba(103, 232, 249, 0.2); background: rgba(8, 31, 45, 0.82); }
+.jarvis-memory-center > .jarvis-companion-settings > button span { display: grid; gap: 2px; }
+.jarvis-memory-center > .jarvis-companion-settings > button strong { color: inherit; font-size: 0.62rem; }
+.jarvis-memory-center > .jarvis-companion-settings > button small { color: #527487; font-size: 0.54rem; }
+.jarvis-memory-center > .jarvis-companion-settings > button i { width: 24px; height: 13px; border-radius: 999px; background: #173342; box-shadow: inset 0 0 0 1px rgba(148, 184, 200, 0.13); }
+.jarvis-memory-center > .jarvis-companion-settings > button i::after { display: block; width: 9px; height: 9px; margin: 2px; border-radius: 50%; background: #587889; transition: transform 160ms ease, background 160ms ease; content: ""; }
+.jarvis-memory-center > .jarvis-companion-settings > button.is-enabled { color: #9eeaf2; border-color: rgba(45, 212, 191, 0.17); }
+.jarvis-memory-center > .jarvis-companion-settings > button.is-enabled i { background: rgba(13, 148, 136, 0.44); }
+.jarvis-memory-center > .jarvis-companion-settings > button.is-enabled i::after { background: #5eead4; transform: translateX(11px); }
+.jarvis-memory-center > .jarvis-memory-item { padding: 6px 0; border-bottom: 1px solid rgba(125, 211, 252, 0.05); }
+.jarvis-memory-center > .jarvis-forget-personal { display: flex; width: 100%; height: auto; gap: 6px; align-items: center; justify-content: center; margin-top: 3px; padding: 7px; border: 1px solid rgba(251, 113, 133, 0.13); color: #a86f7d; background: rgba(69, 10, 25, 0.1); }
+.jarvis-memory-center > .jarvis-forget-personal:hover { color: #fda4af; border-color: rgba(251, 113, 133, 0.28); background: rgba(127, 29, 29, 0.16); }
 
 .jarvis-source-stack { display: grid; gap: 9px; margin-top: 30px; padding: 0 8px; }
 .jarvis-source-stack > span { margin-bottom: 3px; color: #527286; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }

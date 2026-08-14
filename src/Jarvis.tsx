@@ -13,6 +13,7 @@ import {
   Crosshair,
   Eye,
   Gauge,
+  HeartHandshake,
   ImagePlus,
   Mic,
   MicOff,
@@ -286,10 +287,20 @@ type OrbPosition = { x: number; y: number };
 
 type JarvisMemoryUpdate = {
   operation: "upsert" | "delete";
-  category: "identity" | "preference" | "trading_rule" | "risk_rule" | "mistake" | "goal" | "terminology" | "ui_preference";
+  category: "identity" | "preference" | "relationship" | "life_event" | "important_date" | "routine" | "interest" | "personal_value" | "project" | "wellbeing" | "boundary" | "trading_rule" | "risk_rule" | "mistake" | "goal" | "terminology" | "ui_preference";
   key: string;
   value: string;
   confidence: number;
+  source: "explicit" | "inferred";
+  sensitivity: "normal" | "sensitive";
+  followUpAt: string | null;
+};
+
+type JarvisCompanionSettings = {
+  personalMemoryEnabled: boolean;
+  inferenceMode: "explicit_only" | "balanced";
+  sensitiveMemoryEnabled: boolean;
+  proactiveFollowups: boolean;
 };
 
 type JarvisMemoryState = {
@@ -303,6 +314,7 @@ type JarvisMemoryState = {
     lightSlang: boolean;
     mirrorLightSwearing: boolean;
   };
+  companionSettings: JarvisCompanionSettings;
   memories: Array<JarvisMemoryUpdate & { updatedAt: string }>;
 };
 
@@ -323,6 +335,12 @@ function defaultJarvisMemory(username: string): JarvisMemoryState {
       lightSlang: isOwnerProfile,
       mirrorLightSwearing: isOwnerProfile,
     },
+    companionSettings: {
+      personalMemoryEnabled: true,
+      inferenceMode: "balanced",
+      sensitiveMemoryEnabled: false,
+      proactiveFollowups: true,
+    },
     memories: [],
   };
 }
@@ -337,7 +355,8 @@ function readJarvisMemory(userId: string, username: string): JarvisMemoryState {
       ...stored,
       preferredName: typeof stored.preferredName === "string" ? stored.preferredName : defaults.preferredName,
       preferences: { ...defaults.preferences, ...(stored.preferences || {}) },
-      memories: Array.isArray(stored.memories) ? stored.memories.slice(-40) : [],
+      companionSettings: { ...defaults.companionSettings, ...(stored.companionSettings || {}) },
+      memories: Array.isArray(stored.memories) ? stored.memories.slice(-120) : [],
     };
   } catch {
     return defaults;
@@ -346,11 +365,27 @@ function readJarvisMemory(userId: string, username: string): JarvisMemoryState {
 
 function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdate[]): JarvisMemoryState {
   let preferredName = state.preferredName;
+  let companionSettings = state.companionSettings;
   let memories = [...state.memories];
   let changed = false;
   updates.filter((update) => update && update.confidence >= 0.7).forEach((update) => {
     const key = update.key.trim().slice(0, 80);
     if (!key) return;
+    if (update.category === "preference" && key.startsWith("companion_")) {
+      const settingMap = {
+        companion_personal_memory: "personalMemoryEnabled",
+        companion_inference_mode: "inferenceMode",
+        companion_sensitive_memory: "sensitiveMemoryEnabled",
+        companion_proactive_followups: "proactiveFollowups",
+      } as const;
+      const setting = settingMap[key as keyof typeof settingMap];
+      if (setting) {
+        const value = setting === "inferenceMode" ? (update.value === "explicit_only" ? "explicit_only" : "balanced") : update.value === "true";
+        companionSettings = { ...companionSettings, [setting]: value };
+        changed = true;
+      }
+      return;
+    }
     if (update.category === "identity" && key.toLowerCase().replaceAll("-", "_") === "preferred_name") {
       const nextName = update.operation === "delete" ? null : update.value.trim().slice(0, 80) || null;
       if (preferredName !== nextName) { preferredName = nextName; changed = true; }
@@ -360,10 +395,31 @@ function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdat
     if (update.operation === "upsert" && existing?.value === nextValue && existing.confidence === update.confidence) return;
     if (update.operation === "delete" && !existing) return;
     memories = memories.filter((memory) => !(memory.category === update.category && memory.key === key));
-    if (update.operation === "upsert") memories.push({ ...update, key, value: nextValue, updatedAt: new Date().toISOString() });
+    if (update.operation === "upsert") memories.push({ ...update, key, value: nextValue, source: update.source || "explicit", sensitivity: update.sensitivity || "normal", followUpAt: update.followUpAt || null, updatedAt: new Date().toISOString() });
     changed = true;
   });
-  return changed ? { ...state, preferredName, memories: memories.slice(-40) } : state;
+  return changed ? { ...state, preferredName, companionSettings, memories: memories.slice(-120) } : state;
+}
+
+function allowedMemoryUpdates(updates: unknown, settings: JarvisCompanionSettings): JarvisMemoryUpdate[] {
+  if (!Array.isArray(updates)) return [];
+  const tradingCategories = new Set(["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"]);
+  return updates.filter((value): value is JarvisMemoryUpdate => {
+    if (!value || typeof value !== "object") return false;
+    const update = value as Partial<JarvisMemoryUpdate>;
+    if (!update.category || !update.key || !Number.isFinite(update.confidence) || Number(update.confidence) < 0.7) return false;
+    if (update.operation === "delete") return true;
+    if (update.category === "preference" && update.key.startsWith("companion_")) return true;
+    if (!settings.personalMemoryEnabled && !tradingCategories.has(update.category)) return false;
+    if (!settings.sensitiveMemoryEnabled && update.sensitivity === "sensitive") return false;
+    if (settings.inferenceMode === "explicit_only" && update.source === "inferred") return false;
+    return true;
+  }).map((update) => ({
+    ...update,
+    source: update.source === "inferred" ? "inferred" : "explicit",
+    sensitivity: update.sensitivity === "sensitive" ? "sensitive" : "normal",
+    followUpAt: settings.proactiveFollowups && typeof update.followUpAt === "string" ? update.followUpAt : null,
+  }));
 }
 
 function decodeLearningRecord(entry: JarvisProps["journalEntries"][number]): JarvisLearningRecord | null {
@@ -452,6 +508,7 @@ function formatUsd(value: number) {
 }
 
 const quickCommands = [
+  { label: "Life check-in", prompt: "Check in with me as my real-life companion. Use relevant personal context naturally, ask about one meaningful unfinished thread if there is one, and do not bring up trading unless I do.", icon: HeartHandshake },
   { label: "Morning briefing", prompt: "Give me my morning briefing using only Journaly: waiting forecasts, current plans, recent execution, risk rules, and what deserves my attention. Do not claim live market conditions.", icon: Sunrise },
   { label: "Forecast briefing", prompt: "Brief me on every waiting forecast: the documented thesis, what is complete, what still needs confirmation, and which ideas need a decision. Use Journaly only, not live market assumptions.", icon: Radio },
   { label: "Evening debrief", prompt: "Run my evening debrief from Journaly. Review today's forecasts, trades, execution decisions, lessons, and the one thing I should carry into the next session.", icon: Moon },
@@ -833,6 +890,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const requestAbortRef = useRef<AbortController | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speechRecognitionRef = useRef<JarvisSpeechRecognition | null>(null);
+  const proactiveCheckinRef = useRef(new Set<string>());
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
@@ -983,6 +1041,29 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   useEffect(() => {
     localStorage.setItem(`${JARVIS_MEMORY_KEY_PREFIX}:${userId}`, JSON.stringify(memory));
   }, [memory, userId]);
+
+  useEffect(() => {
+    if (!isOpen || !memory.companionSettings.personalMemoryEnabled || !memory.companionSettings.proactiveFollowups) return;
+    const now = Date.now();
+    const due = memory.memories.find((item) => {
+      if (!item.followUpAt) return false;
+      if (item.sensitivity === "sensitive" && !memory.companionSettings.sensitiveMemoryEnabled) return false;
+      const timestamp = new Date(item.followUpAt).getTime();
+      return Number.isFinite(timestamp) && timestamp <= now && !proactiveCheckinRef.current.has(`${item.category}:${item.key}:${item.followUpAt}`);
+    });
+    if (!due) return;
+    proactiveCheckinRef.current.add(`${due.category}:${due.key}:${due.followUpAt}`);
+    const checkin: JarvisMessage = {
+      id: crypto.randomUUID(),
+      role: "jarvis",
+      text: `Hey ${preferredName}—I remembered ${due.value.replace(/[.!?]+$/, "")}. How did it go?`,
+      createdAt: new Date().toISOString(),
+    };
+    const clearedFollowUp: JarvisMemoryUpdate = { ...due, operation: "upsert", source: "explicit", followUpAt: null, confidence: Math.max(0.9, due.confidence) };
+    setMessages((current) => [...current, checkin]);
+    setMemory((current) => applyMemoryUpdates(current, [clearedFollowUp]));
+    void persistMemoryUpdates([clearedFollowUp]);
+  }, [isOpen, memory, preferredName]);
 
   useEffect(() => {
     const updates = syncedMemoryUpdates(journalEntries);
@@ -1185,7 +1266,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }
 
   async function persistMemoryUpdates(updates: JarvisMemoryUpdate[]) {
-    const durable = updates.filter((update) => update && update.confidence >= 0.7);
+    const durable = allowedMemoryUpdates(updates, memory.companionSettings);
     if (!supabase || !durable.length) return;
     const syncedAt = new Date().toISOString();
     await supabase.from("journal_entries").insert({
@@ -1241,7 +1322,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }
 
   function forgetMemory(item: JarvisMemoryState["memories"][number]) {
-    const update: JarvisMemoryUpdate = { operation: "delete", category: item.category, key: item.key, value: "", confidence: 1 };
+    const update: JarvisMemoryUpdate = { operation: "delete", category: item.category, key: item.key, value: "", confidence: 1, source: "explicit", sensitivity: item.sensitivity || "normal", followUpAt: null };
     setMemory((current) => applyMemoryUpdates(current, [update]));
     void persistMemoryUpdates([update]);
   }
@@ -1249,7 +1330,28 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   function editMemory(item: JarvisMemoryState["memories"][number]) {
     const value = window.prompt(`What should Jarvis remember for “${item.key.replaceAll("_", " ")}”?`, item.value);
     if (value === null || !value.trim() || value.trim() === item.value) return;
-    const update: JarvisMemoryUpdate = { operation: "upsert", category: item.category, key: item.key, value: value.trim().slice(0, 800), confidence: 1 };
+    const update: JarvisMemoryUpdate = { operation: "upsert", category: item.category, key: item.key, value: value.trim().slice(0, 800), confidence: 1, source: "explicit", sensitivity: item.sensitivity || "normal", followUpAt: item.followUpAt || null };
+    setMemory((current) => applyMemoryUpdates(current, [update]));
+    void persistMemoryUpdates([update]);
+  }
+
+  function forgetAllPersonalMemories() {
+    const tradingCategories = new Set(["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"]);
+    const personal = memory.memories.filter((item) => !tradingCategories.has(item.category));
+    if (!personal.length || !window.confirm(`Forget ${personal.length} personal ${personal.length === 1 ? "memory" : "memories"}? Trading rules and records will stay.`)) return;
+    const updates = personal.map<JarvisMemoryUpdate>((item) => ({ operation: "delete", category: item.category, key: item.key, value: "", confidence: 1, source: "explicit", sensitivity: item.sensitivity || "normal", followUpAt: null }));
+    setMemory((current) => applyMemoryUpdates(current, updates));
+    void persistMemoryUpdates(updates);
+  }
+
+  function updateCompanionSetting<Key extends keyof JarvisCompanionSettings>(key: Key, value: JarvisCompanionSettings[Key]) {
+    const memoryKey = {
+      personalMemoryEnabled: "companion_personal_memory",
+      inferenceMode: "companion_inference_mode",
+      sensitiveMemoryEnabled: "companion_sensitive_memory",
+      proactiveFollowups: "companion_proactive_followups",
+    }[key];
+    const update: JarvisMemoryUpdate = { operation: "upsert", category: "preference", key: memoryKey, value: String(value), confidence: 1, source: "explicit", sensitivity: "normal", followUpAt: null };
     setMemory((current) => applyMemoryUpdates(current, [update]));
     void persistMemoryUpdates([update]);
   }
@@ -1557,6 +1659,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               preferredName: memory.preferredName,
               preferences: memory.preferences,
               memories: memory.memories,
+              companionSettings: memory.companionSettings,
             },
             marketSession: session,
             summary: {
@@ -1659,9 +1762,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         lastHttpStatus: 200,
         fallbackActive: false,
       }));
-      if (Array.isArray(payload.memoryUpdates) && payload.memoryUpdates.length) {
-        setMemory((current) => applyMemoryUpdates(current, payload.memoryUpdates));
-        void persistMemoryUpdates(payload.memoryUpdates);
+      const acceptedMemoryUpdates = allowedMemoryUpdates(payload.memoryUpdates, memory.companionSettings);
+      if (acceptedMemoryUpdates.length) {
+        setMemory((current) => applyMemoryUpdates(current, acceptedMemoryUpdates));
+        void persistMemoryUpdates(acceptedMemoryUpdates);
       }
       setTradeDraft((current) => payload.tradeAction ? normalizeTradeAction(payload.tradeAction, current) : null);
       setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
@@ -1763,7 +1867,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       </button>
 
       {isOpen ? (
-        <section className="jarvis-screen" role="dialog" aria-modal="true" aria-label="Jarvis trading intelligence">
+        <section className="jarvis-screen" role="dialog" aria-modal="true" aria-label="Jarvis personal and trading intelligence">
           <div className="jarvis-grid-glow" aria-hidden="true" />
           <header className="jarvis-header">
             <div className="jarvis-wordmark">
@@ -1785,6 +1889,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <div className="jarvis-rail-title"><Command size={15} /><span>Command center</span></div>
               <nav aria-label="Jarvis sections">
                 <button className="is-active" type="button"><Sparkles size={17} /> Intelligence <ChevronRight size={15} /></button>
+                <button type="button" onClick={() => askJarvis("Let's talk about life. Check in with me naturally using what you genuinely remember, without forcing trading into the conversation.")}><HeartHandshake size={17} /> Life companion</button>
                 <button type="button" onClick={() => askJarvis("What am I currently watching?")}><Target size={17} /> Forecasts <span>{activeForecasts.length}</span></button>
                 <button type="button" onClick={() => askJarvis("Show me my recent mistakes")}><Eye size={17} /> Review</button>
                 <button type="button" onClick={() => askJarvis("How are my Internals doing?")}><BarChart3 size={17} /> Setup edge</button>
@@ -1796,7 +1901,14 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
               {showMemoryCenter ? <section className="jarvis-memory-center">
                 <header><strong>Memory center</strong><small>You control what stays.</small></header>
-                {memory.memories.length ? memory.memories.slice().reverse().map((item) => <div key={`${item.category}:${item.key}`}><span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}</small><em>{Date.now() - new Date(item.updatedAt).getTime() > 90 * 86400000 ? "Old memory · review it" : "Active memory"}</em></span><div><button type="button" title="Edit this memory" onClick={() => editMemory(item)}><RefreshCcw size={12} /></button><button type="button" title="Forget this memory" onClick={() => forgetMemory(item)}><Trash2 size={13} /></button></div></div>) : <p>No durable personal memories yet.</p>}
+                <div className="jarvis-companion-settings" aria-label="Companion memory settings">
+                  <button type="button" aria-pressed={memory.companionSettings.personalMemoryEnabled} className={memory.companionSettings.personalMemoryEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("personalMemoryEnabled", !memory.companionSettings.personalMemoryEnabled)}><span><strong>Personal memory</strong><small>Remember your life across chats</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.inferenceMode === "balanced"} className={memory.companionSettings.inferenceMode === "balanced" ? "is-enabled" : ""} onClick={() => updateCompanionSetting("inferenceMode", memory.companionSettings.inferenceMode === "balanced" ? "explicit_only" : "balanced")}><span><strong>Pattern learning</strong><small>{memory.companionSettings.inferenceMode === "balanced" ? "Balanced · repeated patterns only" : "Explicit facts only"}</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.sensitiveMemoryEnabled} className={memory.companionSettings.sensitiveMemoryEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("sensitiveMemoryEnabled", !memory.companionSettings.sensitiveMemoryEnabled)}><span><strong>Sensitive memory</strong><small>{memory.companionSettings.sensitiveMemoryEnabled ? "Allowed when relevant" : "Not added to durable memory"}</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.proactiveFollowups} className={memory.companionSettings.proactiveFollowups ? "is-enabled" : ""} onClick={() => updateCompanionSetting("proactiveFollowups", !memory.companionSettings.proactiveFollowups)}><span><strong>Natural follow-ups</strong><small>Remember to ask how things went</small></span><i /></button>
+                </div>
+                {memory.memories.length ? memory.memories.slice().reverse().map((item) => <div className="jarvis-memory-item" key={`${item.category}:${item.key}`}><span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}</small><em>{item.category.replaceAll("_", " ")} · {item.source === "inferred" ? "learned pattern" : "you told Jarvis"}{item.followUpAt ? ` · follow up ${new Date(item.followUpAt).toLocaleDateString()}` : ""}{Date.now() - new Date(item.updatedAt).getTime() > 90 * 86400000 ? " · review" : ""}</em></span><div><button type="button" title="Edit this memory" aria-label={`Edit ${item.key.replaceAll("_", " ")}`} onClick={() => editMemory(item)}><RefreshCcw size={12} /></button><button type="button" title="Forget this memory" aria-label={`Forget ${item.key.replaceAll("_", " ")}`} onClick={() => forgetMemory(item)}><Trash2 size={13} /></button></div></div>) : <p>No durable personal memories yet. Say “remember this” whenever something matters.</p>}
+                {memory.memories.some((item) => !["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"].includes(item.category)) ? <button className="jarvis-forget-personal" type="button" onClick={forgetAllPersonalMemories}><Trash2 size={12} /> Forget all personal memories</button> : null}
               </section> : null}
 
               <div className="jarvis-source-stack">
@@ -1816,7 +1928,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><Check size={13} /><p><strong>Trade Archive + Edge Lab</strong><small>All views connected · deterministic calculations</small></p></div>
                 <div><Check size={13} /><p><strong>Strategy transfer pack</strong><small>PPA-first rules loaded</small></p></div>
                 <div><Check size={13} /><p><strong>Visual setup library</strong><small>53 unique charts audited</small></p></div>
-                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} rule{memory.memories.length === 1 ? "" : "s"} · cross-device sync</small></p></div>
+                <div><Check size={13} /><p><strong>Personal memory</strong><small>{memory.memories.length} memor{memory.memories.length === 1 ? "y" : "ies"} · private controls · cross-device sync</small></p></div>
                 <div><BookOpenCheck size={13} /><p><strong>Learning archive</strong><small>{learningSyncState === "saving" ? "Saving latest insight…" : learningSyncState === "error" ? "Latest insight stayed in chat" : "Summaries synced · images stay lightweight"}</small></p></div>
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
@@ -1841,7 +1953,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                     </div>
                     <span className="jarvis-kicker"><i /> Journaly connected</span>
                     <h1>{greeting}, {preferredName}.</h1>
-                    <p>Talk to me naturally about trading. I know your strategy rules and Journaly history, whether you want a setup read, an honest review, or simply a second mind beside you.</p>
+                    <p>Talk to me naturally about trading or life. I can remember the people, plans, habits, goals, and stories that matter to you—while keeping you in control of what stays.</p>
                     <div className="jarvis-command-grid">
                       {quickCommands.map(({ label, prompt: commandPrompt, icon: Icon }) => (
                         <button type="button" key={label} onClick={() => askJarvis(commandPrompt)}><Icon size={18} /><span>{label}</span><ChevronRight size={15} /></button>
@@ -1996,7 +2108,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.6</strong><small>Journey memory / multi-context / persistent charts / dedicated voice</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.7</strong><small>Life companion / selective memory / natural follow-ups / trading intelligence</small></div></div>
             </aside>
           </div>
         </section>

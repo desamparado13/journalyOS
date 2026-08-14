@@ -30,6 +30,10 @@ assert.equal(detectConversationMode("thanks", null, {}), "casual_conversation");
 assert.equal(detectConversationMode("should I hold?", null, { activeTradeId: "trade-1" }), "active_trade_management");
 assert.equal(detectConversationMode("what about it?", null, { activeForecastId: "forecast-1" }), "forecast_management");
 assert.equal(detectConversationMode("give me my morning briefing", null, {}), "daily_routine");
+assert.equal(detectConversationMode("My sister is visiting tomorrow", null, {}), "personal_conversation");
+assert.equal(detectConversationMode("I have been feeling more confident at work", null, {}), "personal_conversation");
+assert.equal(detectConversationMode("Can we talk about my relationship?", null, {}), "personal_conversation");
+assert.equal(detectConversationMode("Calculate my EURUSD position risk", null, {}), "general_trading_conversation");
 
 const relevantMemories = selectRelevantMemories([
   { operation: "upsert", category: "risk_rule", key: "fixed_target", value: "Pot prefers fixed 2R targets." },
@@ -37,6 +41,13 @@ const relevantMemories = selectRelevantMemories([
   { operation: "upsert", category: "preference", key: "response_tone", value: "Keep trading replies concise and natural." },
 ], "Should I hold this trade to 2R?", "active_trade_management", 2);
 assert.deepEqual(relevantMemories.map((memory) => memory.key), ["fixed_target", "response_tone"]);
+
+const personalMemories = selectRelevantMemories([
+  { operation: "upsert", category: "relationship", key: "sister_visit", value: "Pot's sister is visiting this weekend.", source: "explicit", sensitivity: "normal", followUpAt: "2026-08-13T08:00:00Z" },
+  { operation: "upsert", category: "project", key: "fitness_goal", value: "Pot is rebuilding a consistent gym routine.", source: "explicit", sensitivity: "normal", followUpAt: null },
+  { operation: "upsert", category: "trading_rule", key: "fixed_target", value: "Use fixed targets.", source: "explicit", sensitivity: "normal", followUpAt: null },
+], "How is life going?", "personal_conversation", 2);
+assert.deepEqual(personalMemories.map((memory) => memory.key), ["sister_visit", "fitness_goal"]);
 
 const feedbackExamples = feedbackStyleExamples([{
   content: '[[JARVIS_FEEDBACK_V1]]\n{"sentiment":"missed","reason":"too_strict","userMessage":"How is my trade?","assistantResponse":"No entry validated."}',
@@ -141,4 +152,42 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log("Jarvis intelligence routing: 24/24 passed");
+let companionRequest = null;
+globalThis.fetch = async (_url, init) => {
+  companionRequest = JSON.parse(init.body);
+  return Response.json({
+    output_text: JSON.stringify({
+      answer: "That sounds like a big day. I’ll remember to ask how your sister’s visit went.",
+      learningSummary: null,
+      memoryUpdates: [{ operation: "upsert", category: "life_event", key: "sister_visit", value: "Pot's sister is visiting tomorrow.", confidence: 0.98, source: "explicit", sensitivity: "normal", followUpAt: "2026-08-15T12:00:00+08:00" }],
+      tradeAction: null,
+      forecastAction: null,
+      positionSizingAction: null,
+      chartAssessment: null,
+    }),
+    usage: {},
+  });
+};
+try {
+  const response = await worker.fetch(new Request("http://local/api/jarvis/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId: "companion-routing-test", question: "My sister is visiting tomorrow. Remember to ask me how it went.", context: { profile: { preferredName: "Pot", companionSettings: { personalMemoryEnabled: true, inferenceMode: "balanced", sensitiveMemoryEnabled: false, proactiveFollowups: true } }, sessionState: {} } }),
+  }), {
+    OPENAI_API_KEY: "test-key",
+    OPENAI_JARVIS_MODEL: "test-model",
+    JARVIS_AUTH_BYPASS_USER_ID: "companion-routing-test",
+    JARVIS_AUTH_BYPASS_EMAIL: "christian.angelo.desamparado@gmail.com",
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.conversationMode, "personal_conversation");
+  assert.equal(payload.memoryUpdates[0].category, "life_event");
+  assert.equal(payload.memoryUpdates[0].followUpAt, "2026-08-15T12:00:00+08:00");
+  assert.match(companionRequest.instructions, /JARVIS LIFE COMPANION/);
+  assert.match(companionRequest.input.at(-1).content[0].text, /"personalMemoryEnabled":true/);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+console.log("Jarvis intelligence routing and companion context: 35/35 passed");
