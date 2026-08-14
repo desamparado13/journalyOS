@@ -2102,6 +2102,21 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const jarvisMessage: JarvisMessage = { id: crypto.randomUUID(), role: "jarvis", text: payload.answer, createdAt: new Date().toISOString() };
       setMessages((current) => [...current, jarvisMessage]);
       if (voiceReplies || memory.companionSettings.handsFreeVoice) speakJarvisMessage(jarvisMessage);
+      if (payload?.proactiveSchedule && Number.isFinite(Number(payload.proactiveSchedule.delaySeconds)) && typeof payload.proactiveSchedule.message === "string") {
+        void fetch("/api/jarvis/proactive/send", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ userId, delaySeconds: payload.proactiveSchedule.delaySeconds, message: payload.proactiveSchedule.message }),
+        }).then(async (scheduledResponse) => {
+          const scheduledPayload = await scheduledResponse.json().catch(() => null);
+          if (!scheduledResponse.ok || !scheduledPayload?.message) throw new Error(scheduledPayload?.error || "Scheduled Jarvis message failed.");
+          const scheduledMessage = scheduledPayload.message as JarvisMessage;
+          setMessages((current) => current.some((message) => message.id === scheduledMessage.id) ? current : [...current, scheduledMessage]);
+          if (voiceReplies || memory.companionSettings.handsFreeVoice) void speakJarvisMessage(scheduledMessage);
+        }).catch((scheduledError) => {
+          setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Delivery failed", text: scheduledError instanceof Error ? scheduledError.message : "I could not deliver that scheduled message.", createdAt: new Date().toISOString() }]);
+        });
+      }
     } catch (error) {
       const failure = error as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
       if (failure.name === "AbortError") {

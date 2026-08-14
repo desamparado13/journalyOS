@@ -512,6 +512,24 @@ function shouldUseFastConversationLane(conversationMode, question, chartImage, s
   return !(new RegExp(`\\b${action}\\b.*\\b${object}\\b|\\b${object}\\b.*\\b${action}\\b`, "i").test(text));
 }
 
+function requestedProactiveDelay(question) {
+  const text = String(question || "").trim();
+  const match = text.match(/\b(?:reply|message|text|remind|check\s+in|talk\s+to\s+me)\b[\s\S]{0,80}?\b(?:in|after)\s+(\d{1,3})\s*(seconds?|secs?|minutes?|mins?)\b/i)
+    || text.match(/\b(?:in|after)\s+(\d{1,3})\s*(seconds?|secs?|minutes?|mins?)\b[\s\S]{0,80}?\b(?:reply|message|text|remind|check\s+in)\b/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const unit = match[2].toLowerCase();
+  const delaySeconds = amount * (unit.startsWith("m") ? 60 : 1);
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 1 || delaySeconds > 45) return null;
+  const task = text.match(/\bremind\s+me\b[\s\S]*?\bto\s+(.+?)(?:[.!?]|$)/i)?.[1]?.trim();
+  const label = `${amount} ${unit.startsWith("m") ? (amount === 1 ? "minute" : "minutes") : (amount === 1 ? "second" : "seconds")}`;
+  return {
+    delaySeconds,
+    label,
+    message: task ? `Hey Pot - your ${label} reminder: ${task}.` : `I'm back, Pot - the ${label} wait is up. I'm here.`,
+  };
+}
+
 function detectChartInteractionMode(question, chartImage) {
   if (!chartImage) return "conversation";
   return hasActiveTradeSignal(question) ? "active_trade_management" : "chart_review";
@@ -2474,6 +2492,7 @@ async function handleJarvis(request, env) {
   };
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
+  const proactiveSchedule = requestedProactiveDelay(question);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
     ? toolData.trades.find((trade) => String(trade.id) === String(toolData.sessionState.activeTradeId)) || null
@@ -2669,7 +2688,7 @@ async function handleJarvis(request, env) {
       else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStreakResult) result.answer = verifiedTradeStreakAnswer(verifiedStreakResult);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
+      return json({ ...result, proactiveSchedule, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
   }
 
@@ -2709,6 +2728,32 @@ function decodeVoiceAudio(value) {
     return { bytes, mimeType: match[1].toLowerCase(), extension };
   } catch {
     return null;
+  }
+}
+
+async function handleProactiveSend(request, env) {
+  if (request.method !== "POST") return withDashboardCors(request, json({ error: "Method not allowed" }, 405));
+  let body;
+  try { body = await request.json(); } catch { return withDashboardCors(request, json({ error: "Invalid request body." }, 400)); }
+  const authorization = await authorizeOwner(request, env, body?.userId);
+  if (authorization.error) return withDashboardCors(request, authorization.error);
+  const delaySeconds = Math.round(Number(body?.delaySeconds));
+  const message = String(body?.message || "").trim().slice(0, 900);
+  if (!Number.isFinite(delaySeconds) || delaySeconds < 1 || delaySeconds > 45 || !message) return withDashboardCors(request, json({ error: "A message and a delay from 1 to 45 seconds are required." }, 400));
+  await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
+  const createdAt = new Date().toISOString();
+  const proactiveId = `chat:${crypto.randomUUID()}`;
+  try {
+    await sendPushover(env, { title: "JARVIS", message, priority: 0 });
+    const baseUrl = env.SUPABASE_URL || env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!baseUrl || !serviceKey) throw new Error("Persistent Jarvis delivery is not configured.");
+    const content = `${JARVIS_PROACTIVE_PREFIX}\n${JSON.stringify({ id: proactiveId, title: "Jarvis message", text: message, createdAt, kind: "scheduled_chat" })}`;
+    const response = await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { apikey: serviceKey, authorization: `Bearer ${serviceKey}`, "content-type": "application/json", prefer: "return=minimal" }, body: JSON.stringify({ user_id: authorization.user.id, entry_date: isoDateInManila(), content, advice: "Persistent scheduled Jarvis message.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: createdAt }) });
+    if (!response.ok) throw new Error(`Jarvis message could not be saved (${response.status}).`);
+    return withDashboardCors(request, json({ ok: true, message: { id: `proactive:${proactiveId}`, role: "jarvis", title: "Jarvis message", text: message, createdAt } }));
+  } catch (error) {
+    return withDashboardCors(request, json({ error: error instanceof Error ? error.message : "Jarvis could not deliver the scheduled message." }, 503));
   }
 }
 
@@ -2796,7 +2841,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedTradeStreakAnswer };
+export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {
@@ -2806,6 +2851,7 @@ export default {
     if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
     if (url.pathname === "/api/jarvis/health") return withDashboardCors(request, await handleHealth(request, env));
     if (url.pathname === "/api/jarvis/voice") return withDashboardCors(request, await handleVoice(request, env));
+    if (url.pathname === "/api/jarvis/proactive/send") return handleProactiveSend(request, env);
     if (url.pathname === "/api/jarvis/transcribe") return withDashboardCors(request, await handleTranscription(request, env));
     if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
