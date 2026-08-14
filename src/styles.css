@@ -1342,6 +1342,7 @@ label span,
 }
 
 .jarvis-launcher.is-open { opacity: 0; pointer-events: none; transform: scale(0.82); }
+.jarvis-launcher-unread { position: absolute; z-index: 4; top: -5px; left: 42px; display: grid; min-width: 20px; height: 20px; padding: 0 5px; place-items: center; border: 2px solid #06141f; border-radius: 999px; color: #04141d; background: #67e8f9; box-shadow: 0 0 14px rgba(103, 232, 249, 0.75); font-size: 0.65rem; font-weight: 950; line-height: 1; }
 
 .jarvis-launcher-core {
   position: relative;

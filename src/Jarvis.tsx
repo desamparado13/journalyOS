@@ -47,6 +47,7 @@ const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
 const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
 const JARVIS_VOICE_REPLIES_KEY_PREFIX = "journaly-os-jarvis-voice-replies-v1";
 const JARVIS_MISSION_SEEN_KEY_PREFIX = "journaly-os-jarvis-mission-seen-v1";
+const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -64,9 +65,10 @@ export const JARVIS_WORKSPACE_PREFIX = "[[JARVIS_WORKSPACE_V1]]";
 export const JARVIS_JOURNEY_PREFIX = "[[JARVIS_JOURNEY_V1]]";
 export const JARVIS_CHART_PREFIX = "[[JARVIS_CHART_V1]]";
 export const JARVIS_ROUTINE_PREFIX = "[[JARVIS_ROUTINE_V1]]";
+export const JARVIS_PROACTIVE_PREFIX = "[[JARVIS_PROACTIVE_V1]]";
 export const JARVIS_GOOGLE_DRIVE_PREFIX = "[[JARVIS_GOOGLE_DRIVE_V1]]";
 const SUPABASE_FREE_DATABASE_BYTES = 500 * 1024 * 1024;
-const JARVIS_BRAIN_PREFIXES = [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX] as const;
+const JARVIS_BRAIN_PREFIXES = [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX] as const;
 
 type JarvisTrade = {
   id: string;
@@ -693,6 +695,25 @@ function syncedMessages(entries: JarvisProps["journalEntries"]): { messages: Jar
   };
 }
 
+function syncedProactiveMessages(entries: JarvisProps["journalEntries"]): JarvisMessage[] {
+  return entries.flatMap((entry) => {
+    if (!entry.content.startsWith(JARVIS_PROACTIVE_PREFIX)) return [];
+    try {
+      const metadata = JSON.parse(entry.content.slice(JARVIS_PROACTIVE_PREFIX.length).trim());
+      if (typeof metadata?.text !== "string" || !metadata.text.trim()) return [];
+      return [{
+        id: `proactive:${String(metadata.id || entry.id)}`,
+        role: "jarvis" as const,
+        title: typeof metadata.title === "string" ? metadata.title : "Jarvis check-in",
+        text: metadata.text.trim(),
+        createdAt: String(metadata.createdAt || entry.updatedAt || entry.createdAt || entry.date),
+      }];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+}
+
 function emptyWorkspace(context: JarvisActiveContext | null): JarvisWorkspace {
   const now = new Date().toISOString();
   if (!context) return { focusId: null, contexts: [], updatedAt: now };
@@ -989,6 +1010,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [isSavingTrade, setIsSavingTrade] = useState(false);
   const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [unreadProactiveCount, setUnreadProactiveCount] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1221,11 +1243,20 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const synced = syncedActiveContext(journalEntries);
     sessionSyncEntryIdRef.current = journalEntries.find((entry) => entry.content.startsWith(JARVIS_SESSION_SYNC_PREFIX))?.id || sessionSyncEntryIdRef.current;
     const remoteChat = syncedMessages(journalEntries);
+    const proactiveMessages = syncedProactiveMessages(journalEntries);
     chatSyncEntryIdRef.current = remoteChat?.entryId || chatSyncEntryIdRef.current;
-    if (remoteChat?.messages.length) setMessages((current) => {
+    if (remoteChat?.messages.length || proactiveMessages.length) setMessages((current) => {
       const localNewest = current.at(-1)?.createdAt || "";
-      return remoteChat.syncedAt > localNewest ? remoteChat.messages : current;
+      const base = remoteChat?.messages.length && remoteChat.syncedAt > localNewest ? remoteChat.messages : current;
+      const known = new Set(base.map((message) => message.id));
+      return [...base, ...proactiveMessages.filter((message) => !known.has(message.id))].slice(-60);
     });
+    try {
+      const seen = new Set<string>(JSON.parse(localStorage.getItem(`${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`) || "[]"));
+      setUnreadProactiveCount(proactiveMessages.filter((message) => !seen.has(message.id)).length);
+    } catch {
+      setUnreadProactiveCount(proactiveMessages.length);
+    }
     const remoteWorkspace = decodeLatestInternal<JarvisWorkspace>(journalEntries, JARVIS_WORKSPACE_PREFIX);
     workspaceSyncEntryIdRef.current = remoteWorkspace?.entryId || workspaceSyncEntryIdRef.current;
     if (remoteWorkspace?.value && Array.isArray(remoteWorkspace.value.contexts)) setWorkspace(remoteWorkspace.value);
@@ -1235,7 +1266,14 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const syncedTimestamp = new Date(synced.syncedAt).getTime();
       return Number.isFinite(syncedTimestamp) && syncedTimestamp >= currentTimestamp ? synced.state : current;
     });
-  }, [journalEntries]);
+  }, [journalEntries, userId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const ids = syncedProactiveMessages(journalEntries).map((message) => message.id);
+    localStorage.setItem(`${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`, JSON.stringify(ids.slice(-90)));
+    setUnreadProactiveCount(0);
+  }, [isOpen, journalEntries, userId]);
 
   useEffect(() => {
     const key = `${JARVIS_ACTIVE_CONTEXT_KEY_PREFIX}:${userId}`;
@@ -2130,6 +2168,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         <span className="jarvis-launcher-radar" />
         <span className="jarvis-launcher-orbit" />
         <span className="jarvis-launcher-core"><span>J</span></span>
+        {unreadProactiveCount ? <span className="jarvis-launcher-unread" aria-label={`${unreadProactiveCount} unread Jarvis message${unreadProactiveCount === 1 ? "" : "s"}`}>{Math.min(unreadProactiveCount, 9)}</span> : null}
         <span className="jarvis-launcher-label"><strong>Jarvis</strong><small>{aiHealth?.fallbackActive ? "Limited" : "Online"}</small></span>
       </button>
 

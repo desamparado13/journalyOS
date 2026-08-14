@@ -46,7 +46,7 @@ import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, 
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
-import Jarvis, { JARVIS_CHART_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX } from "./Jarvis";
+import Jarvis, { JARVIS_CHART_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX } from "./Jarvis";
 import PushoverAlerts from "./PushoverAlerts";
 import logoUrl from "../assets/logo.svg";
 
@@ -2355,7 +2355,7 @@ export default function App() {
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const dailyJournalEntries = useMemo(
-    () => journalEntries.filter((entry) => entry.kind === "daily" && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix))),
+    () => journalEntries.filter((entry) => entry.kind === "daily" && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix))),
     [journalEntries],
   );
   const forecastReviews = useMemo(() => {
@@ -3161,7 +3161,7 @@ export default function App() {
     const monthEnded = new Date(year, month, 1).getTime() <= new Date().setHours(0, 0, 0, 0);
     const resolvedForecasts = tradeDecisions.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && entry.status !== "Waiting");
     const reviewedForecasts = resolvedForecasts.filter((entry) => forecastReviews.has(entry.id));
-    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix)));
+    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix)));
 
     return {
       actual,

@@ -21,6 +21,7 @@ const JARVIS_WORKSPACE_PREFIX = "[[JARVIS_WORKSPACE_V1]]";
 const JARVIS_JOURNEY_PREFIX = "[[JARVIS_JOURNEY_V1]]";
 const JARVIS_CHART_PREFIX = "[[JARVIS_CHART_V1]]";
 const JARVIS_ROUTINE_PREFIX = "[[JARVIS_ROUTINE_V1]]";
+const JARVIS_PROACTIVE_PREFIX = "[[JARVIS_PROACTIVE_V1]]";
 const JARVIS_GOOGLE_DRIVE_PREFIX = "[[JARVIS_GOOGLE_DRIVE_V1]]";
 const JOURNALY_MONTHLY_PREFIX = "[[JOURNALY_MONTHLY:";
 const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
@@ -62,6 +63,7 @@ const JARVIS_ANALYTICS_INSTRUCTIONS = `
 JOURNALY NUMERIC ACCURACY
 - Never calculate totals, counts, rankings, win rates, expectancy, or best/worst periods yourself from a list of records.
 - For any live monthly total, monthly comparison, best month, worst month, or year-by-month ranking, you must call get_monthly_performance and copy its verified values exactly.
+- For win streaks, wins in a row, consecutive wins or losses, current streaks, or the year/date range of a streak, always call get_trade_streaks. Never substitute monthly performance or archive records.
 - For all other numeric Journaly questions, call the matching statistics or inventory tool. Never infer a count from the chat context.
 - For forecast-review counts, directional accuracy, execution counts, or learned patterns, always call get_forecast_learning. Copy its numerators, denominators, percentages, and evidence stage exactly; interpret them but never recalculate them.
 - For any question comparing live execution with replay/backtests for a calendar month, including why performance diverged or whether the user followed the system, always call get_monthly_reconciliation. Treat its metrics, matches, and breakdowns as authoritative. Describe causal explanations only at the evidence level returned: observed, supported, or hypothesis requiring review.
@@ -170,6 +172,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_pair_state", description: "Get the authenticated user's current Journaly state for a currency pair, including recent trades and active forecasts.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: "string" } }, required: ["pair"] } },
   { type: "function", name: "get_setup_statistics", description: "Calculate real outcome and quality statistics from Journaly trades for a setup and optional calendar month.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { setup: { type: "string" }, month: { type: ["string", "null"] } }, required: ["setup", "month"] } },
   { type: "function", name: "get_monthly_performance", description: "Authoritative live-trade monthly ledger and ranking. Use for every question about monthly totals, best/worst months, month comparisons, or performance by month. Never manually sum recent trades for these questions.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["year"] } },
+  { type: "function", name: "get_trade_streaks", description: "Authoritative chronological consecutive-win and consecutive-loss streak calculation from authenticated live trades. Use for every question about win streaks, wins in a row, consecutive outcomes, current streaks, best streaks, and their dates or years.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] } }, required: ["year", "pair", "setup", "direction"] } },
   { type: "function", name: "get_journaly_inventory", description: "Get authoritative record counts and date coverage for every authenticated Journaly data surface.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_live_trade_statistics", description: "Authoritative live-trade statistics with optional pair, setup, direction, execution quality, year, or month filters. Use instead of manually calculating from trade lists.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, direction: { type: ["string", "null"], enum: ["Long", "Short", null] }, quality: { type: ["string", "null"], enum: ["Good", "Mid", "Bad", null] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 }, month: { type: ["string", "null"] } }, required: ["pair", "setup", "direction", "quality", "year", "month"] } },
   { type: "function", name: "get_decision_statistics", description: "Authoritative forecast, waiting, cancelled, missed, skipped-trade, and opportunity-cost statistics.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, setup: { type: ["string", "null"] }, year: { type: ["integer", "null"], minimum: 2000, maximum: 2100 } }, required: ["pair", "setup", "year"] } },
@@ -490,7 +493,7 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (/\b(?:closed|finished|stopped\s+out|hit\s+(?:tp|target|sl)|booked|ended)\b.*\b(?:trade|position|r)\b|\b(?:trade|position)\b.*\b(?:closed|finished|won|lost|breakeven)\b/.test(text)) return "post_trade_review";
   if (/\b(?:morning\s+brief(?:ing)?|evening\s+debrief|daily\s+brief(?:ing)?|start\s+my\s+day|wrap\s+up\s+my\s+day)\b/.test(text)) return "daily_routine";
   if (/\b(?:journal|reflect|reflection|trading\s+journey|write\s+down|debrief|how\s+have\s+i\s+changed)\b/.test(text)) return "journal_reflection";
-  if (/\b(?:win\s*rate|expectancy|statistics|stats|performance|edge\s+lab|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
+  if (/\b(?:win\s*rate|win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?)|expectancy|statistics|stats|performance|edge\s+lab|best\s+(?:pair|setup|month)|worst\s+(?:pair|setup|month)|compare\s+(?:my\s+)?live|how\s+(?:are|is)\s+my\s+.+doing)\b/.test(text)) return "performance_analytics";
   const forecastFollowUp = Boolean(sessionState?.activeForecastId) && /\b(?:what\s+about\s+it|still\s+valid|what\s+do\s+you\s+think|what\s+now|check\s+it|update\s+me|the\s+idea|that\s+idea)\b/.test(text);
   if (forecastFollowUp || /\b(?:forecast|watchlist|watching|invalidated|skipped\s+idea)\b/.test(text)) return "forecast_management";
   if (/\b(?:log|add|record|save)\b.*\b(?:trade|position)\b|\b(?:taking|entering|opening)\b.*\b(?:trade|position|long|short)\b/.test(text)) return "trade_logging";
@@ -558,7 +561,7 @@ function feedbackStyleExamples(journals, limit = 10) {
 
 function isJarvisInternalJournalContent(content) {
   const value = String(content || "");
-  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => value.startsWith(prefix));
+  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => value.startsWith(prefix));
 }
 
 function syncedMemoriesFromJournal(journals, limit = 120) {
@@ -1652,6 +1655,77 @@ function forecastLearningResult(journals, forecasts, args) {
   };
 }
 
+function tradeStreakResult(trades, args = {}) {
+  const filtered = (Array.isArray(trades) ? trades : [])
+    .filter((trade) => (!args.year || String(trade.date || "").startsWith(`${args.year}-`))
+      && (!args.pair || normalizePair(trade.pair) === normalizePair(args.pair))
+      && (!args.setup || matchesText(trade.setup, args.setup))
+      && (!args.direction || String(trade.direction || "").toLowerCase() === String(args.direction).toLowerCase()))
+    .sort((a, b) => `${a.date || ""}T${a.time || "00:00"}:${a.id || ""}`.localeCompare(`${b.date || ""}T${b.time || "00:00"}:${b.id || ""}`));
+  const outcome = (trade) => {
+    const label = String(trade.outcome || trade.result || "").trim().toLowerCase();
+    if (["win", "won"].includes(label)) return "win";
+    if (["loss", "lost"].includes(label)) return "loss";
+    if (["breakeven", "break even", "be"].includes(label)) return "breakeven";
+    const pnl = Number(trade.pnlR ?? trade.pnl);
+    return Number.isFinite(pnl) ? (pnl > 0 ? "win" : pnl < 0 ? "loss" : "breakeven") : "unknown";
+  };
+  const summarize = (records) => ({
+    count: records.length,
+    startDate: records[0]?.date || null,
+    endDate: records.at(-1)?.date || null,
+    startTradeId: records[0]?.id || null,
+    endTradeId: records.at(-1)?.id || null,
+    trades: records.map((trade) => ({ id: trade.id, date: trade.date, pair: trade.pair, setup: trade.setup, direction: trade.direction, pnlR: trade.pnlR ?? trade.pnl ?? null })),
+  });
+  let runningWins = [];
+  let runningLosses = [];
+  let bestWins = [];
+  let bestLosses = [];
+  const preferRun = (candidate, current) => candidate.length > current.length || (candidate.length === current.length && String(candidate.at(-1)?.date || "") > String(current.at(-1)?.date || ""));
+  for (const trade of filtered) {
+    const result = outcome(trade);
+    if (result === "win") {
+      runningWins.push(trade);
+      runningLosses = [];
+      if (preferRun(runningWins, bestWins)) bestWins = [...runningWins];
+    } else if (result === "loss") {
+      runningLosses.push(trade);
+      runningWins = [];
+      if (preferRun(runningLosses, bestLosses)) bestLosses = [...runningLosses];
+    } else {
+      runningWins = [];
+      runningLosses = [];
+    }
+  }
+  return {
+    source: "authenticated_live_trade_streaks",
+    calculation: "chronological_consecutive_outcomes",
+    filter: { year: args.year || null, pair: args.pair || null, setup: args.setup || null, direction: args.direction || null },
+    recordsIncluded: filtered.length,
+    bestWinStreak: summarize(bestWins),
+    currentWinStreak: summarize(runningWins),
+    bestLossStreak: summarize(bestLosses),
+    currentLossStreak: summarize(runningLosses),
+    rule: "Breakeven or unresolved outcomes break a win/loss streak.",
+  };
+}
+
+function verifiedTradeStreakAnswer(result) {
+  if (!result?.recordsIncluded) return "I could not find any authenticated live trades matching those filters, so there is no verified streak to report.";
+  const best = result.bestWinStreak;
+  const current = result.currentWinStreak;
+  if (!best?.count) return `Across ${result.recordsIncluded} authenticated live trades, there is no verified winning streak yet.`;
+  const startYear = String(best.startDate || "").slice(0, 4);
+  const endYear = String(best.endDate || "").slice(0, 4);
+  const year = startYear === endYear ? startYear : `${startYear}\u2013${endYear}`;
+  const dates = best.startDate === best.endDate ? best.startDate : `${best.startDate} to ${best.endDate}`;
+  const currentLine = current?.count
+    ? `Your current streak is ${current.count} win${current.count === 1 ? "" : "s"} in a row.`
+    : "You are not currently on an active win streak.";
+  return `Your best verified live win streak is **${best.count} wins in a row**, in **${year}** (${dates}).\n\n${currentLine}\n\nI calculated that chronologically from ${result.recordsIncluded} authenticated live trades. Breakeven or unresolved outcomes break a streak.`;
+}
+
 function verifiedStatisticsAnswer(result) {
   if (result?.unavailable) return `I could not verify ${result.unavailable} from the authenticated database, so I will not report a numeric result. Refresh Journaly or retry after the data connection recovers.`;
   if (result?.source === "automatic_resolved_forecast_reviews") {
@@ -2144,6 +2218,8 @@ function executeJournalyTool(name, args, data) {
       const months = monthlyPerformance(monthlyTrades, args.year);
       return { source: "live_trades", ledgerSource: data.monthlyLedgerSource || "authenticated_client_snapshot", year: args.year, calculation: "integer_hundredths_of_R", months, bestMonth: months[0] || null, recordsIncluded: months.reduce((sum, month) => sum + month.tradeCount, 0), allMonthsVerified: months.every((month) => month.arithmeticVerified) };
     }
+    case "get_trade_streaks":
+      return tradeStreakResult(trades, args);
     case "get_journaly_inventory":
       return { inventory: { liveTrades: dateCoverage(trades), backtests: dateCoverage(backtests), tradeDecisions: dateCoverage(forecasts), journalEntries: dateCoverage(journals, "entry_date"), daytradeLive: dateCoverage(daytradeLive, "trade_date"), daytradeBacktests: dateCoverage(daytradeBacktests, "trade_date"), tradingViewEvents: dateCoverage(tradingViewEvents, "event_timestamp"), watchedPairs: dateCoverage(pairStates, "last_candle_timestamp"), jarvisNotifications: dateCoverage(notifications, "created_at") }, unavailableSurfaces: data.unavailableSurfaces || [] };
     case "get_live_trade_statistics": {
@@ -2397,6 +2473,7 @@ async function handleJarvis(request, env) {
     },
   };
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
+  const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
     ? toolData.trades.find((trade) => String(trade.id) === String(toolData.sessionState.activeTradeId)) || null
@@ -2475,6 +2552,7 @@ async function handleJarvis(request, env) {
     let roundInput = input;
     let toolCallsUsed = [];
     let verifiedMonthlyLedger = null;
+    let verifiedStreakResult = null;
     let verifiedStatResult = null;
     let verifiedPositionSizing = null;
     let verifiedPositionProfile = null;
@@ -2492,7 +2570,7 @@ async function handleJarvis(request, env) {
 
       if (!fastLane) {
         requestBody.tools = JOURNALY_TOOLS;
-        requestBody.tool_choice = "auto";
+        requestBody.tool_choice = streakIntent && round === 0 ? { type: "function", name: "get_trade_streaks" } : "auto";
         requestBody.parallel_tool_calls = true;
       }
 
@@ -2533,6 +2611,7 @@ async function handleJarvis(request, env) {
           if (call.name === "calculate_position_size") verifiedPositionSizing = toolResult;
           if (call.name === "manage_position_profiles") verifiedPositionProfile = toolResult;
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
+          if (call.name === "get_trade_streaks") verifiedStreakResult = toolResult;
           if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
         });
@@ -2588,6 +2667,7 @@ async function handleJarvis(request, env) {
       if (verifiedPositionProfile) result.answer = verifiedPositionProfileAnswer(verifiedPositionProfile);
       else if (verifiedPositionSizing) result.answer = verifiedPositionSizingAnswer(verifiedPositionSizing);
       else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
+      else if (verifiedStreakResult) result.answer = verifiedTradeStreakAnswer(verifiedStreakResult);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
@@ -2683,18 +2763,26 @@ async function handleRoutine(request, env) {
     ]);
     const today = isoDateInManila();
     if (journals.some((entry) => String(entry.content || "").startsWith(JARVIS_ROUTINE_PREFIX) && entry.entry_date === today)) return json({ ok: true, duplicate: true, sent: false });
+    const syncedMemories = syncedMemoriesFromJournal(journals);
+    const proactivePreference = [...syncedMemories].reverse().find((memory) => memory?.category === "preference" && memory?.key === "companion_proactive_followups");
+    if (String(proactivePreference?.value || "true").toLowerCase() === "false") return json({ ok: true, sent: false, reason: "proactive_followups_disabled" });
     const stale = forecasts.filter((item) => item.status === "Waiting" && Date.now() - new Date(item.updated_at || `${item.decision_date}T${item.decision_time || "00:00"}`).getTime() > 24 * 60 * 60 * 1000);
     const unlinked = forecasts.filter((item) => item.status === "Taken" && !trades.some((trade) => trade.pair === item.pair && trade.setup === item.setup && trade.direction === item.direction && trade.trade_date >= item.decision_date));
     const unreviewed = trades.filter((trade) => !trade.trade_quality && trade.trade_date >= shiftIsoDate(today, -1));
-    const dueFollowUps = syncedMemoriesFromJournal(journals).filter((memory) => memory?.operation !== "delete" && memory?.sensitivity !== "sensitive" && memory?.followUpAt && new Date(memory.followUpAt).getTime() <= Date.now()).slice(0, 3);
+    const dueFollowUps = syncedMemories.filter((memory) => memory?.operation !== "delete" && memory?.sensitivity !== "sensitive" && memory?.followUpAt && new Date(memory.followUpAt).getTime() <= Date.now()).slice(0, 3);
     const lines = [
       ...dueFollowUps.map((memory) => `Follow-up: ${String(memory.value || memory.key).replace(/[.!?]+$/, "")}.`),
       stale.length ? `${stale.length} waiting forecast${stale.length === 1 ? " is" : "s are"} over 24 hours old.` : "",
       unlinked.length ? `${unlinked.length} Taken forecast${unlinked.length === 1 ? " is" : "s are"} not linked to a saved trade.` : "",
       unreviewed.length ? `${unreviewed.length} recent trade${unreviewed.length === 1 ? " still needs" : "s still need"} an execution review.` : "",
     ].filter(Boolean);
-    if (!lines.length) return json({ ok: true, sent: false, reason: "nothing_due" });
-    await sendPushover(env, { title: "JARVIS — EVENING CHECK-IN", message: `${lines.join("\n")}\n\nOpen Journaly when you’re ready; I’ll pick up the context there.`, priority: 0 });
+    const message = lines.length
+      ? `Hey Pot. A quick check-in from me:\n\n${lines.join("\n")}\n\nNo rush—open Journaly when you’re ready and we’ll pick it up there.`
+      : "Hey Pot. Nothing urgent needs your attention in Journaly today—I just wanted to check in. How are you doing?";
+    await sendPushover(env, { title: "JARVIS", message, priority: 0 });
+    const proactiveId = `routine:${today}`;
+    const proactiveContent = `${JARVIS_PROACTIVE_PREFIX}\n${JSON.stringify({ id: proactiveId, title: lines.length ? "Jarvis check-in" : "Just checking in", text: message, createdAt: new Date().toISOString(), kind: lines.length ? "attention" : "greeting" })}`;
+    await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content: proactiveContent, advice: "Persistent proactive Jarvis message.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
     if (dueFollowUps.length) {
       const syncedAt = new Date().toISOString();
       const updates = dueFollowUps.map((memory) => ({ operation: "upsert", category: memory.category, key: memory.key, value: memory.value, confidence: Math.max(0.9, Number(memory.confidence) || 0.9), source: "explicit", sensitivity: memory.sensitivity === "sensitive" ? "sensitive" : "normal", followUpAt: null }));
@@ -2702,13 +2790,13 @@ async function handleRoutine(request, env) {
     }
     const content = `${JARVIS_ROUTINE_PREFIX}\n${JSON.stringify({ date: today, staleForecasts: stale.map((item) => item.id), unlinkedForecasts: unlinked.map((item) => item.id), unreviewedTrades: unreviewed.map((item) => item.id), sentAt: new Date().toISOString() })}`;
     await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content, advice: "Jarvis background evening check-in sent.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
-    return json({ ok: true, sent: true, counts: { stale: stale.length, unlinked: unlinked.length, unreviewed: unreviewed.length } });
+    return json({ ok: true, sent: true, proactiveId, counts: { stale: stale.length, unlinked: unlinked.length, unreviewed: unreviewed.length } });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : "Jarvis background routine failed." }, 503);
   }
 }
 
-export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal };
+export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {
