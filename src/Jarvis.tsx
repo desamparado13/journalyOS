@@ -62,6 +62,8 @@ export const JARVIS_WORKSPACE_PREFIX = "[[JARVIS_WORKSPACE_V1]]";
 export const JARVIS_JOURNEY_PREFIX = "[[JARVIS_JOURNEY_V1]]";
 export const JARVIS_CHART_PREFIX = "[[JARVIS_CHART_V1]]";
 export const JARVIS_ROUTINE_PREFIX = "[[JARVIS_ROUTINE_V1]]";
+const SUPABASE_FREE_DATABASE_BYTES = 500 * 1024 * 1024;
+const JARVIS_BRAIN_PREFIXES = [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX] as const;
 
 type JarvisTrade = {
   id: string;
@@ -507,6 +509,41 @@ function formatUsd(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
 }
 
+function utf8Bytes(value: unknown) {
+  return new TextEncoder().encode(typeof value === "string" ? value : JSON.stringify(value ?? "")).byteLength;
+}
+
+function formatDataSize(bytes: number) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = Math.max(0, bytes);
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+  const formatted = value.toFixed(digits);
+  return { value: formatted, unit: units[unitIndex], text: `${formatted} ${units[unitIndex]}` };
+}
+
+function estimateJarvisBrain(entries: JarvisProps["journalEntries"]) {
+  const usage = { memory: 0, conversation: 0, charts: 0, learning: 0, other: 0 };
+  let records = 0;
+  entries.forEach((entry) => {
+    const prefix = JARVIS_BRAIN_PREFIXES.find((candidate) => entry.content.startsWith(candidate));
+    if (!prefix) return;
+    records += 1;
+    const bytes = utf8Bytes(entry.content) + utf8Bytes(entry.advice) + utf8Bytes(entry.image || "") + 250;
+    if (prefix === JARVIS_MEMORY_SYNC_PREFIX) usage.memory += bytes;
+    else if ([JARVIS_CHAT_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX].some((candidate) => candidate === prefix)) usage.conversation += bytes;
+    else if (prefix === JARVIS_CHART_PREFIX) usage.charts += bytes;
+    else if ([JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX].some((candidate) => candidate === prefix)) usage.learning += bytes;
+    else usage.other += bytes;
+  });
+  const totalBytes = Object.values(usage).reduce((sum, value) => sum + value, 0);
+  return { ...usage, totalBytes, records, freeDatabaseReferencePercent: totalBytes / SUPABASE_FREE_DATABASE_BYTES * 100 };
+}
+
 const quickCommands = [
   { label: "Life check-in", prompt: "Check in with me as my real-life companion. Use relevant personal context naturally, ask about one meaningful unfinished thread if there is one, and do not bring up trading unless I do.", icon: HeartHandshake },
   { label: "Morning briefing", prompt: "Give me my morning briefing using only Journaly: waiting forecasts, current plans, recent execution, risk rules, and what deserves my attention. Do not claim live market conditions.", icon: Sunrise },
@@ -905,6 +942,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 80);
   }, [journalEntries, sessionLearningRecords]);
+  const brainUsage = useMemo(() => estimateJarvisBrain(journalEntries), [journalEntries]);
+  const brainSize = formatDataSize(brainUsage.totalBytes);
+  const brainFreeReference = brainUsage.freeDatabaseReferencePercent < 0.01
+    ? "<0.01%"
+    : `${brainUsage.freeDatabaseReferencePercent.toFixed(brainUsage.freeDatabaseReferencePercent < 1 ? 2 : 1)}%`;
+  const brainBreakdown = `Memory ${formatDataSize(brainUsage.memory).text} · Conversations ${formatDataSize(brainUsage.conversation).text} · Charts ${formatDataSize(brainUsage.charts).text} · Learning ${formatDataSize(brainUsage.learning).text}`;
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -1932,6 +1975,18 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <div><BookOpenCheck size={13} /><p><strong>Learning archive</strong><small>{learningSyncState === "saving" ? "Saving latest insight…" : learningSyncState === "error" ? "Latest insight stayed in chat" : "Summaries synced · images stay lightweight"}</small></p></div>
                 <div className="is-pending"><CircleDot size={13} /><p><strong>Live market data</strong><small>Future connection</small></p></div>
               </div>
+
+              <section className="jarvis-brain-card" title={`${brainBreakdown}. This is a Journaly-side estimate of Jarvis records, not Supabase's total database measurement.`} aria-label={`Jarvis brain size approximately ${brainSize.text}`}>
+                <div className="jarvis-brain-orb" aria-hidden="true"><BrainCircuit size={21} /></div>
+                <div className="jarvis-brain-copy">
+                  <span>Jarvis brain size</span>
+                  <strong>{brainSize.value} <small>{brainSize.unit}</small></strong>
+                  <div className="jarvis-brain-meter" role="progressbar" aria-label="Jarvis estimate compared with the Supabase Free database limit" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, brainUsage.freeDatabaseReferencePercent)}><i style={{ width: `${Math.min(100, Math.max(0.4, brainUsage.freeDatabaseReferencePercent))}%` }} /></div>
+                  <small>{brainFreeReference} of the 500 MB Free database reference · {brainUsage.records} brain records</small>
+                  <em>Jarvis-only estimate—not total project usage.</em>
+                </div>
+                <a href="https://supabase.com/dashboard/org/_/usage" target="_blank" rel="noreferrer" title="Open authoritative Supabase usage">Check actual</a>
+              </section>
 
               <div className="jarvis-spend-card" title="Estimated from Jarvis token usage at current published model rates. Your provider invoice, taxes, and credits may differ.">
                 <CircleDollarSign size={18} />

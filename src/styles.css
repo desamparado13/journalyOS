@@ -1587,7 +1587,19 @@ label span,
 .jarvis-source-stack small { color: #4f7185; font-size: 0.61rem; }
 .jarvis-source-stack .is-pending { color: #526f80; }
 .jarvis-source-stack .is-pending strong { color: #648397; }
-.jarvis-spend-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; margin-top: auto; margin-bottom: 9px; padding: 12px; border: 1px solid rgba(56, 189, 248, 0.18); border-radius: 12px; color: #67e8f9; background: linear-gradient(135deg, rgba(14, 116, 144, 0.14), rgba(14, 165, 233, 0.035)); }
+.jarvis-brain-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin-top: auto; margin-bottom: 9px; padding: 12px; border: 1px solid rgba(94, 234, 212, 0.2); border-radius: 13px; background: radial-gradient(circle at 12% 20%, rgba(45, 212, 191, 0.12), transparent 38%), linear-gradient(135deg, rgba(8, 47, 73, 0.84), rgba(4, 20, 31, 0.92)); box-shadow: inset 0 1px rgba(255, 255, 255, 0.025); }
+.jarvis-brain-orb { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgba(94, 234, 212, 0.25); border-radius: 50%; color: #67e8f9; background: rgba(13, 148, 136, 0.12); box-shadow: 0 0 22px rgba(34, 211, 238, 0.1), inset 0 0 16px rgba(45, 212, 191, 0.08); }
+.jarvis-brain-copy { display: grid; min-width: 0; gap: 2px; }
+.jarvis-brain-copy > span { color: #5f8798; font-size: 0.57rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.jarvis-brain-copy > strong { color: #ddfeff; font-size: 1.05rem; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.jarvis-brain-copy > strong small { color: #7dd3fc; font-size: 0.62rem; }
+.jarvis-brain-copy > small, .jarvis-brain-copy > em { overflow: hidden; color: #55798b; font-size: 0.52rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-brain-copy > em { color: #416676; }
+.jarvis-brain-meter { height: 4px; margin: 3px 0 1px; overflow: hidden; border-radius: 999px; background: rgba(82, 113, 128, 0.2); }
+.jarvis-brain-meter i { display: block; height: 100%; min-width: 2px; border-radius: inherit; background: linear-gradient(90deg, #2dd4bf, #22d3ee); box-shadow: 0 0 8px rgba(34, 211, 238, 0.45); }
+.jarvis-brain-card > a { align-self: start; padding: 4px 6px; border: 1px solid rgba(125, 211, 252, 0.12); border-radius: 6px; color: #668da0; font-size: 0.51rem; font-weight: 750; text-decoration: none; }
+.jarvis-brain-card > a:hover { color: #b9f5fa; border-color: rgba(103, 232, 249, 0.26); background: rgba(34, 211, 238, 0.06); }
+.jarvis-spend-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 9px; align-items: center; margin-top: 0; margin-bottom: 9px; padding: 12px; border: 1px solid rgba(56, 189, 248, 0.18); border-radius: 12px; color: #67e8f9; background: linear-gradient(135deg, rgba(14, 116, 144, 0.14), rgba(14, 165, 233, 0.035)); }
 .jarvis-spend-card > div { min-width: 0; }
 .jarvis-spend-card span, .jarvis-spend-card small { display: block; color: #57798a; font-size: 0.58rem; font-weight: 750; }
 .jarvis-spend-card > div > span { letter-spacing: 0.08em; text-transform: uppercase; }
