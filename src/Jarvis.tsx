@@ -535,7 +535,7 @@ function readJarvisMessages(userId: string): JarvisMessage[] {
         ...message,
         text: message.text.replace(`\n\n${LEGACY_FALLBACK_NOTICE}`, "").replace(LEGACY_FALLBACK_NOTICE, "").trim(),
       }))
-      .filter((message) => message.text.length > 0)
+      .filter((message) => message.text.length > 0 || Boolean(message.imagePreview))
       .slice(-30);
   } catch {
     return [];
@@ -2114,7 +2114,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const previousChartForRequest = imageForRequest && previousChartCandidate && imageForRequest.dataUrl !== previousChartCandidate.dataUrl && imageForRequest.dataUrl.length + previousChartCandidate.dataUrl.length <= 3_800_000
       ? previousChartCandidate
       : null;
-    const cleanPrompt = nextPrompt.trim() || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
+    const visiblePrompt = nextPrompt.trim();
+    const cleanPrompt = visiblePrompt || (imageForRequest ? "Analyze this trading chart. Tell me what you can verify, what is unclear, and whether this is TAKE, WATCH, or SKIP based on my rules." : "");
     if (!cleanPrompt || isThinking) return;
     if (forecastDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }, { id: crypto.randomUUID(), role: "jarvis", text: "Forecast action discarded. Nothing changed in Journaly." }]);
@@ -2148,7 +2149,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       role: message.role === "jarvis" ? "assistant" : "user",
       content: [message.title, message.text].filter(Boolean).join("\n"),
     }));
-    const userMessage: JarvisMessage = { id: crypto.randomUUID(), role: "user", text: cleanPrompt, imagePreview: imageForRequest?.dataUrl, attachmentName: imageForRequest?.name, createdAt: new Date().toISOString() };
+    const userMessage: JarvisMessage = { id: crypto.randomUUID(), role: "user", text: visiblePrompt, imagePreview: imageForRequest?.dataUrl, attachmentName: imageForRequest?.name, createdAt: new Date().toISOString() };
     setMessages((current) => [...current, userMessage]);
     setPrompt("");
     setAttachedImage(null);
@@ -2479,7 +2480,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <article className={`jarvis-ambient-message is-${message.role}`} key={message.id}>
                 <span>{message.role === "jarvis" ? "JARVIS" : "YOU"}</span>
                 {message.title ? <strong>{message.title}</strong> : null}
-                <p>{message.text}</p>
+                {message.text ? <p>{message.text}</p> : message.imagePreview ? <p>Image attached</p> : null}
                 {message.role === "jarvis" ? <button type="button" onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={12} /> : <Volume2 size={12} />}{speakingMessageId === message.id ? " Stop" : " Listen"}</button> : null}
               </article>
             )) : <div className="jarvis-ambient-welcome"><BrainCircuit size={23} /><strong>I’m with you, {preferredName}.</strong><p>Scroll through Journaly and talk to me from here. I keep the same memory and context as Command Center.</p></div>}
@@ -2615,7 +2616,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           {message.title ? <h3>{message.title}</h3> : null}
                           {message.imagePreview ? <img className="jarvis-message-image" src={message.imagePreview} alt={message.attachmentName || "Attached trading chart"} /> : null}
                           {message.attachmentName ? <small className="jarvis-attachment-name"><Paperclip size={11} /> {message.attachmentName}</small> : null}
-                          <p>{message.text}</p>
+                          {message.text ? <p>{message.text}</p> : null}
                           {message.metrics?.length ? <div className="jarvis-response-metrics">{message.metrics.map((metric) => <div className={metric.tone ? `is-${metric.tone}` : ""} key={`${metric.label}-${metric.value}`}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div> : null}
                           {message.role === "jarvis" ? (
                             <div className="jarvis-feedback">
