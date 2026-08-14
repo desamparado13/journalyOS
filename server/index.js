@@ -126,6 +126,13 @@ JARVIS LIFE COMPANION
 - Companion warmth must not weaken trading evidence, position-sizing arithmetic, privacy rules, or confirmation requirements.`;
 const JARVIS_SELF_REVIEW_INSTRUCTIONS = `
 Before finalizing, silently verify that the answer matches the user's latest question, stays in personal conversation when the user is talking about life, preserves active forecast or trade context only when relevant, separates remembered facts from inference, avoids invented live-market awareness, respects companion privacy settings, and sounds like a natural trusted companion rather than a compliance report. Correct the answer before returning it if any check fails. Do not narrate this checklist unless asked.`;
+const JARVIS_FAST_CONVERSATION_INSTRUCTIONS = `You are Jarvis, Pot's warm, sharp, concise long-term companion. This is the low-latency conversation lane.
+- Answer the latest message directly and naturally, usually in 1-4 short paragraphs. Do not mention systems, lanes, policies, or databases.
+- Use only the supplied conversation history and relevant memories. Never invent a remembered fact. If a detail may have changed, ask naturally.
+- Stay with ordinary life or casual conversation; do not force trading into it. Be honest, occasionally playful, and willing to have an opinion.
+- Preserve emotional continuity without diagnosing or exaggerating. Never claim consciousness or replace real human relationships.
+- Return durable memoryUpdates only for explicit stable facts, preferences, goals, projects, relationships, routines, important dates, boundaries, or direct corrections. Never retain secrets. Respect companionSettings and mark sensitive topics sensitive.
+- Return only the required structured response.`;
 const MODEL_PRICING_PER_MILLION = {
   "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
@@ -328,6 +335,16 @@ const RESPONSE_SCHEMA = {
   },
 };
 
+const FAST_RESPONSE_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["answer", "memoryUpdates"],
+  properties: {
+    answer: { type: "string", minLength: 1, maxLength: 3000 },
+    memoryUpdates: RESPONSE_SCHEMA.properties.memoryUpdates,
+  },
+};
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -480,6 +497,16 @@ function detectConversationMode(question, chartImage, sessionState = {}) {
   if (/^(?:hey|hi|hello|yo|thanks|thank\s+you|good\s+(?:morning|afternoon|evening)|what's\s+up|whats\s+up|how\s+are\s+you)[!,.\s]*$/.test(text)) return "casual_conversation";
   const tradingLanguage = /\b(?:trade|trading|market|chart|pair|forex|setup|entry|stop|target|position|risk|lot|pips?|backtest|forecast|journal|audusd|eurusd|eurjpy|audjpy|gbpusd|nzdjpy|euraud)\b/.test(text);
   return tradingLanguage ? "general_trading_conversation" : "personal_conversation";
+}
+
+function shouldUseFastConversationLane(conversationMode, question, chartImage, sessionState = {}) {
+  if (chartImage || !["casual_conversation", "personal_conversation"].includes(conversationMode)) return false;
+  if (sessionState?.pendingTradeDraft || sessionState?.pendingForecastDraft || sessionState?.pendingPositionSizing) return false;
+  const text = String(question || "");
+  if ((sessionState?.activeTradeId || sessionState?.activeForecastId) && /\b(?:what\s+do\s+you\s+think|what\s+now|how(?:'s|\s+is)\s+it|still\s+good|check\s+it|update\s+me)\b/i.test(text)) return false;
+  const action = "(?:calculate|position\\s*siz|lot\\s*size|risk\\s*%|account\\s*balance|entry|stop\\s*loss|take\\s*profit|add|log|record|save|delete|remove|update|change|rename|set)";
+  const object = "(?:trade|forecast|profile|platform|account|risk|position|journal)";
+  return !(new RegExp(`\\b${action}\\b.*\\b${object}\\b|\\b${object}\\b.*\\b${action}\\b`, "i").test(text));
 }
 
 function detectChartInteractionMode(question, chartImage) {
@@ -2258,6 +2285,7 @@ async function handleHealth(request, env) {
 }
 
 async function handleJarvis(request, env) {
+  const startedAt = Date.now();
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const connection = aiConnection(env);
   const configuredModel = connection?.model || env.OPENAI_JARVIS_MODEL || FALLBACK_MODELS[0];
@@ -2279,6 +2307,12 @@ async function handleJarvis(request, env) {
   const question = typeof body?.question === "string" ? body.question.trim() : "";
   if (!question) return json({ error: "A question is required." }, 400);
   if (question.length > MAX_QUESTION_LENGTH) return json({ error: "That message is too long for this Jarvis version." }, 413);
+  const journalContext = body?.context && typeof body.context === "object" ? body.context : {};
+  const chartImage = validChartImage(body?.chartImage);
+  const previousChartImage = validChartImage(body?.previousChartImage);
+  const preliminarySessionState = journalContext?.sessionState && typeof journalContext.sessionState === "object" ? journalContext.sessionState : {};
+  const preliminaryConversationMode = detectConversationMode(question, chartImage, preliminarySessionState);
+  const fastLane = shouldUseFastConversationLane(preliminaryConversationMode, question, chartImage, preliminarySessionState);
 
   let authorization;
   try {
@@ -2288,10 +2322,9 @@ async function handleJarvis(request, env) {
   }
   if (authorization.error) return authorization.error;
   const authenticatedUser = authorization.user;
-  const authenticatedJournaly = await loadAuthenticatedJournalyData(request, env, authenticatedUser.id);
+  const authenticatedJournaly = fastLane ? null : await loadAuthenticatedJournalyData(request, env, authenticatedUser.id);
 
   const history = normalizeHistory(body?.history);
-  const journalContext = body?.context && typeof body.context === "object" ? body.context : {};
   const username = String(authenticatedUser.email || "").split("@")[0] || null;
   const isOwnerProfile = username?.toLowerCase() === OWNER_USERNAME;
   const { profile: suppliedProfile = {}, ...journalData } = journalContext;
@@ -2363,8 +2396,6 @@ async function handleJarvis(request, env) {
         .filter((item, index, all) => item?.id && all.findIndex((candidate) => candidate?.id === item.id) === index).slice(0, 8),
     },
   };
-  const chartImage = validChartImage(body?.chartImage);
-  const previousChartImage = validChartImage(body?.previousChartImage);
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
   const activeTrade = toolData.sessionState?.activeTradeId
@@ -2412,11 +2443,11 @@ async function handleJarvis(request, env) {
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
     relevantMemories,
     styleExamples,
-    positionSizing: toolData.positionSizing,
-    availableJournalyTools: JOURNALY_TOOLS.map((tool) => tool.name),
-    historicalChartLibrary: JARVIS_REFERENCE_SUMMARY,
-    auditedBacktestChartLibrary: JARVIS_BACKTEST_AUDIT_SUMMARY,
-    learnedCaseCount: toolData.learningRecords.length,
+    positionSizing: fastLane ? null : toolData.positionSizing,
+    availableJournalyTools: fastLane ? [] : JOURNALY_TOOLS.map((tool) => tool.name),
+    historicalChartLibrary: fastLane ? null : JARVIS_REFERENCE_SUMMARY,
+    auditedBacktestChartLibrary: fastLane ? null : JARVIS_BACKTEST_AUDIT_SUMMARY,
+    learnedCaseCount: fastLane ? Number(journalData?.summary?.learnedCases || 0) : toolData.learningRecords.length,
     dataCoverage: { source: toolData.authoritativeSource, liveTrades: toolData.trades.length, monthlyLedgerTrades: toolData.monthlyTrades.length, backtests: toolData.backtests.length, forecasts: toolData.forecasts.length, journals: toolData.journals.length, chartImages: toolData.imageInventory.length, daytradeLive: toolData.daytradeLive.length, daytradeBacktests: toolData.daytradeBacktests.length, tradingViewEvents: toolData.tradingViewEvents.length, watchedPairs: toolData.pairStates.length, notifications: toolData.notifications.length },
   };
   const currentContent = [
@@ -2435,7 +2466,8 @@ async function handleJarvis(request, env) {
       content: currentContent,
     },
   ];
-  const models = Array.from(new Set([configuredModel, ...FALLBACK_MODELS]));
+  const fastModel = env.OPENAI_JARVIS_FAST_MODEL || "gpt-4.1-mini";
+  const models = Array.from(new Set(fastLane ? [fastModel, configuredModel] : [configuredModel, ...FALLBACK_MODELS]));
   let lastError = "Jarvis could not complete that response.";
   let lastCategory = "unknown";
 
@@ -2450,16 +2482,19 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
+      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
-      max_output_tokens: 1100,
+      max_output_tokens: fastLane ? 420 : 1100,
       store: false,
       safety_identifier: await safetyIdentifier(authenticatedUser.id),
-      tools: JOURNALY_TOOLS,
-      tool_choice: "auto",
-      parallel_tool_calls: true,
-      text: { format: { type: "json_schema", name: "jarvis_reply", strict: true, schema: RESPONSE_SCHEMA } },
+      text: { format: { type: "json_schema", name: fastLane ? "jarvis_fast_reply" : "jarvis_reply", strict: true, schema: fastLane ? FAST_RESPONSE_SCHEMA : RESPONSE_SCHEMA } },
       };
+
+      if (!fastLane) {
+        requestBody.tools = JOURNALY_TOOLS;
+        requestBody.tool_choice = "auto";
+        requestBody.parallel_tool_calls = true;
+      }
 
       if (model.includes("gpt-5.6")) {
         requestBody.reasoning = { effort: "low", context: "current_turn" };
@@ -2554,7 +2589,7 @@ async function handleJarvis(request, env) {
       else if (verifiedPositionSizing) result.answer = verifiedPositionSizingAnswer(verifiedPositionSizing);
       else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
+      return json({ ...result, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
   }
 
@@ -2673,7 +2708,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
+export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal };
 
 export default {
   async fetch(request, env, ctx) {
