@@ -1,4 +1,9 @@
 (function startJournalyBridge() {
+  if (globalThis.__journalyEdgeBridgeStarted) {
+    window.postMessage({ source: "journaly-edge-companion", type: "JOURNALY_EDGE_READY" }, location.origin);
+    return;
+  }
+  globalThis.__journalyEdgeBridgeStarted = true;
   const PAGE_SOURCE = "journaly-os";
   const EXTENSION_SOURCE = "journaly-edge-companion";
   const postState = (state) => window.postMessage({ source: EXTENSION_SOURCE, type: "JOURNALY_EDGE_STATE", state }, location.origin);

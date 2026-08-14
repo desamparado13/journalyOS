@@ -23,7 +23,15 @@ function publicState(state) {
 
 async function broadcast(state) {
   const tabs = await chrome.tabs.query({ url: JOURNALY_URLS });
-  await Promise.all(tabs.map((tab) => chrome.tabs.sendMessage(tab.id, { type: "JOURNALY_EDGE_STATE_CHANGED", state }).catch(() => {})));
+  await Promise.all(tabs.map(async (tab) => {
+    if (!tab.id) return;
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "JOURNALY_EDGE_STATE_CHANGED", state });
+    } catch {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["journaly-bridge.js"] }).catch(() => {});
+      await chrome.tabs.sendMessage(tab.id, { type: "JOURNALY_EDGE_STATE_CHANGED", state }).catch(() => {});
+    }
+  }));
 }
 
 async function stopSharing() {
