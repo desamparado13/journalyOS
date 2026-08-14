@@ -2,6 +2,7 @@ const OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
 const CONNECTION_PREFIX = "[[JARVIS_GOOGLE_DRIVE_V1]]";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+const OAUTH_STATE_LIFETIME_MS = 30 * 60 * 1000;
 const ROOT_FOLDER_NAME = "Journaly Vault";
 const BACKUP_FOLDER_NAME = "Full Backups";
 const ARCHIVE_FOLDER_NAME = "Archive — Jarvis does not read";
@@ -47,7 +48,7 @@ async function hmac(value, secret) {
 }
 
 async function signedState(userId, env) {
-  const payload = base64Url(new TextEncoder().encode(JSON.stringify({ userId, expiresAt: Date.now() + 10 * 60 * 1000, nonce: crypto.randomUUID() })));
+  const payload = base64Url(new TextEncoder().encode(JSON.stringify({ userId, expiresAt: Date.now() + OAUTH_STATE_LIFETIME_MS, nonce: crypto.randomUUID() })));
   return `${payload}.${base64Url(await hmac(payload, env.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY))}`;
 }
 
@@ -322,7 +323,8 @@ function publicStatus(connection, env) {
 
 function appRedirect(request, env, result) {
   const origin = String(env.JOURNALY_APP_URL || new URL(request.url).origin).replace(/\/$/, "");
-  return Response.redirect(`${origin}/?drive=${encodeURIComponent(result)}`, 302);
+  // Keep the OAuth result in the fragment so static hosting always requests `/`.
+  return Response.redirect(`${origin}/#drive=${encodeURIComponent(result)}`, 302);
 }
 
 export async function handleGoogleDriveBackup(request, env) {
@@ -332,7 +334,7 @@ export async function handleGoogleDriveBackup(request, env) {
     if (!configured(env)) return appRedirect(request, env, "not-configured");
     const url = new URL(request.url);
     const state = await verifiedState(url.searchParams.get("state"), env);
-    if (!state || !url.searchParams.get("code")) return appRedirect(request, env, "connection-failed");
+    if (!state || !url.searchParams.get("code")) return appRedirect(request, env, "connection-expired");
     try {
       const tokens = await exchangeCode(url.searchParams.get("code"), request, env);
       const userInfoResponse = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", { headers: { authorization: `Bearer ${tokens.access_token}` } });

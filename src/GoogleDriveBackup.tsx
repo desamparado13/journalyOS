@@ -66,12 +66,21 @@ export default function GoogleDriveBackup() {
   }
 
   useEffect(() => {
-    const driveResult = new URLSearchParams(window.location.search).get("drive");
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const driveResult = new URLSearchParams(window.location.search).get("drive") || hashParams.get("drive");
     if (driveResult) {
-      setMessage(driveResult === "connected" ? "Google Drive connected. Your vault is ready." : "Google Drive could not be connected. Try again.");
+      setMessage(
+        driveResult === "connected"
+          ? "Google Drive connected. Your vault is ready."
+          : driveResult === "connection-expired"
+            ? "The secure Google connection expired during sign-in. Connect again to continue."
+            : "Google Drive could not be connected. Try again.",
+      );
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.delete("drive");
-      window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+      hashParams.delete("drive");
+      const nextHash = hashParams.toString();
+      window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextHash ? `#${nextHash}` : ""}`);
     }
     void loadStatus();
   }, []);
@@ -183,4 +192,3 @@ export default function GoogleDriveBackup() {
     </section>
   );
 }
-
