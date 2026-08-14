@@ -239,6 +239,29 @@ type JarvisPositionSizingContext = {
   stopLossPrice: number | null;
   takeProfitPrice: number | null;
   quoteToUsdRate: number | null;
+  profiles: JarvisPositionProfileRow[];
+  profileMode: "main" | "half";
+};
+
+type JarvisPositionProfileRow = {
+  id: string;
+  balance: number;
+  type: string;
+  platform: string;
+  riskPercent: number;
+};
+
+type JarvisPositionProfileAction = {
+  operation: "add" | "update" | "delete" | "set_mode";
+  ready: boolean;
+  rowId: string | null;
+  profileMode: "main" | "half" | null;
+  balance: number | null;
+  type: string | null;
+  platform: string | null;
+  riskPercent: number | null;
+  missingFields: Array<"profile" | "balance" | "riskPercent" | "change" | "profileMode">;
+  candidateIds: string[];
 };
 
 type JarvisHealth = {
@@ -275,6 +298,7 @@ type JarvisProps = {
   onTradeCreated: () => void | Promise<void>;
   onForecastChanged: (forecast?: { id: string; status: NonNullable<JarvisForecastAction["status"]> }) => void | Promise<void>;
   onPositionSizingApply: (action: JarvisPositionSizingAction) => void;
+  onPositionProfileApply: (action: JarvisPositionProfileAction) => void;
 };
 
 type JarvisLearningRecord = {
@@ -768,6 +792,25 @@ function normalizePositionSizingAction(value: unknown): JarvisPositionSizingActi
   };
 }
 
+function normalizePositionProfileAction(value: unknown): JarvisPositionProfileAction | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<JarvisPositionProfileAction>;
+  if (!candidate.operation || !["add", "update", "delete", "set_mode"].includes(candidate.operation)) return null;
+  const positiveOrNull = (input: unknown) => Number.isFinite(input) && Number(input) > 0 ? Number(input) : null;
+  return {
+    operation: candidate.operation,
+    ready: candidate.ready === true,
+    rowId: typeof candidate.rowId === "string" && candidate.rowId.trim() ? candidate.rowId.trim() : null,
+    profileMode: candidate.profileMode === "main" || candidate.profileMode === "half" ? candidate.profileMode : null,
+    balance: positiveOrNull(candidate.balance),
+    type: typeof candidate.type === "string" && candidate.type.trim() ? candidate.type.trim().slice(0, 100) : null,
+    platform: typeof candidate.platform === "string" && candidate.platform.trim() ? candidate.platform.trim().slice(0, 100) : null,
+    riskPercent: positiveOrNull(candidate.riskPercent),
+    missingFields: Array.isArray(candidate.missingFields) ? candidate.missingFields.filter((field): field is JarvisPositionProfileAction["missingFields"][number] => ["profile", "balance", "riskPercent", "change", "profileMode"].includes(String(field))) : [],
+    candidateIds: Array.isArray(candidate.candidateIds) ? candidate.candidateIds.filter((id): id is string => typeof id === "string").slice(0, 20) : [],
+  };
+}
+
 function persistedForecastStatus(status: NonNullable<JarvisForecastAction["status"]>) {
   if (status === "Invalidated") return "Cancelled";
   if (status === "Skipped") return "Missed";
@@ -885,7 +928,7 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
   return null;
 }
 
-export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, positionSizing, onTradeCreated, onForecastChanged, onPositionSizingApply }: JarvisProps) {
+export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, positionSizing, onTradeCreated, onForecastChanged, onPositionSizingApply, onPositionProfileApply }: JarvisProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
@@ -910,6 +953,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [tradeDraft, setTradeDraft] = useState<JarvisTradeAction | null>(null);
   const [forecastDraft, setForecastDraft] = useState<JarvisForecastAction | null>(null);
   const [positionSizingDraft, setPositionSizingDraft] = useState<JarvisPositionSizingAction | null>(null);
+  const [positionProfileDraft, setPositionProfileDraft] = useState<JarvisPositionProfileAction | null>(null);
   const [isSavingTrade, setIsSavingTrade] = useState(false);
   const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
@@ -1815,6 +1859,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const nextPositionSizing = normalizePositionSizingAction(payload.positionSizingAction);
       setPositionSizingDraft(nextPositionSizing);
       if (nextPositionSizing?.ready) onPositionSizingApply(nextPositionSizing);
+      const nextPositionProfile = normalizePositionProfileAction(payload.positionProfileAction);
+      setPositionProfileDraft(nextPositionProfile);
+      if (nextPositionProfile?.ready) onPositionProfileApply(nextPositionProfile);
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
@@ -2102,6 +2149,23 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           <button type="button" className="is-cancel" onClick={() => setPositionSizingDraft(null)}>Dismiss</button>
                           <button type="button" className="is-confirm" disabled={!positionSizingDraft.ready} onClick={() => onPositionSizingApply(positionSizingDraft)}><Check size={15} /> Fill & open tab</button>
                         </footer>
+                      </article>
+                    ) : null}
+                    {positionProfileDraft ? (
+                      <article className={`jarvis-trade-draft is-${positionProfileDraft.ready ? "ready" : "draft"}`} aria-label="Jarvis position profile change">
+                        <header><span>Position profile</span><strong>{positionProfileDraft.operation.replace("_", " ")}</strong></header>
+                        {positionProfileDraft.operation === "set_mode" ? (
+                          <div className="jarvis-trade-draft-grid"><p><span>Mode</span><strong>{positionProfileDraft.profileMode === "half" ? "Half Profile" : "Main Profile"}</strong></p></div>
+                        ) : positionProfileDraft.balance ? (
+                          <div className="jarvis-trade-draft-grid">
+                            <p><span>Balance</span><strong>{positionProfileDraft.balance.toLocaleString()}</strong></p>
+                            <p><span>Type</span><strong>{positionProfileDraft.type || "Account"}</strong></p>
+                            <p><span>Platform</span><strong>{positionProfileDraft.platform || "Unspecified"}</strong></p>
+                            <p><span>Risk</span><strong>{positionProfileDraft.riskPercent ?? "--"}%</strong></p>
+                          </div>
+                        ) : null}
+                        <small>{positionProfileDraft.ready ? "Applied and saved automatically in Position Sizing." : `Jarvis still needs: ${positionProfileDraft.missingFields.join(", ")}.`}</small>
+                        <footer><button type="button" className="is-cancel" onClick={() => setPositionProfileDraft(null)}>Dismiss</button></footer>
                       </article>
                     ) : null}
                     {isThinking ? <div className="jarvis-thinking"><span /><span /><span /><small>Thinking with your strategy</small></div> : null}

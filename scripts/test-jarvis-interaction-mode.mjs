@@ -86,6 +86,7 @@ const modelPayload = {
   },
   forecastAction: null,
   positionSizingAction: null,
+  positionProfileAction: null,
   chartAssessment: {
     setupCandidate: "Break and retest",
     direction: "Long",
@@ -163,6 +164,7 @@ globalThis.fetch = async (_url, init) => {
       tradeAction: null,
       forecastAction: null,
       positionSizingAction: null,
+      positionProfileAction: null,
       chartAssessment: null,
     }),
     usage: {},

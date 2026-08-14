@@ -51,6 +51,10 @@ JOURNALY POSITION SIZING
 - Every ready position-sizing calculation must set applyToCalculator=true and populate Journaly's Position Sizing tab automatically. Asking for a lot size is enough authorization because this only changes reversible calculator fields and never places an order.
 - When the tool reports ready=true, return positionSizingAction using the exact normalized inputs and result from the tool. Explain the verified result naturally in chat, including standard lots, units, risk amount, stop pips, and R:R/projected profit when a valid take profit was supplied.
 - When required information is missing, ask only for those missing fields. Do not guess a balance, risk percentage, price, or conversion rate.
+- The user's saved account rows and active Main/Half mode are available as positionSizing.profiles and positionSizing.profileMode. For any request to add, edit, rename, or remove a saved sizing profile, or switch Main/Half mode, call manage_position_profiles. Never pretend a profile changed without this tool.
+- A profile can be identified by its exact row id, balance, type, or platform. Supply every identifier the user gave as match fields. If the tool reports more than one candidate, ask which row they mean instead of guessing.
+- Ready add, update, and mode changes are reversible Journaly UI changes and should be applied immediately. A delete is allowed only when the user explicitly asks to delete/remove that profile.
+- When manage_position_profiles is ready, return positionProfileAction using the exact tool result and tell the user what changed. Profile changes are saved automatically in this browser.
 - Position sizing is calculation and Journaly UI control only. Never claim to place, modify, or close a broker order.`;
 const JARVIS_ANALYTICS_INSTRUCTIONS = `
 JOURNALY NUMERIC ACCURACY
@@ -165,12 +169,13 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_trade_journey", description: "Get the unified forecast-to-chart-to-trade journey and all open Jarvis contexts. Use for continuity questions such as what happened with an idea, how a forecast became a trade, or what Jarvis is currently tracking.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, forecastId: { type: ["string", "null"] }, tradeId: { type: ["string", "null"] } }, required: ["pair", "forecastId", "tradeId"] } },
   { type: "function", name: "calculate_position_size", description: "Calculate Journaly's exact forex position size and prepare the Position Sizing tab to be populated automatically. Reuse current calculator values supplied in session context when the user omits them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { applyToCalculator: { type: "boolean" }, pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] }, accountBalance: { type: ["number", "null"], minimum: 0 }, riskPercent: { type: ["number", "null"], minimum: 0 }, entryPrice: { type: ["number", "null"], minimum: 0 }, stopLossPrice: { type: ["number", "null"], minimum: 0 }, takeProfitPrice: { type: ["number", "null"], minimum: 0 }, quoteToUsdRate: { type: ["number", "null"], minimum: 0 } }, required: ["applyToCalculator", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate"] } },
+  { type: "function", name: "manage_position_profiles", description: "Deterministically add, update, delete, or select Journaly's saved Position Sizing profiles. Match existing rows using only identifiers explicitly supplied by the user.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { operation: { type: "string", enum: ["add", "update", "delete", "set_mode"] }, rowId: { type: ["string", "null"] }, matchBalance: { type: ["number", "null"], minimum: 0 }, matchType: { type: ["string", "null"] }, matchPlatform: { type: ["string", "null"] }, balance: { type: ["number", "null"], minimum: 0 }, type: { type: ["string", "null"] }, platform: { type: ["string", "null"] }, riskPercent: { type: ["number", "null"], minimum: 0 }, profileMode: { type: ["string", "null"], enum: ["main", "half", null] } }, required: ["operation", "rowId", "matchBalance", "matchType", "matchPlatform", "balance", "type", "platform", "riskPercent", "profileMode"] } },
 ];
 
 const RESPONSE_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "forecastAction", "positionSizingAction", "chartAssessment"],
+  required: ["answer", "memoryUpdates", "learningSummary", "tradeAction", "forecastAction", "positionSizingAction", "positionProfileAction", "chartAssessment"],
   properties: {
     answer: { type: "string", maxLength: 12000 },
     learningSummary: { type: ["string", "null"], maxLength: 1600 },
@@ -296,6 +301,23 @@ const RESPONSE_SCHEMA = {
             takeProfitValid: { type: ["boolean", "null"] },
           },
         },
+      },
+    },
+    positionProfileAction: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["operation", "ready", "rowId", "profileMode", "balance", "type", "platform", "riskPercent", "missingFields", "candidateIds"],
+      properties: {
+        operation: { type: "string", enum: ["add", "update", "delete", "set_mode"] },
+        ready: { type: "boolean" },
+        rowId: { type: ["string", "null"], maxLength: 100 },
+        profileMode: { type: ["string", "null"], enum: ["main", "half", null] },
+        balance: { type: ["number", "null"], minimum: 0 },
+        type: { type: ["string", "null"], maxLength: 100 },
+        platform: { type: ["string", "null"], maxLength: 100 },
+        riskPercent: { type: ["number", "null"], minimum: 0 },
+        missingFields: { type: "array", maxItems: 5, items: { type: "string", enum: ["profile", "balance", "riskPercent", "change", "profileMode"] } },
+        candidateIds: { type: "array", maxItems: 20, items: { type: "string", maxLength: 100 } },
       },
     },
   },
@@ -1019,12 +1041,12 @@ function parseJarvisOutput(text) {
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.answer === "string") {
-      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, forecastAction: parsed.forecastAction && typeof parsed.forecastAction === "object" ? parsed.forecastAction : null, positionSizingAction: parsed.positionSizingAction && typeof parsed.positionSizingAction === "object" ? parsed.positionSizingAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
+      return { answer: parsed.answer.trim(), memoryUpdates: Array.isArray(parsed.memoryUpdates) ? parsed.memoryUpdates : [], learningSummary: typeof parsed.learningSummary === "string" ? parsed.learningSummary.trim() : null, tradeAction: parsed.tradeAction && typeof parsed.tradeAction === "object" ? parsed.tradeAction : null, forecastAction: parsed.forecastAction && typeof parsed.forecastAction === "object" ? parsed.forecastAction : null, positionSizingAction: parsed.positionSizingAction && typeof parsed.positionSizingAction === "object" ? parsed.positionSizingAction : null, positionProfileAction: parsed.positionProfileAction && typeof parsed.positionProfileAction === "object" ? parsed.positionProfileAction : null, chartAssessment: parsed.chartAssessment && typeof parsed.chartAssessment === "object" ? parsed.chartAssessment : null };
     }
   } catch {
     // Older fallback models may return plain text; keep the conversation available without storing memory.
   }
-  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, positionSizingAction: null, chartAssessment: null };
+  return { answer: text.trim(), memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, positionSizingAction: null, positionProfileAction: null, chartAssessment: null };
 }
 
 function errorCategory(status, code, message) {
@@ -1904,6 +1926,91 @@ function verifiedPositionSizingAnswer(calculation) {
   return lines.join("\n\n");
 }
 
+function managePositionProfiles(args = {}, positionSizing = {}) {
+  const operation = ["add", "update", "delete", "set_mode"].includes(args.operation) ? args.operation : "update";
+  const profiles = Array.isArray(positionSizing?.profiles) ? positionSizing.profiles : [];
+  const cleanText = (value) => typeof value === "string" && value.trim() ? value.trim().slice(0, 100) : null;
+  const normalized = (value) => String(value || "").trim().toLowerCase();
+  const balance = finitePositive(args.balance);
+  const riskPercent = finitePositive(args.riskPercent);
+  const type = cleanText(args.type);
+  const platform = cleanText(args.platform);
+  const profileMode = args.profileMode === "main" || args.profileMode === "half" ? args.profileMode : null;
+  const empty = { operation, ready: false, rowId: null, profileMode, balance, type, platform, riskPercent, missingFields: [], candidateIds: [] };
+
+  if (operation === "set_mode") {
+    return profileMode ? { ...empty, ready: true } : { ...empty, missingFields: ["profileMode"] };
+  }
+  if (operation === "add") {
+    const missingFields = [!balance ? "balance" : null, !riskPercent ? "riskPercent" : null].filter(Boolean);
+    return {
+      ...empty,
+      ready: missingFields.length === 0,
+      type: type || "Account",
+      platform: platform || "Unspecified",
+      missingFields,
+    };
+  }
+
+  const matchBalance = finitePositive(args.matchBalance);
+  const matchType = cleanText(args.matchType);
+  const matchPlatform = cleanText(args.matchPlatform);
+  const rowId = cleanText(args.rowId);
+  const hasMatch = Boolean(rowId || matchBalance || matchType || matchPlatform);
+  const matches = hasMatch ? profiles.filter((row) =>
+    (!rowId || String(row.id) === rowId)
+    && (!matchBalance || Number(row.balance) === matchBalance)
+    && (!matchType || normalized(row.type) === normalized(matchType))
+    && (!matchPlatform || normalized(row.platform) === normalized(matchPlatform))
+  ) : [];
+  if (matches.length !== 1) {
+    return {
+      ...empty,
+      missingFields: ["profile"],
+      candidateIds: matches.map((row) => String(row.id)).slice(0, 20),
+    };
+  }
+
+  const matched = matches[0];
+  if (operation === "delete") {
+    return {
+      ...empty,
+      ready: true,
+      rowId: String(matched.id),
+      balance: finitePositive(matched.balance),
+      type: cleanText(matched.type),
+      platform: cleanText(matched.platform),
+      riskPercent: finitePositive(matched.riskPercent),
+    };
+  }
+  const hasChange = Boolean(balance || riskPercent || type || platform);
+  return {
+    ...empty,
+    ready: hasChange,
+    rowId: String(matched.id),
+    balance: balance || finitePositive(matched.balance),
+    type: type || cleanText(matched.type),
+    platform: platform || cleanText(matched.platform),
+    riskPercent: riskPercent || finitePositive(matched.riskPercent),
+    missingFields: hasChange ? [] : ["change"],
+  };
+}
+
+function verifiedPositionProfileAnswer(action) {
+  if (!action?.ready) {
+    if (action?.candidateIds?.length > 1) return `I found ${action.candidateIds.length} matching sizing profiles. Tell me the balance, account type, or platform so I can choose the exact one.`;
+    if (action?.missingFields?.includes("profile")) return "I couldn't identify one exact sizing profile. Tell me its balance, account type, or platform.";
+    if (action?.missingFields?.includes("change")) return "I found the profile. What would you like me to change: balance, account type, platform, or risk percentage?";
+    return `I can do that, but I still need ${action?.missingFields?.join(" and ") || "the profile details"}.`;
+  }
+  if (action.operation === "set_mode") return `Done — Position Sizing is now using the **${action.profileMode === "half" ? "Half" : "Main"} Profile**.`;
+  const label = [action.type, action.platform].filter(Boolean).join(" / ") || "profile";
+  const details = `${Number(action.balance).toLocaleString("en-US")} balance at ${Number(action.riskPercent)}% risk`;
+  if (action.operation === "add") return `Done — I added **${label}** with a **${details}**. It is saved in Position Sizing.`;
+  if (action.operation === "delete") return `Done — I removed the **${label}** sizing profile (${details}).`;
+  return `Done — I updated **${label}** to a **${details}**. The change is saved in Position Sizing.`;
+}
+
 function executeJournalyTool(name, args, data) {
   const trades = Array.isArray(data.trades) ? data.trades : [];
   const monthlyTrades = Array.isArray(data.monthlyTrades) ? data.monthlyTrades : trades;
@@ -2060,6 +2167,8 @@ function executeJournalyTool(name, args, data) {
     }
     case "calculate_position_size":
       return calculateJournalyPositionSize(args);
+    case "manage_position_profiles":
+      return managePositionProfiles(args, data.positionSizing);
     default:
       return { error: "Unknown Journaly tool." };
   }
@@ -2329,6 +2438,7 @@ async function handleJarvis(request, env) {
     let verifiedMonthlyLedger = null;
     let verifiedStatResult = null;
     let verifiedPositionSizing = null;
+    let verifiedPositionProfile = null;
     const usage = { inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0 };
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
@@ -2379,6 +2489,7 @@ async function handleJarvis(request, env) {
           toolCallsUsed.push(call.name);
           const toolResult = executeJournalyTool(call.name, args, toolData);
           if (call.name === "calculate_position_size") verifiedPositionSizing = toolResult;
+          if (call.name === "manage_position_profiles") verifiedPositionProfile = toolResult;
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
           if (["get_journaly_inventory", "get_live_trade_statistics", "get_decision_statistics", "get_daytrade_statistics", "get_backtest_statistics", "get_setup_statistics", "compare_live_vs_backtest", "get_account_risk", "find_historical_patterns", "get_forecast_learning", "get_monthly_reconciliation", "get_archive_view"].includes(call.name)) verifiedStatResult = toolResult;
           return { type: "function_call_output", call_id: call.call_id, output: JSON.stringify(toolResult) };
@@ -2422,6 +2533,7 @@ async function handleJarvis(request, env) {
           } : null,
         };
       }
+      if (verifiedPositionProfile) result.positionProfileAction = verifiedPositionProfile;
       if (conversationMode === "active_trade_management") result.tradeAction = null;
       let historicalMatches = null;
       if (chartImage) {
@@ -2431,7 +2543,8 @@ async function handleJarvis(request, env) {
           result.answer = verifiedChartAnswer(result.chartAssessment, historicalMatches);
         }
       }
-      if (verifiedPositionSizing) result.answer = verifiedPositionSizingAnswer(verifiedPositionSizing);
+      if (verifiedPositionProfile) result.answer = verifiedPositionProfileAnswer(verifiedPositionProfile);
+      else if (verifiedPositionSizing) result.answer = verifiedPositionSizingAnswer(verifiedPositionSizing);
       else if (verifiedMonthlyLedger) result.answer = verifiedMonthlyAnswer(verifiedMonthlyLedger);
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
       return json({ ...result, conversationMode, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
@@ -2508,7 +2621,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, calculateJournalyPositionSize, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
+export { archiveViewResult, calculateJournalyPositionSize, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
 
 export default {
   async fetch(request, env, ctx) {

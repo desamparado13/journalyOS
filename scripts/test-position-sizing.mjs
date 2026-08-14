@@ -1,5 +1,25 @@
 import assert from "node:assert/strict";
-import worker, { calculateJournalyPositionSize } from "../server/index.js";
+import worker, { calculateJournalyPositionSize, managePositionProfiles } from "../server/index.js";
+
+const profiles = [
+  { id: "main-1", balance: 1000, type: "Main", platform: "Exness", riskPercent: 1.5 },
+  { id: "funded-1", balance: 7500, type: "Funded", platform: "5ers", riskPercent: 0.5 },
+  { id: "funded-2", balance: 100000, type: "Funded", platform: "MT5", riskPercent: 1 },
+];
+const updatedProfile = managePositionProfiles({ operation: "update", rowId: null, matchBalance: 7500, matchType: "Funded", matchPlatform: null, balance: null, type: null, platform: null, riskPercent: 1, profileMode: null }, { profiles, profileMode: "main" });
+assert.equal(updatedProfile.ready, true);
+assert.equal(updatedProfile.rowId, "funded-1");
+assert.equal(updatedProfile.platform, "5ers");
+assert.equal(updatedProfile.riskPercent, 1);
+const renamedPlatform = managePositionProfiles({ operation: "update", rowId: null, matchBalance: 1000, matchType: null, matchPlatform: "Exness", balance: null, type: null, platform: "FTMO", riskPercent: null, profileMode: null }, { profiles, profileMode: "main" });
+assert.equal(renamedPlatform.platform, "FTMO");
+const ambiguousProfile = managePositionProfiles({ operation: "update", rowId: null, matchBalance: null, matchType: "Funded", matchPlatform: null, balance: null, type: null, platform: null, riskPercent: 0.75, profileMode: null }, { profiles, profileMode: "main" });
+assert.equal(ambiguousProfile.ready, false);
+assert.deepEqual(ambiguousProfile.candidateIds, ["funded-1", "funded-2"]);
+const addedProfile = managePositionProfiles({ operation: "add", rowId: null, matchBalance: null, matchType: null, matchPlatform: null, balance: 25000, type: "Funded", platform: "FTMO", riskPercent: 0.5, profileMode: null }, { profiles, profileMode: "main" });
+assert.equal(addedProfile.ready, true);
+const halfMode = managePositionProfiles({ operation: "set_mode", rowId: null, matchBalance: null, matchType: null, matchPlatform: null, balance: null, type: null, platform: null, riskPercent: null, profileMode: "half" }, { profiles, profileMode: "main" });
+assert.equal(halfMode.ready, true);
 
 const eurusd = calculateJournalyPositionSize({
   applyToCalculator: true,
@@ -76,6 +96,7 @@ globalThis.fetch = async () => {
       tradeAction: null,
       forecastAction: null,
       positionSizingAction: null,
+      positionProfileAction: null,
       chartAssessment: null,
     }),
     usage: {},
@@ -104,4 +125,45 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log("Jarvis position sizing: 24/24 passed");
+modelRound = 0;
+globalThis.fetch = async () => {
+  modelRound += 1;
+  if (modelRound === 1) {
+    return Response.json({
+      output: [{
+        type: "function_call",
+        name: "manage_position_profiles",
+        call_id: "profile-update-1",
+        arguments: JSON.stringify({ operation: "update", rowId: null, matchBalance: 7500, matchType: "Funded", matchPlatform: null, balance: null, type: null, platform: null, riskPercent: 1, profileMode: null }),
+      }],
+      usage: {},
+    });
+  }
+  return Response.json({
+    output_text: JSON.stringify({ answer: "placeholder", memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, positionSizingAction: null, positionProfileAction: null, chartAssessment: null }),
+    usage: {},
+  });
+};
+try {
+  const response = await worker.fetch(new Request("http://local/api/jarvis/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId: "position-sizing-test", question: "Change my 7,500 Funded profile to 1% risk", context: { positionSizing: { profiles, profileMode: "main" }, sessionState: {} } }),
+  }), {
+    OPENAI_API_KEY: "test-key",
+    OPENAI_JARVIS_MODEL: "test-model",
+    JARVIS_AUTH_BYPASS_USER_ID: "position-sizing-test",
+    JARVIS_AUTH_BYPASS_EMAIL: "christian.angelo.desamparado@gmail.com",
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.positionProfileAction.ready, true);
+  assert.equal(payload.positionProfileAction.rowId, "funded-1");
+  assert.equal(payload.positionProfileAction.riskPercent, 1);
+  assert.match(payload.answer, /updated/i);
+  assert.deepEqual(payload.toolsUsed, ["manage_position_profiles"]);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+console.log("Jarvis position sizing and profile control: passed");

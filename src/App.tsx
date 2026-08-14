@@ -54,6 +54,7 @@ const THEME_KEY = "journaly-os-theme";
 const ACTIVE_VIEW_KEY = "journaly-os-active-view";
 const TRADING_MODE_KEY = "journaly-os-trading-mode";
 const PROFILE_SIZING_KEY = "journaly-os-profile-sizing";
+const PROFILE_SIZING_MODE_KEY = "journaly-os-profile-sizing-mode";
 const SETUP_VARIABLES_KEY = "journaly-os-setup-variables";
 const ANALYSIS_HISTORY_DB = "journaly-os-analysis-history";
 const ANALYSIS_HISTORY_STORE = "drawings";
@@ -2274,7 +2275,7 @@ export default function App() {
   const [tradeForm, setTradeForm] = useState<TradeFormState>(todayDefaults);
   const [positionCalculator, setPositionCalculator] = useState<PositionCalculatorState>(positionDefaults);
   const [profileRows, setProfileRows] = useState<ProfileSizingRow[]>(readProfileRows);
-  const [profileMode, setProfileMode] = useState<"main" | "half">("main");
+  const [profileMode, setProfileMode] = useState<"main" | "half">(() => localStorage.getItem(PROFILE_SIZING_MODE_KEY) === "half" ? "half" : "main");
   const [setupVariables, setSetupVariables] = useState<SetupVariables>(readSetupVariables);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [journalEntries, setJournalEntries] = useState<PersonalJournalEntry[]>([]);
@@ -2471,6 +2472,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(TRADING_MODE_KEY, tradingMode);
   }, [tradingMode]);
+
+  useEffect(() => {
+    localStorage.setItem(PROFILE_SIZING_MODE_KEY, profileMode);
+  }, [profileMode]);
 
   useEffect(() => {
     const entry = monthlyJournalEntries.find((item) => item.monthKey === monthlyJournalMonth);
@@ -2750,8 +2755,16 @@ export default function App() {
       stopLossPrice: positiveNumber(positionCalculator.stopLossPrice),
       takeProfitPrice: positiveNumber(positionCalculator.takeProfitPrice),
       quoteToUsdRate: quote === "USD" ? 1 : positiveNumber(positionCalculator.quoteToUsdRate),
+      profiles: profileRows.map((row) => ({
+        id: row.id,
+        balance: Number(row.balance || 0),
+        type: row.type,
+        platform: row.platform,
+        riskPercent: Number(row.riskPercent || 0),
+      })),
+      profileMode,
     };
-  }, [positionCalculator]);
+  }, [positionCalculator, profileMode, profileRows]);
 
   const tradeAnalyticsYears = useMemo(() => {
     return ["All", ...Array.from(new Set(trades.map((trade) => trade.date.slice(0, 4)))).sort().reverse()];
@@ -4051,6 +4064,50 @@ export default function App() {
     setTradingMode("swing");
     setActiveView("position-sizing");
     showToast({ tone: "success", title: "Position sizing ready", message: "Jarvis filled the calculator. No broker order was placed." });
+  }
+
+  function handleJarvisPositionProfileApply(action: {
+    operation: "add" | "update" | "delete" | "set_mode";
+    ready: boolean;
+    rowId: string | null;
+    profileMode: "main" | "half" | null;
+    balance: number | null;
+    type: string | null;
+    platform: string | null;
+    riskPercent: number | null;
+  }) {
+    if (!action.ready) return;
+    if (action.operation === "set_mode" && action.profileMode) {
+      setProfileMode(action.profileMode);
+    } else {
+      setProfileRows((current) => {
+        let next = current;
+        if (action.operation === "add" && action.balance && action.riskPercent) {
+          next = [...current, {
+            id: crypto.randomUUID(),
+            balance: String(action.balance),
+            type: action.type || "Account",
+            platform: action.platform || "Unspecified",
+            riskPercent: String(action.riskPercent),
+          }];
+        } else if (action.operation === "update" && action.rowId) {
+          next = current.map((row) => row.id === action.rowId ? {
+            ...row,
+            balance: action.balance === null ? row.balance : String(action.balance),
+            type: action.type || row.type,
+            platform: action.platform || row.platform,
+            riskPercent: action.riskPercent === null ? row.riskPercent : String(action.riskPercent),
+          } : row);
+        } else if (action.operation === "delete" && action.rowId) {
+          next = current.filter((row) => row.id !== action.rowId);
+        }
+        localStorage.setItem(PROFILE_SIZING_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
+    setTradingMode("swing");
+    setActiveView("position-sizing");
+    showToast({ tone: "success", title: "Profile updated", message: "Jarvis applied and saved the Position Sizing profile change." });
   }
 
   async function handleForecastSubmit(event: FormEvent<HTMLFormElement>) {
@@ -7384,6 +7441,7 @@ export default function App() {
           onTradeCreated={loadTrades}
           onForecastChanged={handleJarvisForecastChanged}
           onPositionSizingApply={handleJarvisPositionSizingApply}
+          onPositionProfileApply={handleJarvisPositionProfileApply}
         />
       ) : null}
     </div>
