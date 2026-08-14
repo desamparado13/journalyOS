@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowUp,
   BarChart3,
+  Bell,
   BookOpenCheck,
   BrainCircuit,
   Check,
@@ -1011,6 +1012,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [unreadProactiveCount, setUnreadProactiveCount] = useState(0);
+  const [inAppNotification, setInAppNotification] = useState<JarvisMessage | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1032,6 +1034,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const voiceChunksRef = useRef<Blob[]>([]);
   const voiceStopTimerRef = useRef<number | null>(null);
   const proactiveCheckinRef = useRef(new Set<string>());
+  const isOpenRef = useRef(isOpen);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
   const reviewedTrades = trades.filter((trade) => trade.quality);
@@ -1187,6 +1190,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, []);
 
   useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
     const storedMessages = messages.slice(-30).map(({ imagePreview: _imagePreview, ...message }) => message);
     localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(storedMessages));
     if (!supabase) return;
@@ -1253,9 +1260,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     });
     try {
       const seen = new Set<string>(JSON.parse(localStorage.getItem(`${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`) || "[]"));
-      setUnreadProactiveCount(proactiveMessages.filter((message) => !seen.has(message.id)).length);
+      const fresh = proactiveMessages.filter((message) => !seen.has(message.id));
+      setUnreadProactiveCount(fresh.length);
+      if (!isOpen && fresh.length) setInAppNotification(fresh.at(-1) || null);
     } catch {
       setUnreadProactiveCount(proactiveMessages.length);
+      if (!isOpen && proactiveMessages.length) setInAppNotification(proactiveMessages.at(-1) || null);
     }
     const remoteWorkspace = decodeLatestInternal<JarvisWorkspace>(journalEntries, JARVIS_WORKSPACE_PREFIX);
     workspaceSyncEntryIdRef.current = remoteWorkspace?.entryId || workspaceSyncEntryIdRef.current;
@@ -1266,13 +1276,14 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const syncedTimestamp = new Date(synced.syncedAt).getTime();
       return Number.isFinite(syncedTimestamp) && syncedTimestamp >= currentTimestamp ? synced.state : current;
     });
-  }, [journalEntries, userId]);
+  }, [isOpen, journalEntries, userId]);
 
   useEffect(() => {
     if (!isOpen) return;
     const ids = syncedProactiveMessages(journalEntries).map((message) => message.id);
     localStorage.setItem(`${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`, JSON.stringify(ids.slice(-90)));
     setUnreadProactiveCount(0);
+    setInAppNotification(null);
   }, [isOpen, journalEntries, userId]);
 
   useEffect(() => {
@@ -2112,6 +2123,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           if (!scheduledResponse.ok || !scheduledPayload?.message) throw new Error(scheduledPayload?.error || "Scheduled Jarvis message failed.");
           const scheduledMessage = scheduledPayload.message as JarvisMessage;
           setMessages((current) => current.some((message) => message.id === scheduledMessage.id) ? current : [...current, scheduledMessage]);
+          if (!isOpenRef.current) {
+            setInAppNotification(scheduledMessage);
+            setUnreadProactiveCount((current) => current + 1);
+          }
           if (voiceReplies || memory.companionSettings.handsFreeVoice) void speakJarvisMessage(scheduledMessage);
         }).catch((scheduledError) => {
           setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Delivery failed", text: scheduledError instanceof Error ? scheduledError.message : "I could not deliver that scheduled message.", createdAt: new Date().toISOString() }]);
@@ -2163,6 +2178,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
   return (
     <>
+      {!isOpen && inAppNotification ? (
+        <aside className="jarvis-in-app-notification" role="status" aria-live="polite" aria-label="New message from Jarvis">
+          <button className="jarvis-in-app-notification-main" type="button" onClick={() => { setInAppNotification(null); setIsOpen(true); setIsAmbient(true); }}>
+            <span><Bell size={17} /></span>
+            <div><small>JARVIS · NEW MESSAGE</small><strong>{inAppNotification.title || "Jarvis is checking in"}</strong><p>{inAppNotification.text}</p></div>
+          </button>
+          <button className="jarvis-in-app-notification-close" type="button" aria-label="Dismiss Jarvis notification" onClick={() => setInAppNotification(null)}><X size={15} /></button>
+        </aside>
+      ) : null}
       <button
         ref={launcherRef}
         className={`jarvis-launcher${isDraggingOrb ? " is-dragging" : ""}${isOpen ? " is-open" : ""}`}
