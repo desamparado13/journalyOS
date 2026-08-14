@@ -48,7 +48,7 @@ JOURNALY POSITION SIZING
 - Treat Position Sizing as a first-class Journaly tool. The current calculator values are available in CURRENT AUTHENTICATED SESSION.positionSizing.
 - For every request to calculate lots, units, risk amount, stop distance, reward-to-risk, or to fill/open the Position Sizing tab, call calculate_position_size. Never do position-sizing arithmetic yourself.
 - Reuse valid values already present in positionSizing when the user omits them. The minimum required inputs are pair, account balance, risk percent, entry price, and stop-loss price. A non-USD quote pair also requires its quote-currency-to-USD conversion rate. Take profit is optional.
-- Set applyToCalculator=true only when the user explicitly asks Jarvis to fill, set, populate, update, or open the Position Sizing tab. A calculation-only request must set it to false.
+- Every ready position-sizing calculation must set applyToCalculator=true and populate Journaly's Position Sizing tab automatically. Asking for a lot size is enough authorization because this only changes reversible calculator fields and never places an order.
 - When the tool reports ready=true, return positionSizingAction using the exact normalized inputs and result from the tool. Explain the verified result naturally in chat, including standard lots, units, risk amount, stop pips, and R:R/projected profit when a valid take profit was supplied.
 - When required information is missing, ask only for those missing fields. Do not guess a balance, risk percentage, price, or conversion rate.
 - Position sizing is calculation and Journaly UI control only. Never claim to place, modify, or close a broker order.`;
@@ -164,7 +164,7 @@ const JOURNALY_TOOLS = [
   { type: "function", name: "get_account_risk", description: "Check currency concentration across active forecasts. Forecasts do not track planned risk, and this is not broker/live-position risk.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_session_state", description: "Get the active pair, setup, trade, chart, forecast, last decision, and rolling conversation state.", strict: true, parameters: { type: "object", additionalProperties: false, properties: {}, required: [] } },
   { type: "function", name: "get_trade_journey", description: "Get the unified forecast-to-chart-to-trade journey and all open Jarvis contexts. Use for continuity questions such as what happened with an idea, how a forecast became a trade, or what Jarvis is currently tracking.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { pair: { type: ["string", "null"] }, forecastId: { type: ["string", "null"] }, tradeId: { type: ["string", "null"] } }, required: ["pair", "forecastId", "tradeId"] } },
-  { type: "function", name: "calculate_position_size", description: "Calculate Journaly's exact forex position size and optionally prepare the Position Sizing tab to be populated. Reuse current calculator values supplied in session context when the user omits them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { applyToCalculator: { type: "boolean" }, pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] }, accountBalance: { type: ["number", "null"], minimum: 0 }, riskPercent: { type: ["number", "null"], minimum: 0 }, entryPrice: { type: ["number", "null"], minimum: 0 }, stopLossPrice: { type: ["number", "null"], minimum: 0 }, takeProfitPrice: { type: ["number", "null"], minimum: 0 }, quoteToUsdRate: { type: ["number", "null"], minimum: 0 } }, required: ["applyToCalculator", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate"] } },
+  { type: "function", name: "calculate_position_size", description: "Calculate Journaly's exact forex position size and prepare the Position Sizing tab to be populated automatically. Reuse current calculator values supplied in session context when the user omits them.", strict: true, parameters: { type: "object", additionalProperties: false, properties: { applyToCalculator: { type: "boolean" }, pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] }, accountBalance: { type: ["number", "null"], minimum: 0 }, riskPercent: { type: ["number", "null"], minimum: 0 }, entryPrice: { type: ["number", "null"], minimum: 0 }, stopLossPrice: { type: ["number", "null"], minimum: 0 }, takeProfitPrice: { type: ["number", "null"], minimum: 0 }, quoteToUsdRate: { type: ["number", "null"], minimum: 0 } }, required: ["applyToCalculator", "pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "takeProfitPrice", "quoteToUsdRate"] } },
 ];
 
 const RESPONSE_SCHEMA = {
@@ -1838,7 +1838,7 @@ function calculateJournalyPositionSize(args = {}) {
     pair && quoteCurrency !== "USD" && !quoteToUsdRate ? "quoteToUsdRate" : null,
   ].filter(Boolean);
   const base = {
-    applyToCalculator: args.applyToCalculator === true,
+    applyToCalculator: true,
     ready: missingFields.length === 0,
     pair,
     accountBalance,

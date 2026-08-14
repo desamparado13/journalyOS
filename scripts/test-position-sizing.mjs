@@ -31,6 +31,7 @@ const audjpy = calculateJournalyPositionSize({
   quoteToUsdRate: 1 / 150,
 });
 assert.equal(audjpy.ready, true);
+assert.equal(audjpy.applyToCalculator, true, "every ready sizing request should populate the calculator");
 assert.equal(audjpy.result.direction, "Long");
 assert.ok(Math.abs(audjpy.result.stopPips - 50) < 1e-9);
 assert.ok(Math.abs(audjpy.result.lots - 0.15) < 1e-9);
@@ -48,6 +49,7 @@ const missingRate = calculateJournalyPositionSize({
   quoteToUsdRate: null,
 });
 assert.equal(missingRate.ready, false);
+assert.equal(missingRate.applyToCalculator, true, "the calculator action remains armed while Jarvis asks for missing inputs");
 assert.deepEqual(missingRate.missingFields, ["quoteToUsdRate"]);
 assert.equal(missingRate.result, null);
 

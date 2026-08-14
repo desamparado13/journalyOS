@@ -1814,7 +1814,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
       const nextPositionSizing = normalizePositionSizingAction(payload.positionSizingAction);
       setPositionSizingDraft(nextPositionSizing);
-      if (nextPositionSizing?.ready && nextPositionSizing.applyToCalculator) onPositionSizingApply(nextPositionSizing);
+      if (nextPositionSizing?.ready) onPositionSizingApply(nextPositionSizing);
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
