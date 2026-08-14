@@ -2851,7 +2851,7 @@ export default {
     if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
     if (url.pathname === "/api/jarvis/health") return withDashboardCors(request, await handleHealth(request, env));
     if (url.pathname === "/api/jarvis/voice") return withDashboardCors(request, await handleVoice(request, env));
-    if (url.pathname === "/api/jarvis/proactive/send") return handleProactiveSend(request, env);
+    if (url.pathname === "/api/jarvis/proactive" || url.pathname === "/api/jarvis/proactive/send") return handleProactiveSend(request, env);
     if (url.pathname === "/api/jarvis/transcribe") return withDashboardCors(request, await handleTranscription(request, env));
     if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);

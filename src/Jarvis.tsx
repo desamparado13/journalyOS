@@ -2103,7 +2103,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       setMessages((current) => [...current, jarvisMessage]);
       if (voiceReplies || memory.companionSettings.handsFreeVoice) speakJarvisMessage(jarvisMessage);
       if (payload?.proactiveSchedule && Number.isFinite(Number(payload.proactiveSchedule.delaySeconds)) && typeof payload.proactiveSchedule.message === "string") {
-        void fetch("/api/jarvis/proactive/send", {
+        void fetch("/api/jarvis/proactive", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ userId, delaySeconds: payload.proactiveSchedule.delaySeconds, message: payload.proactiveSchedule.message }),
