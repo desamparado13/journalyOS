@@ -37,6 +37,10 @@ function runtimeEnvironment() {
     PUSHOVER_USER_KEY: process.env.PUSHOVER_USER_KEY,
     PUSHOVER_ENABLED: process.env.PUSHOVER_ENABLED,
     PUSHOVER_OWNER_USER_ID: process.env.PUSHOVER_OWNER_USER_ID,
+    GOOGLE_DRIVE_CLIENT_ID: process.env.GOOGLE_DRIVE_CLIENT_ID,
+    GOOGLE_DRIVE_CLIENT_SECRET: process.env.GOOGLE_DRIVE_CLIENT_SECRET,
+    GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY: process.env.GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY,
+    JOURNALY_APP_URL: process.env.JOURNALY_APP_URL,
     ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) },
   };
 }

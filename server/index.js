@@ -1,4 +1,5 @@
 import { JARVIS_BACKTEST_ANALYSES, JARVIS_BACKTEST_AUDIT_SUMMARY, JARVIS_OWNER_KNOWLEDGE, JARVIS_REFERENCE_ANALYSES, JARVIS_REFERENCE_SUMMARY, JARVIS_STRATEGY_RULES, JARVIS_SYSTEM_PROMPT } from "./jarvis-knowledge.js";
+import { handleGoogleDriveBackup } from "./google-drive-backup.js";
 
 const FALLBACK_MODELS = ["gpt-5.6-luna", "gpt-4.1-mini"];
 const MAX_QUESTION_LENGTH = 6000;
@@ -20,6 +21,7 @@ const JARVIS_WORKSPACE_PREFIX = "[[JARVIS_WORKSPACE_V1]]";
 const JARVIS_JOURNEY_PREFIX = "[[JARVIS_JOURNEY_V1]]";
 const JARVIS_CHART_PREFIX = "[[JARVIS_CHART_V1]]";
 const JARVIS_ROUTINE_PREFIX = "[[JARVIS_ROUTINE_V1]]";
+const JARVIS_GOOGLE_DRIVE_PREFIX = "[[JARVIS_GOOGLE_DRIVE_V1]]";
 const JOURNALY_MONTHLY_PREFIX = "[[JOURNALY_MONTHLY:";
 const JARVIS_TRADE_WRITE_INSTRUCTIONS = `
 JOURNALY TRADE ACTIONS
@@ -526,7 +528,7 @@ function feedbackStyleExamples(journals, limit = 10) {
 
 function isJarvisInternalJournalContent(content) {
   const value = String(content || "");
-  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX].some((prefix) => value.startsWith(prefix));
+  return [JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => value.startsWith(prefix));
 }
 
 function syncedMemoriesFromJournal(journals, limit = 120) {
@@ -1331,7 +1333,7 @@ function journalEvidenceForMonth(journals, month) {
   const stopwords = new Set(["that", "this", "with", "from", "have", "were", "your", "trade", "trades", "forecast", "backtest", "actual", "month", "then", "when", "what", "into", "just", "also", "because", "about", "there", "their", "they", "them"]);
   const entries = journals.filter((row) => {
     const content = String(row.content || "");
-    return String(row.entry_date || "").startsWith(month) && !content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX) && !content.startsWith(JARVIS_LEARNING_PREFIX);
+    return String(row.entry_date || "").startsWith(month) && !isJarvisInternalJournalContent(content);
   }).map((row) => {
     const rawContent = String(row.content || "");
     const content = rawContent.startsWith(JOURNALY_MONTHLY_PREFIX) ? rawContent.replace(/^\[\[JOURNALY_MONTHLY:[^\]]+\]\]\s*/, "") : rawContent;
@@ -2634,6 +2636,9 @@ export default {
     if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
     if (url.pathname === "/api/jarvis/pushover/test") return withDashboardCors(request, await handlePushoverTest(request, env));
+    if (url.pathname === "/api/jarvis/google-drive") return handleGoogleDriveBackup(request, env);
+    if (url.pathname === "/api/jarvis/google-drive-callback") return handleGoogleDriveBackup(request, env);
+    if (url.pathname === "/api/jarvis/drive-backup-routine") return handleGoogleDriveBackup(request, env);
 
     const response = await env.ASSETS.fetch(request);
     if (response.status !== 404 || url.pathname.includes(".")) return response;
