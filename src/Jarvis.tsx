@@ -1602,7 +1602,11 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     recognition.lang = "en-US";
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results).map((result) => result[0]?.transcript || "").join(" ").trim();
-      if (transcript) setPrompt((current) => `${current}${current.trim() ? " " : ""}${transcript}`);
+      if (!transcript) return;
+      if (memory.companionSettings.handsFreeVoice) setVoiceReplies(true);
+      const spokenPrompt = `${prompt.trim()}${prompt.trim() ? " " : ""}${transcript}`;
+      setPrompt("");
+      void askJarvis(spokenPrompt);
     };
     recognition.onerror = () => { setIsListening(false); setAttachmentError("I couldnâ€™t hear that clearly. Try again."); };
     recognition.onend = () => setIsListening(false);
@@ -1642,13 +1646,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const transcript = typeof payload?.transcript === "string" ? payload.transcript.trim() : "";
       if (!transcript) throw new Error("I couldn’t hear any words in that recording. Try again a little closer to the microphone.");
       setAttachmentError("");
-      if (memory.companionSettings.handsFreeVoice) {
-        setVoiceReplies(true);
-        void askJarvis(transcript);
-      } else {
-        setPrompt((current) => `${current}${current.trim() ? " " : ""}${transcript}`);
-        window.setTimeout(() => inputRef.current?.focus(), 50);
-      }
+      if (memory.companionSettings.handsFreeVoice) setVoiceReplies(true);
+      const spokenPrompt = `${prompt.trim()}${prompt.trim() ? " " : ""}${transcript}`;
+      setPrompt("");
+      void askJarvis(spokenPrompt);
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : "Jarvis could not transcribe that recording.");
     } finally {
@@ -2206,7 +2207,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   <button type="button" aria-pressed={memory.companionSettings.sensitiveMemoryEnabled} className={memory.companionSettings.sensitiveMemoryEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("sensitiveMemoryEnabled", !memory.companionSettings.sensitiveMemoryEnabled)}><span><strong>Sensitive memory</strong><small>{memory.companionSettings.sensitiveMemoryEnabled ? "Allowed when relevant" : "Not added to durable memory"}</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.proactiveFollowups} className={memory.companionSettings.proactiveFollowups ? "is-enabled" : ""} onClick={() => updateCompanionSetting("proactiveFollowups", !memory.companionSettings.proactiveFollowups)}><span><strong>Natural follow-ups</strong><small>Remember to ask how things went</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.autonomyMode === "assist"} className={memory.companionSettings.autonomyMode === "assist" ? "is-enabled" : ""} onClick={() => updateCompanionSetting("autonomyMode", memory.companionSettings.autonomyMode === "assist" ? "observe" : "assist")}><span><strong>Assisted autonomy</strong><small>{memory.companionSettings.autonomyMode === "assist" ? "Fill calculators and profiles for you" : "Suggest changes, then wait for approval"}</small></span><i /></button>
-                  <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) setVoiceReplies(true); }}><span><strong>Hands-free voice</strong><small>{memory.companionSettings.handsFreeVoice ? "Voice sends immediately and Jarvis answers aloud" : "Review transcripts before sending"}</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) setVoiceReplies(true); }}><span><strong>Spoken answers</strong><small>{memory.companionSettings.handsFreeVoice ? "Speech sends instantly and Jarvis answers aloud" : "Speech sends instantly; Jarvis answers in text"}</small></span><i /></button>
                 </div>
                 {memory.memories.length ? memory.memories.slice().reverse().map((item) => <div className="jarvis-memory-item" key={`${item.category}:${item.key}`}><span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}</small><em>{item.category.replaceAll("_", " ")} · {item.source === "inferred" ? "learned pattern" : "you told Jarvis"}{item.followUpAt ? ` · follow up ${new Date(item.followUpAt).toLocaleDateString()}` : ""}{Date.now() - new Date(item.updatedAt).getTime() > 90 * 86400000 ? " · review" : ""}</em></span><div><button type="button" title="Edit this memory" aria-label={`Edit ${item.key.replaceAll("_", " ")}`} onClick={() => editMemory(item)}><RefreshCcw size={12} /></button><button type="button" title="Forget this memory" aria-label={`Forget ${item.key.replaceAll("_", " ")}`} onClick={() => forgetMemory(item)}><Trash2 size={13} /></button></div></div>) : <p>No durable personal memories yet. Say “remember this” whenever something matters.</p>}
                 {memory.memories.some((item) => !["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"].includes(item.category)) ? <button className="jarvis-forget-personal" type="button" onClick={forgetAllPersonalMemories}><Trash2 size={12} /> Forget all personal memories</button> : null}
