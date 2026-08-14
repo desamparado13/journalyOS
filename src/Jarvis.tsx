@@ -37,7 +37,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { ChangeEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
@@ -208,7 +208,8 @@ type JarvisSpeechRecognition = {
 type JarvisSpeechRecognitionConstructor = new () => JarvisSpeechRecognition;
 
 type JarvisTradeAction = {
-  intent: "draft" | "ready";
+  intent: "draft" | "ready" | "update_pending";
+  tradeId: string | null;
   date: string | null;
   time: string | null;
   pair: string | null;
@@ -219,7 +220,7 @@ type JarvisTradeAction = {
   pnl: number | null;
   result: "Win" | "Loss" | "Breakeven" | null;
   notes: string | null;
-  missingFields: Array<"pair" | "setup" | "direction">;
+  missingFields: Array<"tradeId" | "pair" | "setup" | "direction">;
 };
 
 type JarvisForecastAction = {
@@ -788,10 +789,13 @@ function normalizeTradeAction(value: unknown, previous: JarvisTradeAction | null
   const pair = typeof candidate.pair === "string" && JARVIS_TRADE_PAIRS.has(candidate.pair) ? candidate.pair : previous?.pair || null;
   const setup = typeof candidate.setup === "string" && JARVIS_TRADE_SETUPS.has(candidate.setup) ? candidate.setup : previous?.setup || null;
   const direction = candidate.direction === "Long" || candidate.direction === "Short" ? candidate.direction : previous?.direction || null;
-  const missingFields = ([!pair ? "pair" : null, !setup ? "setup" : null, !direction ? "direction" : null].filter(Boolean)) as JarvisTradeAction["missingFields"];
+  const requestedUpdate = candidate.intent === "update_pending";
+  const tradeId = typeof candidate.tradeId === "string" && candidate.tradeId.trim() ? candidate.tradeId.trim() : requestedUpdate ? previous?.tradeId || null : null;
+  const missingFields = ([requestedUpdate && !tradeId ? "tradeId" : null, !pair ? "pair" : null, !setup ? "setup" : null, !direction ? "direction" : null].filter(Boolean)) as JarvisTradeAction["missingFields"];
   const numberOrPrevious = (next: unknown, prior: number | null | undefined) => Number.isFinite(next) ? Number(next) : prior ?? null;
   return {
-    intent: missingFields.length ? "draft" : "ready",
+    intent: requestedUpdate && !missingFields.length ? "update_pending" : missingFields.length ? "draft" : "ready",
+    tradeId,
     date: /^\d{4}-\d{2}-\d{2}$/.test(String(candidate.date || "")) ? String(candidate.date) : previous?.date || null,
     time: /^\d{2}:\d{2}$/.test(String(candidate.time || "")) ? String(candidate.time) : previous?.time || null,
     pair,
@@ -1030,6 +1034,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [sessionLearningRecords, setSessionLearningRecords] = useState<JarvisLearningRecord[]>([]);
   const [learningSyncState, setLearningSyncState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [tradeDraft, setTradeDraft] = useState<JarvisTradeAction | null>(null);
+  const [tradeDraftImage, setTradeDraftImage] = useState<{ dataUrl: string; name: string } | null>(null);
   const [forecastDraft, setForecastDraft] = useState<JarvisForecastAction | null>(null);
   const [positionSizingDraft, setPositionSizingDraft] = useState<JarvisPositionSizingAction | null>(null);
   const [positionProfileDraft, setPositionProfileDraft] = useState<JarvisPositionProfileAction | null>(null);
@@ -1558,27 +1563,42 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }
   }
 
-  function chooseImage(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  function attachImageFile(file: File, name = file.name) {
     if (!JARVIS_IMAGE_TYPES.has(file.type)) {
       setAttachmentError("Use a PNG, JPG, or WebP screenshot.");
-      return;
+      return false;
     }
     if (file.size > JARVIS_IMAGE_MAX_BYTES) {
       setAttachmentError("That image is over 3 MB. Compress or crop it, then try again.");
-      return;
+      return false;
     }
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string") return;
-      setAttachedImage({ dataUrl: reader.result, name: file.name.slice(0, 120) });
+      setAttachedImage({ dataUrl: reader.result, name: name.slice(0, 120) });
       setAttachmentError("");
-      inputRef.current?.focus();
     };
     reader.onerror = () => setAttachmentError("Jarvis could not read that image. Try another file.");
     reader.readAsDataURL(file);
+    return true;
+  }
+
+  function chooseImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (attachImageFile(file)) inputRef.current?.focus();
+  }
+
+  function pasteImage(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const file = [...event.clipboardData.items]
+      .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+      ?.getAsFile()
+      || [...event.clipboardData.files].find((item) => item.type.startsWith("image/"));
+    if (!file) return;
+    event.preventDefault();
+    const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/webp" ? "webp" : "png";
+    attachImageFile(file, `pasted-chart-${new Date().toISOString().replaceAll(":", "-")}.${extension}`);
   }
 
   function removeAttachedImage() {
@@ -1957,8 +1977,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     toggleLegacyVoiceInput();
   }
 
-  async function saveTradeDraft(draft: JarvisTradeAction) {
-    if (!supabase || tradeSaveLock.current || draft.intent !== "ready" || draft.missingFields.length || !draft.pair || !draft.setup || !draft.direction) return;
+  async function saveTradeDraft(draft: JarvisTradeAction, imageOverride = tradeDraftImage): Promise<boolean> {
+    if (!supabase || tradeSaveLock.current || !["ready", "update_pending"].includes(draft.intent) || draft.missingFields.length || !draft.pair || !draft.setup || !draft.direction) return false;
     tradeSaveLock.current = true;
     setIsSavingTrade(true);
     const now = new Date();
@@ -1967,6 +1987,29 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const pnl = draft.pnl ?? 0;
     const result = draft.result || (pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven");
     try {
+      if (draft.intent === "update_pending") {
+        const existing = trades.find((trade) => trade.id === draft.tradeId);
+        if (!existing) throw new Error("That trade is no longer available. Refresh Journaly and try again.");
+        if (existing.finalizedAt) throw new Error("That trade is already finalized and cannot be changed.");
+        const finalScreenshot = imageOverride?.dataUrl || existing.screenshot || "";
+        const finalizedAt = finalScreenshot ? now.toISOString() : null;
+        const { data: updatedTrade, error } = await supabase.from("trades").update({
+          mae: draft.mae ?? existing.mae,
+          pnl_r: pnl,
+          result,
+          notes: draft.notes?.trim() || existing.notes,
+          screenshot_url: finalScreenshot,
+          finalized_at: finalizedAt,
+          updated_at: now.toISOString(),
+        }).eq("id", existing.id).eq("user_id", userId).is("finalized_at", null).select("id").maybeSingle();
+        if (error) throw error;
+        if (!updatedTrade) throw new Error("That trade was finalized or removed before the update could be saved.");
+        setTradeDraft(null);
+        setTradeDraftImage(null);
+        await onTradeCreated();
+        setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: finalizedAt ? "Trade finalized" : "Trade updated", text: finalizedAt ? `${pair} now shows ${formatR(pnl)} (${result}) with its final screenshot and notes. The journal record is now locked.` : `${pair} now shows ${formatR(pnl)} (${result}). It remains pending final until you add the required screenshot and finalize it.` }]);
+        return true;
+      }
       const { data, error } = await supabase.from("trades").insert({
         user_id: userId,
         trade_date: draft.date || now.toISOString().slice(0, 10),
@@ -1989,9 +2032,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }).select("id").single();
       if (error) {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: `Journaly could not save that trade: ${error.message}` }]);
-        return;
+        return false;
       }
       setTradeDraft(null);
+      setTradeDraftImage(null);
       const linkedForecast = forecasts.find((forecast) => forecast.id === activeContext?.forecastId)
         || forecasts.find((forecast) => forecast.pair === pair && forecast.setup === draft.setup && forecast.direction === direction && ["Waiting", "Taken"].includes(forecast.status));
       if (data?.id) {
@@ -2004,8 +2048,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }
       await onTradeCreated();
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade added", text: `${pair} ${direction.toLowerCase()} is now in your Journaly trade log. I used only the fields available in Add Trade.` }]);
+      return true;
     } catch (error) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Trade not added", text: error instanceof Error ? error.message : "Journaly could not save that trade." }]);
+      return false;
     } finally {
       tradeSaveLock.current = false;
       setIsSavingTrade(false);
@@ -2083,12 +2129,13 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       return;
     }
     if (tradeDraft && /^(cancel|cancel it|never mind|nevermind|discard)$/i.test(cleanPrompt)) {
-      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }, { id: crypto.randomUUID(), role: "jarvis", text: "Trade draft discarded. Nothing was added to Journaly." }]);
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }, { id: crypto.randomUUID(), role: "jarvis", text: tradeDraft.intent === "update_pending" ? "Trade update discarded. Nothing changed in Journaly." : "Trade draft discarded. Nothing was added to Journaly." }]);
       setPrompt("");
       setTradeDraft(null);
+      setTradeDraftImage(null);
       return;
     }
-    if (tradeDraft?.intent === "ready" && /^(confirm|confirmed|save|save it|add it|do it)$/i.test(cleanPrompt)) {
+    if (tradeDraft && ["ready", "update_pending"].includes(tradeDraft.intent) && /^(confirm|confirmed|save|save it|add it|update it|do it)$/i.test(cleanPrompt)) {
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "user", text: cleanPrompt }]);
       setPrompt("");
       await saveTradeDraft(tradeDraft);
@@ -2118,7 +2165,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const { data: sessionData } = await supabase.auth.getSession();
       const accessToken = sessionData.session?.access_token;
       if (!accessToken) throw new Error("Your Journaly session has expired.");
-      const requestedPair = getPairFromPrompt(cleanPrompt, [...orderedTrades, ...orderedBacktests].map((trade) => trade.pair));
+      const requestedPair = getPairFromPrompt(`${cleanPrompt} ${imageForRequest?.name || ""}`, [...orderedTrades, ...orderedBacktests].map((trade) => trade.pair));
       const wantsBacktest = /\b(backtest|back test|historical test)\b/i.test(cleanPrompt);
       const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
       const hasExplicitChartContext = Boolean(imageForRequest) || wantsChartReview;
@@ -2207,6 +2254,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               executionQuality: trade.quality,
               notes: trade.notes,
               hasScreenshot: Boolean(trade.screenshot),
+              finalizedAt: trade.finalizedAt,
             })),
             monthlyTrades: orderedTrades.map((trade) => ({ id: trade.id, date: trade.date, pair: trade.pair, setup: trade.setup, pnlR: trade.pnl })),
             backtests: orderedBacktests.slice(0, 600).map((trade) => ({
@@ -2276,7 +2324,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         setMemory((current) => applyMemoryUpdates(current, acceptedMemoryUpdates));
         void persistMemoryUpdates(acceptedMemoryUpdates);
       }
-      setTradeDraft((current) => payload.tradeAction ? normalizeTradeAction(payload.tradeAction, current) : null);
+      const nextTradeDraft = payload.tradeAction ? normalizeTradeAction(payload.tradeAction, tradeDraft) : null;
+      const nextTradeImage = nextTradeDraft?.intent === "update_pending" ? imageForRequest || previousChartCandidate : null;
+      setTradeDraft(nextTradeDraft);
+      setTradeDraftImage(nextTradeImage);
       setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
       const nextPositionSizing = normalizePositionSizingAction(payload.positionSizingAction);
       setPositionSizingDraft(nextPositionSizing);
@@ -2307,9 +2358,13 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         setLastChartImage(imageForRequest);
         void persistChartCheckpoint(imageForRequest, cleanPrompt, payload.learningSummary || payload.answer, nextActiveContext);
       }
-      const jarvisMessage: JarvisMessage = { id: crypto.randomUUID(), role: "jarvis", text: payload.answer, createdAt: new Date().toISOString() };
-      setMessages((current) => [...current, jarvisMessage]);
-      if (voiceReplies || memory.companionSettings.handsFreeVoice) speakJarvisMessage(jarvisMessage);
+      const explicitTradeUpdate = nextTradeDraft?.intent === "update_pending" && (/\b(?:update|finalize|save|record|correct|change)\b/i.test(cleanPrompt) || /\badd\s+(?:a\s+)?notes?\b/i.test(cleanPrompt));
+      const tradeUpdateApplied = explicitTradeUpdate ? await saveTradeDraft(nextTradeDraft, nextTradeImage) : false;
+      if (!tradeUpdateApplied) {
+        const jarvisMessage: JarvisMessage = { id: crypto.randomUUID(), role: "jarvis", text: payload.answer, createdAt: new Date().toISOString() };
+        setMessages((current) => [...current, jarvisMessage]);
+        if (voiceReplies || memory.companionSettings.handsFreeVoice) speakJarvisMessage(jarvisMessage);
+      }
       if (payload?.proactiveSchedule && Number.isFinite(Number(payload.proactiveSchedule.delaySeconds)) && typeof payload.proactiveSchedule.message === "string") {
         void fetch("/api/jarvis/proactive", {
           method: "POST",
@@ -2433,8 +2488,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           {(tradeDraft || forecastDraft || positionSizingDraft || positionProfileDraft) ? <button className="jarvis-ambient-action" type="button" onClick={() => setIsAmbient(false)}><Check size={14} /> Action ready · review in Command Center <ChevronRight size={14} /></button> : null}
           <form className="jarvis-ambient-composer" onSubmit={submitPrompt}>
             <button className={`jarvis-ambient-mic${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : "Speak to Jarvis"} onClick={toggleVoiceInput}>{isListening ? <MicOff size={17} /> : voicePhase === "transcribing" ? <RefreshCcw size={17} /> : <Mic size={17} />}</button>
-            <textarea ref={compactInputRef} rows={1} value={prompt} placeholder={isListening ? "Listening…" : "Talk to Jarvis while you work…"} onChange={(event) => setPrompt(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askJarvis(prompt); } }} />
-            {isThinking ? <button className="jarvis-ambient-send is-stop" type="button" aria-label="Stop Jarvis" onClick={() => requestAbortRef.current?.abort()}><Square size={14} /></button> : <button className="jarvis-ambient-send" type="submit" disabled={!prompt.trim()} aria-label="Send to Jarvis"><ArrowUp size={17} /></button>}
+            {attachedImage ? <div className="jarvis-ambient-attachment"><img src={attachedImage.dataUrl} alt="Pasted chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove pasted image"><X size={13} /></button></div> : null}
+            <textarea ref={compactInputRef} rows={1} value={prompt} placeholder={isListening ? "Listening…" : attachedImage ? "Ask Jarvis about this chart…" : "Talk to Jarvis while you work…"} onChange={(event) => setPrompt(event.target.value)} onPaste={pasteImage} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askJarvis(prompt); } }} />
+            {isThinking ? <button className="jarvis-ambient-send is-stop" type="button" aria-label="Stop Jarvis" onClick={() => requestAbortRef.current?.abort()}><Square size={14} /></button> : <button className="jarvis-ambient-send" type="submit" disabled={!prompt.trim() && !attachedImage} aria-label="Send to Jarvis"><ArrowUp size={17} /></button>}
           </form>
           {attachmentError ? <small className="jarvis-ambient-error">{attachmentError}</small> : null}
         </section>
@@ -2471,7 +2527,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("Analyze my full Edge Lab. Show my strongest and weakest hours, sessions, weekdays, pairs, setups, and pair/setup combinations using deterministic data.")}><Clock size={17} /> Edge Lab</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
                 <button className={showMemoryCenter ? "is-active" : ""} type="button" onClick={() => setShowMemoryCenter((current) => !current)}><BrainCircuit size={17} /> Memory <span>{memory.memories.length}</span></button>
-                <button type="button" onClick={() => { setMessages([]); void persistSyncedConversation([], true); setTradeDraft(null); setForecastDraft(null); setAndSyncActiveContext(null); setFeedbackTarget(null); setLastChartImage(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
+                <button type="button" onClick={() => { setMessages([]); void persistSyncedConversation([], true); setTradeDraft(null); setTradeDraftImage(null); setForecastDraft(null); setAndSyncActiveContext(null); setFeedbackTarget(null); setLastChartImage(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               {showMemoryCenter ? <section className="jarvis-memory-center">
@@ -2601,7 +2657,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                     ) : null}
                     {tradeDraft ? (
                       <article className={`jarvis-trade-draft is-${tradeDraft.intent}`} aria-label="Pending Journaly trade">
-                        <header><span>{tradeDraft.intent === "ready" ? "Ready to add" : "Trade draft"}</span><strong>{tradeDraft.pair || "Pair needed"}</strong></header>
+                        <header><span>{tradeDraft.intent === "update_pending" ? "Pending trade update" : tradeDraft.intent === "ready" ? "Ready to add" : "Trade draft"}</span><strong>{tradeDraft.pair || "Pair needed"}</strong></header>
                         <div className="jarvis-trade-draft-grid">
                           <p><span>Setup</span><strong>{tradeDraft.setup || "Needed"}</strong></p>
                           <p><span>Direction</span><strong>{tradeDraft.direction || "Needed"}</strong></p>
@@ -2611,10 +2667,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           <p><span>Result</span><strong>{tradeDraft.result || "Breakeven"}</strong></p>
                         </div>
                         {tradeDraft.notes ? <p className="jarvis-trade-draft-notes">{tradeDraft.notes}</p> : null}
-                        {tradeDraft.missingFields.length ? <small>Jarvis still needs: {tradeDraft.missingFields.join(", ")}.</small> : <small>Say “Confirm” or use the button below. Nothing is saved before approval.</small>}
+                        {tradeDraft.missingFields.length ? <small>Jarvis still needs: {tradeDraft.missingFields.join(", ")}.</small> : <small>{tradeDraft.intent === "update_pending" ? tradeDraftImage ? "Confirm to save these fields and use the attached image as the final screenshot. The trade will be locked." : "Confirm to save these fields. The trade will remain pending final until its screenshot is added." : "Say “Confirm” or use the button below. Nothing is saved before approval."}</small>}
                         <footer>
-                          <button type="button" className="is-cancel" onClick={() => setTradeDraft(null)}>Discard</button>
-                          <button type="button" className="is-confirm" disabled={tradeDraft.intent !== "ready" || isSavingTrade} onClick={() => void saveTradeDraft(tradeDraft)}><Check size={15} /> {isSavingTrade ? "Adding..." : "Confirm & add"}</button>
+                          <button type="button" className="is-cancel" onClick={() => { setTradeDraft(null); setTradeDraftImage(null); }}>Discard</button>
+                          <button type="button" className="is-confirm" disabled={tradeDraft.intent === "draft" || isSavingTrade} onClick={() => void saveTradeDraft(tradeDraft)}><Check size={15} /> {isSavingTrade ? "Saving..." : tradeDraft.intent === "update_pending" ? "Confirm update" : "Confirm & add"}</button>
                         </footer>
                       </article>
                     ) : null}
@@ -2674,6 +2730,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   value={prompt}
                   placeholder={voicePhase === "listening" ? "Listening…" : attachedImage ? "Ask Jarvis about this chart..." : "Ask Jarvis about trading or life..."}
                   onChange={(event) => setPrompt(event.target.value)}
+                  onPaste={pasteImage}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();

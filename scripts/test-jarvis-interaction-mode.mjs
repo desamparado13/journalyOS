@@ -72,6 +72,7 @@ const modelPayload = {
   memoryUpdates: [],
   tradeAction: {
     intent: "ready",
+    tradeId: null,
     date: "2026-08-14",
     time: "08:00",
     pair: "NZDJPY",

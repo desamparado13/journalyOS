@@ -34,8 +34,13 @@ JOURNALY TRADE ACTIONS
 - Supported setups: REVERSAL, Internal reversal, Liquidity sweep, Break and retest, Flag, Flag+, EU timed entry.
 - A stop stated as an absolute price is not stopLossPips; preserve it in notes unless the user also gives the pip distance.
 - Return tradeAction.intent=draft while required details are missing, with missingFields listing only pair, setup, or direction. Return intent=ready once those three fields are known.
-- Never claim a trade was saved. Journaly will show a confirmation card and only the authenticated client can insert it after explicit confirmation.
-- If the message is unrelated to creating a trade, return tradeAction as null.`;
+- When the user asks to correct or update an existing pending trade, identify the exact trade from activeTrade or get_trade and return tradeAction.intent=update_pending with its tradeId. Only pending (not finalized) trades may be updated this way. Preserve existing notes unless the user asks to replace them; append any new management lesson naturally.
+- An attached chart does not automatically mean the user wants analysis. When an active pending trade exists and the user supplies its actual R result, asks to add notes, says it is the trade to update, or clarifies "that's the one," prioritize the trade update. Return update_pending instead of a WATCH/TAKE/SKIP answer. The client will retain the attached image and use it as the required final screenshot after confirmation.
+- A pending-trade update may change only MAE, PnL in R, result, and notes. A clear direct request to update, save, record, correct, change, or add notes is itself explicit authorization, so the authenticated client applies the validated action immediately. If the instruction is ambiguous, the client shows a confirmation action instead.
+- When the update includes an attached chart, the authenticated client saves it as the final screenshot and locks the trade. Without a screenshot, the trade remains pending final.
+- If more than one trade could match, ask which one and return no trade action. Never guess an id, and never prepare an update for a finalized trade.
+- Never claim a trade was saved, updated, or finalized in your model answer. Only the authenticated client may report success after Supabase confirms the write.
+- If the message is unrelated to creating or updating a trade, return tradeAction as null.`;
 const JARVIS_FORECAST_INSTRUCTIONS = `
 JOURNALY FORECAST ACTIONS AND LEARNING
 - Forecasts are the user's pre-trade ideas. Treat the complete authenticated forecast history as first-class evidence alongside live trades and backtests.
@@ -254,9 +259,10 @@ const RESPONSE_SCHEMA = {
     tradeAction: {
       type: ["object", "null"],
       additionalProperties: false,
-      required: ["intent", "date", "time", "pair", "setup", "direction", "stopLossPips", "mae", "pnl", "result", "notes", "missingFields"],
+      required: ["intent", "tradeId", "date", "time", "pair", "setup", "direction", "stopLossPips", "mae", "pnl", "result", "notes", "missingFields"],
       properties: {
-        intent: { type: "string", enum: ["draft", "ready"] },
+        intent: { type: "string", enum: ["draft", "ready", "update_pending"] },
+        tradeId: { type: ["string", "null"], maxLength: 100 },
         date: { type: ["string", "null"], maxLength: 10 },
         time: { type: ["string", "null"], maxLength: 5 },
         pair: { type: ["string", "null"], enum: ["AUDUSD", "EURUSD", "EURJPY", "AUDJPY", "GBPUSD", "NZDJPY", "EURAUD", null] },
@@ -267,7 +273,7 @@ const RESPONSE_SCHEMA = {
         pnl: { type: ["number", "null"] },
         result: { type: ["string", "null"], enum: ["Win", "Loss", "Breakeven", null] },
         notes: { type: ["string", "null"], maxLength: 3000 },
-        missingFields: { type: "array", maxItems: 3, items: { type: "string", enum: ["pair", "setup", "direction"] } },
+        missingFields: { type: "array", maxItems: 4, items: { type: "string", enum: ["tradeId", "pair", "setup", "direction"] } },
       },
     },
     forecastAction: {
@@ -492,6 +498,8 @@ function hasActiveTradeSignal(question) {
 
 function detectConversationMode(question, chartImage, sessionState = {}) {
   const text = String(question || "").trim().toLowerCase().replace(/[’]/g, "'");
+  const pendingTradeUpdate = Boolean(sessionState?.activeTradeId) && (/(?:update|correct|change|edit)/.test(text) || /\badd\s+(?:a\s+)?notes?\b/.test(text) || (/\b\d+(?:\.\d+)?\s*r\b/.test(text) && /\b(?:actual|result|closed|cut|early|notes?|trade)\b/.test(text)));
+  if (pendingTradeUpdate) return "post_trade_review";
   const activeFollowUp = Boolean(sessionState?.activeTradeId) && /\b(?:hold|trail|move\s+(?:my\s+)?stop|take\s+profit|close|reduce|leave\s+it|what\s+now|how(?:'s|\s+is)\s+it|still\s+good)\b/.test(text);
   if (hasActiveTradeSignal(text) || activeFollowUp) return "active_trade_management";
   if (chartImage) return "pre_trade_review";
@@ -2707,6 +2715,9 @@ async function handleJarvis(request, env) {
       outcome: activeTrade.outcome,
       pnlR: activeTrade.pnlR,
       notes: activeTrade.notes,
+      mae: activeTrade.mae,
+      finalizedAt: activeTrade.finalizedAt,
+      hasScreenshot: Boolean(activeTrade.screenshot),
     } : null,
     activeForecast: activeForecast ? {
       id: activeForecast.id,
@@ -2843,6 +2854,38 @@ async function handleJarvis(request, env) {
       }
       Object.assign(aiHealth, { configuredModel: model, apiConfigured: true, apiReachable: true, lastSuccessfulRequestAt: new Date().toISOString(), lastErrorCategory: null, lastHttpStatus: response.status, fallbackActive: false });
       const result = parseJarvisOutput(outputText);
+      if (result.tradeAction?.intent === "update_pending") {
+        const target = toolData.trades.find((trade) => String(trade.id) === String(result.tradeAction.tradeId));
+        if (!target || target.finalizedAt) {
+          result.tradeAction = null;
+          result.answer = target?.finalizedAt
+            ? "That trade is already finalized, so Journaly did not change it. Finalized records are read-only."
+            : "I could not identify one exact pending trade to update, so nothing changed. Tell me the pair and trade date so I can select the right record.";
+        } else {
+          const pnl = Number.isFinite(result.tradeAction.pnl) ? Number(result.tradeAction.pnl) : Number(target.pnlR || 0);
+          const resultLabel = ["Win", "Loss", "Breakeven"].includes(result.tradeAction.result)
+            ? result.tradeAction.result
+            : pnl > 0 ? "Win" : pnl < 0 ? "Loss" : "Breakeven";
+          result.tradeAction = {
+            intent: "update_pending",
+            tradeId: String(target.id),
+            date: target.date || null,
+            time: target.time || null,
+            pair: target.pair || null,
+            setup: target.setup || null,
+            direction: target.direction || null,
+            stopLossPips: target.stopLossPips ?? null,
+            mae: Number.isFinite(result.tradeAction.mae) ? Number(result.tradeAction.mae) : Number(target.mae || 0),
+            pnl,
+            result: resultLabel,
+            notes: typeof result.tradeAction.notes === "string" && result.tradeAction.notes.trim() ? result.tradeAction.notes.trim() : target.notes || "",
+            missingFields: [],
+          };
+          result.answer = chartImage
+            ? `I prepared the ${target.pair} update to ${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}R (${resultLabel}) with the attached image as its final screenshot. Confirm the action card to save and lock the trade.`
+            : `I prepared the ${target.pair} pending-trade update to ${pnl > 0 ? "+" : ""}${pnl.toFixed(2)}R (${resultLabel}). Confirm the action card to save it. The trade will remain pending final until its required screenshot is added.`;
+        }
+      }
       if (verifiedPositionSizing) {
         result.positionSizingAction = {
           applyToCalculator: verifiedPositionSizing.applyToCalculator,
@@ -2871,12 +2914,12 @@ async function handleJarvis(request, env) {
         };
       }
       if (verifiedPositionProfile) result.positionProfileAction = verifiedPositionProfile;
-      if (conversationMode === "active_trade_management") result.tradeAction = null;
+      if (conversationMode === "active_trade_management" && result.tradeAction?.intent !== "update_pending") result.tradeAction = null;
       let historicalMatches = null;
       if (chartImage) {
         result.chartAssessment = enforceChartEvidenceGate(result.chartAssessment);
         historicalMatches = deterministicHistoricalMatches(result.chartAssessment, toolData.trades, toolData.sessionState?.activePair || null);
-        if (!verifiedPositionSizing && conversationMode !== "active_trade_management") {
+        if (!verifiedPositionSizing && conversationMode !== "active_trade_management" && result.tradeAction?.intent !== "update_pending") {
           result.answer = verifiedChartAnswer(result.chartAssessment, historicalMatches);
         }
       }
