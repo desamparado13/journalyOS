@@ -44,7 +44,7 @@ const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
 const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
 const JARVIS_VOICE_REPLIES_KEY_PREFIX = "journaly-os-jarvis-voice-replies-v1";
-const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
+const JARVIS_MISSION_SEEN_KEY_PREFIX = "journaly-os-jarvis-mission-seen-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -328,6 +328,8 @@ type JarvisCompanionSettings = {
   inferenceMode: "explicit_only" | "balanced";
   sensitiveMemoryEnabled: boolean;
   proactiveFollowups: boolean;
+  autonomyMode: "observe" | "assist";
+  handsFreeVoice: boolean;
 };
 
 type JarvisMemoryState = {
@@ -367,6 +369,8 @@ function defaultJarvisMemory(username: string): JarvisMemoryState {
       inferenceMode: "balanced",
       sensitiveMemoryEnabled: false,
       proactiveFollowups: true,
+      autonomyMode: "assist",
+      handsFreeVoice: false,
     },
     memories: [],
   };
@@ -404,10 +408,16 @@ function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdat
         companion_inference_mode: "inferenceMode",
         companion_sensitive_memory: "sensitiveMemoryEnabled",
         companion_proactive_followups: "proactiveFollowups",
+        companion_autonomy_mode: "autonomyMode",
+        companion_hands_free_voice: "handsFreeVoice",
       } as const;
       const setting = settingMap[key as keyof typeof settingMap];
       if (setting) {
-        const value = setting === "inferenceMode" ? (update.value === "explicit_only" ? "explicit_only" : "balanced") : update.value === "true";
+        const value = setting === "inferenceMode"
+          ? (update.value === "explicit_only" ? "explicit_only" : "balanced")
+          : setting === "autonomyMode"
+            ? (update.value === "observe" ? "observe" : "assist")
+            : update.value === "true";
         companionSettings = { ...companionSettings, [setting]: value };
         changed = true;
       }
@@ -570,6 +580,7 @@ function estimateJarvisBrain(entries: JarvisProps["journalEntries"]) {
 }
 
 const quickCommands = [
+  { label: "Mission control", prompt: "Give me a concise Mission Control briefing. Prioritize my current goals, projects, routines, important dates, promised follow-ups, active forecasts, and open Journaly contexts. Tell me what matters now, what is waiting, and the best next action.", icon: Command },
   { label: "Life check-in", prompt: "Check in with me as my real-life companion. Use relevant personal context naturally, ask about one meaningful unfinished thread if there is one, and do not bring up trading unless I do.", icon: HeartHandshake },
   { label: "Morning briefing", prompt: "Give me my morning briefing using only Journaly: waiting forecasts, current plans, recent execution, risk rules, and what deserves my attention. Do not claim live market conditions.", icon: Sunrise },
   { label: "Forecast briefing", prompt: "Brief me on every waiting forecast: the documented thesis, what is complete, what still needs confirmation, and which ideas need a decision. Use Journaly only, not live market assumptions.", icon: Radio },
@@ -579,6 +590,7 @@ const quickCommands = [
   { label: "Internal performance", prompt: "How are my Internals doing?", icon: BarChart3 },
   { label: "Forecast patterns", prompt: "What are you learning from my forecast history?", icon: BarChart3 },
   { label: "Risk check", prompt: "What is my risk right now?", icon: ShieldCheck },
+  { label: "Jarvis calibration", prompt: "Run your weekly self-reflection. Based on my feedback and our recent conversations, tell me briefly what you understand better now, what you may still be getting wrong, and how you will adjust without changing my strategy rules.", icon: Sparkles },
 ] as const;
 
 const pairAliases: Record<string, string> = {
@@ -695,6 +707,21 @@ function upsertWorkspaceContext(workspace: JarvisWorkspace, context: JarvisActiv
 
 function readVoiceReplies(userId: string) {
   return localStorage.getItem(`${JARVIS_VOICE_REPLIES_KEY_PREFIX}:${userId}`) === "true";
+}
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not prepare that recording."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function preferredVoiceMimeType() {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return "";
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]
+    .find((mimeType) => MediaRecorder.isTypeSupported(mimeType)) || "";
 }
 
 function selectRequestedChart<T extends { id: string; date: string; pair: string; setup: string; screenshot: string }>(records: T[], prompt: string, requestedPair?: string) {
@@ -944,6 +971,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [lastChartImage, setLastChartImage] = useState<{ dataUrl: string; name: string } | null>(null);
   const [voiceReplies, setVoiceReplies] = useState(() => readVoiceReplies(userId));
   const [isListening, setIsListening] = useState(false);
+  const [voicePhase, setVoicePhase] = useState<"idle" | "listening" | "transcribing">("idle");
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
@@ -972,6 +1000,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const requestAbortRef = useRef<AbortController | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speechRecognitionRef = useRef<JarvisSpeechRecognition | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceStopTimerRef = useRef<number | null>(null);
   const proactiveCheckinRef = useRef(new Set<string>());
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
@@ -981,6 +1013,19 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const latestTrade = latestFirst(trades)[0];
   const qualityRate = reviewedTrades.length ? Math.round((goodTrades / reviewedTrades.length) * 100) : 0;
   const preferredName = memory.preferredName || displayName || "trader";
+  const missionMemories = useMemo(() => {
+    const missionCategories = new Set(["goal", "project", "routine", "important_date", "life_event", "wellbeing"]);
+    return memory.memories
+      .filter((item) => item.operation !== "delete" && missionCategories.has(item.category) && (item.sensitivity !== "sensitive" || memory.companionSettings.sensitiveMemoryEnabled))
+      .sort((a, b) => {
+        const aDue = a.followUpAt ? new Date(a.followUpAt).getTime() : Number.POSITIVE_INFINITY;
+        const bDue = b.followUpAt ? new Date(b.followUpAt).getTime() : Number.POSITIVE_INFINITY;
+        return aDue - bDue || b.updatedAt.localeCompare(a.updatedAt);
+      })
+      .slice(0, 8);
+  }, [memory.companionSettings.sensitiveMemoryEnabled, memory.memories]);
+  const dueMissionCount = missionMemories.filter((item) => item.followUpAt && new Date(item.followUpAt).getTime() <= Date.now()).length;
+  const recentFeedback = useMemo(() => journalEntries.filter((entry) => entry.content.startsWith(JARVIS_FEEDBACK_PREFIX) && Date.now() - new Date(entry.createdAt || entry.updatedAt || entry.date).getTime() <= 7 * 86400000), [journalEntries]);
   const learningRecords = useMemo(() => {
     const records = [...journalEntries.map(decodeLearningRecord).filter((record): record is JarvisLearningRecord => Boolean(record)), ...sessionLearningRecords];
     return Array.from(new Map(records.map((record) => [record.id, record])).values())
@@ -1188,21 +1233,33 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
   useEffect(() => () => {
     speechRecognitionRef.current?.stop();
+    if (voiceStopTimerRef.current) window.clearTimeout(voiceStopTimerRef.current);
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     requestAbortRef.current?.abort();
     audioRef.current?.pause();
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
   }, []);
 
   useEffect(() => {
-    if (!isOpen || (!activeForecasts.length && !activeContext)) return;
+    if (!isOpen || !memory.companionSettings.proactiveFollowups || (!activeForecasts.length && !activeContext && !missionMemories.length && !recentFeedback.length)) return;
     const today = new Date().toISOString().slice(0, 10);
-    const key = `${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`;
+    const key = `${JARVIS_MISSION_SEEN_KEY_PREFIX}:${userId}`;
     if (localStorage.getItem(key) === today) return;
     localStorage.setItem(key, today);
-    const forecastText = activeForecasts.length ? `${activeForecasts.length} forecast${activeForecasts.length === 1 ? " is" : "s are"} still waiting in Journaly.` : "";
-    const contextText = activeContext?.pair ? ` I still have ${activeContext.pair}${activeContext.setup ? ` ${activeContext.setup}` : ""} in context.` : "";
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: "Quiet check-in", text: `${forecastText}${contextText} If you want, I can give you a quick forecast briefing—Journaly evidence only, no invented market read.`.trim() }]);
-  }, [activeContext, activeForecasts.length, isOpen, userId]);
+    const parts: string[] = [];
+    if (dueMissionCount) parts.push(`${dueMissionCount} personal follow-up${dueMissionCount === 1 ? " is" : "s are"} due`);
+    else if (missionMemories.length) parts.push(`${missionMemories.length} active life ${missionMemories.length === 1 ? "thread is" : "threads are"} in memory`);
+    if (activeForecasts.length) parts.push(`${activeForecasts.length} forecast${activeForecasts.length === 1 ? " is" : "s are"} still waiting`);
+    if (activeContext?.pair) parts.push(`${activeContext.pair}${activeContext.setup ? ` ${activeContext.setup}` : ""} is still in context`);
+    if (recentFeedback.length >= 2) parts.push(`I have ${recentFeedback.length} recent feedback notes to calibrate from`);
+    setMessages((current) => [...current, {
+      id: crypto.randomUUID(),
+      role: "jarvis",
+      title: "Mission Control",
+      text: `Quick continuity check, ${preferredName}: ${parts.join("; ")}. Want the short briefing, or shall we focus on one thing?`,
+    }]);
+  }, [activeContext, activeForecasts.length, dueMissionCount, isOpen, memory.companionSettings.proactiveFollowups, missionMemories.length, preferredName, recentFeedback.length, userId]);
 
   useEffect(() => {
     localStorage.setItem(`${JARVIS_SPEND_KEY_PREFIX}:${userId}`, JSON.stringify(spend));
@@ -1438,6 +1495,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       inferenceMode: "companion_inference_mode",
       sensitiveMemoryEnabled: "companion_sensitive_memory",
       proactiveFollowups: "companion_proactive_followups",
+      autonomyMode: "companion_autonomy_mode",
+      handsFreeVoice: "companion_hands_free_voice",
     }[key];
     const update: JarvisMemoryUpdate = { operation: "upsert", category: "preference", key: memoryKey, value: String(value), confidence: 1, source: "explicit", sensitivity: "normal", followUpAt: null };
     setMemory((current) => applyMemoryUpdates(current, [update]));
@@ -1509,7 +1568,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     window.speechSynthesis.speak(utterance);
   }
 
-  function toggleVoiceInput() {
+  function toggleLegacyVoiceInput() {
     if (isListening) {
       speechRecognitionRef.current?.stop();
       return;
@@ -1534,6 +1593,104 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     setAttachmentError("");
     setIsListening(true);
     recognition.start();
+  }
+
+  function stopVoiceInput() {
+    if (voiceStopTimerRef.current) {
+      window.clearTimeout(voiceStopTimerRef.current);
+      voiceStopTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
+    else speechRecognitionRef.current?.stop();
+  }
+
+  async function transcribeVoice(blob: Blob) {
+    setIsListening(false);
+    setVoicePhase("transcribing");
+    setAttachmentError("Transcribing your voice…");
+    try {
+      if (blob.size < 600) throw new Error("That recording was too short. Hold the mic and speak for a moment.");
+      if (!supabase) throw new Error("Jarvis needs an authenticated session for voice chat.");
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error("Jarvis needs an authenticated session for voice chat.");
+      const audioData = await blobToDataUrl(blob);
+      const response = await fetch("/api/jarvis/transcribe", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ userId, audioData }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : "Jarvis could not transcribe that recording.");
+      const transcript = typeof payload?.transcript === "string" ? payload.transcript.trim() : "";
+      if (!transcript) throw new Error("I couldn’t hear any words in that recording. Try again a little closer to the microphone.");
+      setAttachmentError("");
+      if (memory.companionSettings.handsFreeVoice) {
+        setVoiceReplies(true);
+        void askJarvis(transcript);
+      } else {
+        setPrompt((current) => `${current}${current.trim() ? " " : ""}${transcript}`);
+        window.setTimeout(() => inputRef.current?.focus(), 50);
+      }
+    } catch (error) {
+      setAttachmentError(error instanceof Error ? error.message : "Jarvis could not transcribe that recording.");
+    } finally {
+      mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+      mediaRecorderRef.current = null;
+      voiceChunksRef.current = [];
+      setVoicePhase("idle");
+    }
+  }
+
+  async function toggleVoiceInput() {
+    if (voicePhase === "transcribing") return;
+    if (isListening) {
+      stopVoiceInput();
+      return;
+    }
+    setAttachmentError("Requesting microphone access…");
+    if (typeof MediaRecorder !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        const mimeType = preferredVoiceMimeType();
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        mediaStreamRef.current = stream;
+        mediaRecorderRef.current = recorder;
+        voiceChunksRef.current = [];
+        recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
+        recorder.onerror = () => {
+          setAttachmentError("The microphone stopped unexpectedly. Please try again.");
+          setIsListening(false);
+          setVoicePhase("idle");
+          stream.getTracks().forEach((track) => track.stop());
+        };
+        recorder.onstop = () => {
+          if (voiceStopTimerRef.current) window.clearTimeout(voiceStopTimerRef.current);
+          voiceStopTimerRef.current = null;
+          const recording = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          void transcribeVoice(recording);
+        };
+        recorder.start(250);
+        setAttachmentError("Listening… tap the microphone again when you’re done.");
+        setIsListening(true);
+        setVoicePhase("listening");
+        voiceStopTimerRef.current = window.setTimeout(stopVoiceInput, 45_000);
+        return;
+      } catch (error) {
+        const name = error instanceof DOMException ? error.name : "";
+        setAttachmentError(name === "NotAllowedError"
+          ? "Microphone access is blocked. Allow the microphone for Journaly in your browser settings, then try again."
+          : name === "NotFoundError"
+            ? "No microphone was found on this device."
+            : "Jarvis couldn’t open your microphone. Check the browser permission and try again.");
+        setVoicePhase("idle");
+        setIsListening(false);
+        return;
+      }
+    }
+
+    toggleLegacyVoiceInput();
   }
 
   async function saveTradeDraft(draft: JarvisTradeAction) {
@@ -1859,10 +2016,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       setForecastDraft((current) => payload.forecastAction ? normalizeForecastAction(payload.forecastAction, current) : null);
       const nextPositionSizing = normalizePositionSizingAction(payload.positionSizingAction);
       setPositionSizingDraft(nextPositionSizing);
-      if (nextPositionSizing?.ready) onPositionSizingApply(nextPositionSizing);
+      if (nextPositionSizing?.ready && memory.companionSettings.autonomyMode === "assist") onPositionSizingApply(nextPositionSizing);
       const nextPositionProfile = normalizePositionProfileAction(payload.positionProfileAction);
       setPositionProfileDraft(nextPositionProfile);
-      if (nextPositionProfile?.ready) onPositionProfileApply(nextPositionProfile);
+      if (nextPositionProfile?.ready && memory.companionSettings.autonomyMode === "assist") onPositionProfileApply(nextPositionProfile);
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
@@ -1888,7 +2045,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }
       const jarvisMessage: JarvisMessage = { id: crypto.randomUUID(), role: "jarvis", text: payload.answer, createdAt: new Date().toISOString() };
       setMessages((current) => [...current, jarvisMessage]);
-      if (voiceReplies) speakJarvisMessage(jarvisMessage);
+      if (voiceReplies || memory.companionSettings.handsFreeVoice) speakJarvisMessage(jarvisMessage);
     } catch (error) {
       const failure = error as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
       if (failure.name === "AbortError") {
@@ -1997,6 +2154,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   <button type="button" aria-pressed={memory.companionSettings.inferenceMode === "balanced"} className={memory.companionSettings.inferenceMode === "balanced" ? "is-enabled" : ""} onClick={() => updateCompanionSetting("inferenceMode", memory.companionSettings.inferenceMode === "balanced" ? "explicit_only" : "balanced")}><span><strong>Pattern learning</strong><small>{memory.companionSettings.inferenceMode === "balanced" ? "Balanced · repeated patterns only" : "Explicit facts only"}</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.sensitiveMemoryEnabled} className={memory.companionSettings.sensitiveMemoryEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("sensitiveMemoryEnabled", !memory.companionSettings.sensitiveMemoryEnabled)}><span><strong>Sensitive memory</strong><small>{memory.companionSettings.sensitiveMemoryEnabled ? "Allowed when relevant" : "Not added to durable memory"}</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.proactiveFollowups} className={memory.companionSettings.proactiveFollowups ? "is-enabled" : ""} onClick={() => updateCompanionSetting("proactiveFollowups", !memory.companionSettings.proactiveFollowups)}><span><strong>Natural follow-ups</strong><small>Remember to ask how things went</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.autonomyMode === "assist"} className={memory.companionSettings.autonomyMode === "assist" ? "is-enabled" : ""} onClick={() => updateCompanionSetting("autonomyMode", memory.companionSettings.autonomyMode === "assist" ? "observe" : "assist")}><span><strong>Assisted autonomy</strong><small>{memory.companionSettings.autonomyMode === "assist" ? "Fill calculators and profiles for you" : "Suggest changes, then wait for approval"}</small></span><i /></button>
+                  <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) setVoiceReplies(true); }}><span><strong>Hands-free voice</strong><small>{memory.companionSettings.handsFreeVoice ? "Voice sends immediately and Jarvis answers aloud" : "Review transcripts before sending"}</small></span><i /></button>
                 </div>
                 {memory.memories.length ? memory.memories.slice().reverse().map((item) => <div className="jarvis-memory-item" key={`${item.category}:${item.key}`}><span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}</small><em>{item.category.replaceAll("_", " ")} · {item.source === "inferred" ? "learned pattern" : "you told Jarvis"}{item.followUpAt ? ` · follow up ${new Date(item.followUpAt).toLocaleDateString()}` : ""}{Date.now() - new Date(item.updatedAt).getTime() > 90 * 86400000 ? " · review" : ""}</em></span><div><button type="button" title="Edit this memory" aria-label={`Edit ${item.key.replaceAll("_", " ")}`} onClick={() => editMemory(item)}><RefreshCcw size={12} /></button><button type="button" title="Forget this memory" aria-label={`Forget ${item.key.replaceAll("_", " ")}`} onClick={() => forgetMemory(item)}><Trash2 size={13} /></button></div></div>) : <p>No durable personal memories yet. Say “remember this” whenever something matters.</p>}
                 {memory.memories.some((item) => !["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"].includes(item.category)) ? <button className="jarvis-forget-personal" type="button" onClick={forgetAllPersonalMemories}><Trash2 size={12} /> Forget all personal memories</button> : null}
@@ -2165,8 +2324,11 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                             <p><span>Risk</span><strong>{positionProfileDraft.riskPercent ?? "--"}%</strong></p>
                           </div>
                         ) : null}
-                        <small>{positionProfileDraft.ready ? "Applied and saved automatically in Position Sizing." : `Jarvis still needs: ${positionProfileDraft.missingFields.join(", ")}.`}</small>
-                        <footer><button type="button" className="is-cancel" onClick={() => setPositionProfileDraft(null)}>Dismiss</button></footer>
+                        <small>{positionProfileDraft.ready ? (memory.companionSettings.autonomyMode === "assist" ? "Applied and saved automatically in Position Sizing." : "Ready to apply. Jarvis is waiting for your approval.") : `Jarvis still needs: ${positionProfileDraft.missingFields.join(", ")}.`}</small>
+                        <footer>
+                          <button type="button" className="is-cancel" onClick={() => setPositionProfileDraft(null)}>Dismiss</button>
+                          {memory.companionSettings.autonomyMode === "observe" ? <button type="button" className="is-confirm" disabled={!positionProfileDraft.ready} onClick={() => onPositionProfileApply(positionProfileDraft)}><Check size={15} /> Apply change</button> : null}
+                        </footer>
                       </article>
                     ) : null}
                     {isThinking ? <div className="jarvis-thinking"><span /><span /><span /><small>Thinking with your strategy</small></div> : null}
@@ -2177,13 +2339,13 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <form className={`jarvis-composer${attachedImage ? " has-attachment" : ""}`} onSubmit={submitPrompt}>
                 <input ref={fileInputRef} className="jarvis-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseImage} />
                 <button className="jarvis-attach" type="button" title="Attach a chart screenshot" aria-label="Attach a chart screenshot" onClick={() => fileInputRef.current?.click()}><ImagePlus size={19} /></button>
-                <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}`} type="button" title={isListening ? "Stop listening" : "Speak to Jarvis"} aria-label={isListening ? "Stop listening" : "Speak to Jarvis"} onClick={toggleVoiceInput}>{isListening ? <MicOff size={18} /> : <Mic size={18} />}</button>
+                <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-pressed={isListening} onClick={toggleVoiceInput}>{isListening ? <MicOff size={18} /> : voicePhase === "transcribing" ? <RefreshCcw size={18} /> : <Mic size={18} />}</button>
                 {attachedImage ? <div className="jarvis-attachment-preview"><img src={attachedImage.dataUrl} alt="Chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove attached image"><X size={14} /></button></div> : null}
                 <textarea
                   ref={inputRef}
                   rows={1}
                   value={prompt}
-                  placeholder={attachedImage ? "Ask Jarvis about this chart..." : "Ask Jarvis about your trading..."}
+                  placeholder={voicePhase === "listening" ? "Listening…" : attachedImage ? "Ask Jarvis about this chart..." : "Ask Jarvis about trading or life..."}
                   onChange={(event) => setPrompt(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
@@ -2199,6 +2361,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
             <aside className="jarvis-context-panel">
               <div className="jarvis-context-heading"><span>Live Journaly context</span><i /></div>
+              <section className="jarvis-context-card jarvis-mission-card">
+                <header><Command size={16} /><span>Mission Control</span><b>{missionMemories.length}</b></header>
+                {missionMemories.length ? missionMemories.slice(0, 4).map((item) => (
+                  <button type="button" key={`${item.category}:${item.key}`} onClick={() => askJarvis(`Give me a natural, concise Mission Control check-in about ${item.key.replaceAll("_", " ")}. Use what you remember, ask about progress if useful, and do not invent details.`)}>
+                    <span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}{item.followUpAt ? ` · ${new Date(item.followUpAt).getTime() <= Date.now() ? "follow-up due" : `follow up ${new Date(item.followUpAt).toLocaleDateString()}`}` : ""}</small></span><ChevronRight size={15} />
+                  </button>
+                )) : <p>Tell Jarvis about a goal, project, routine, date, or life update and it will stay visible here.</p>}
+                {recentFeedback.length ? <button type="button" onClick={() => askJarvis("Run a short Jarvis calibration. Use my recent Helpful and Missed it feedback to tell me one thing you have adapted, then continue naturally.")}><span><strong>Self-calibration</strong><small>{recentFeedback.length} feedback note{recentFeedback.length === 1 ? "" : "s"} this week</small></span><ChevronRight size={15} /></button> : null}
+              </section>
               <section className="jarvis-context-card is-session">
                 <header><Activity size={16} /><span>Market session</span></header>
                 <strong>{session.label}</strong>
@@ -2228,7 +2399,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>
                 {latestTrade ? <button type="button" onClick={() => askJarvis("Analyze my latest trade")}><span><strong>{latestTrade.pair}</strong><small>{latestTrade.setup}</small></span><b className={latestTrade.pnl >= 0 ? "is-positive" : "is-negative"}>{formatR(latestTrade.pnl)}</b></button> : <p>No trades logged yet.</p>}
               </section>
-              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.7</strong><small>Life companion / selective memory / natural follow-ups / trading intelligence</small></div></div>
+              <div className="jarvis-version"><BookOpenCheck size={15} /><div><strong>Jarvis v0.8</strong><small>Mission Control / live voice / emotional continuity / assisted autonomy</small></div></div>
             </aside>
           </div>
         </section>

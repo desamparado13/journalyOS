@@ -4,6 +4,7 @@ const FALLBACK_MODELS = ["gpt-5.6-luna", "gpt-4.1-mini"];
 const MAX_QUESTION_LENGTH = 6000;
 const MAX_HISTORY_MESSAGES = 16;
 const MAX_CHART_IMAGE_LENGTH = 8_000_000;
+const MAX_VOICE_AUDIO_LENGTH = 12_000_000;
 const OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/responses";
@@ -95,6 +96,9 @@ JARVIS CONVERSATION RELEVANCE
 - Forecast awareness is not market awareness. For an active forecast, remember its thesis, entry plan, direction, status, and the user's documented reasoning. Discuss whether the plan is complete or what evidence the user still needs, but never claim the present market confirmed or invalidated it without a current chart or authenticated TradingView evidence.
 - When activeForecast is present, follow-ups such as "what about it?", "still valid?", or "what do you think now?" refer to that forecast unless the user names another pair or trade.
 - In daily_routine mode, give a concise morning preparation or evening debrief using only Journaly forecasts, trades, execution reviews, goals, and memories. Explicitly avoid invented live-market commentary.
+- Treat mission control as the user's current goals, projects, routines, important dates, wellbeing context, promised follow-ups, open forecasts, and active Journaly contexts. When asked what needs attention, prioritize only the few items that are current or due.
+- Maintain emotional continuity without overreading one message. Acknowledge relevant stored wellbeing context briefly, then respond to what the user is saying now. Never diagnose, dramatize, or turn ordinary emotions into a clinical interpretation.
+- Permission boundary: freely read and summarize authenticated Journaly context. Reversible calculator and profile changes may be applied only when the client marks assisted autonomy as enabled. Trades, forecasts, deletions, external messages, and consequential actions still require the explicit confirmation already defined by their action rules.
 - For a morning or forecast briefing, call get_active_forecasts before answering. For an evening debrief, call get_recent_trades and get_forecasts when those records are relevant; keep numeric claims delegated to the deterministic statistics tools.
 - An active forecast may remain available in session state, but do not bring it into unrelated casual conversation.
 - Do not repeatedly reassure the user that old context is stale. Once context is absent, simply stop mentioning it.`;
@@ -2301,6 +2305,8 @@ async function handleJarvis(request, env) {
         inferenceMode: suppliedProfile?.companionSettings?.inferenceMode === "explicit_only" ? "explicit_only" : "balanced",
         sensitiveMemoryEnabled: suppliedProfile?.companionSettings?.sensitiveMemoryEnabled === true,
         proactiveFollowups: suppliedProfile?.companionSettings?.proactiveFollowups !== false,
+        autonomyMode: suppliedProfile?.companionSettings?.autonomyMode === "observe" ? "observe" : "assist",
+        handsFreeVoice: suppliedProfile?.companionSettings?.handsFreeVoice === true,
       },
   };
   const journalRows = authenticatedJournaly?.journals || [];
@@ -2576,6 +2582,44 @@ async function handleVoice(request, env) {
   return new Response(response.body, { status: 200, headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
 }
 
+function decodeVoiceAudio(value) {
+  if (typeof value !== "string" || value.length > MAX_VOICE_AUDIO_LENGTH) return null;
+  const match = value.match(/^data:(audio\/(?:webm|mp4|mpeg|mp3|ogg|wav|m4a|x-m4a))(?:;codecs=[^;,]+)?;base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) return null;
+  try {
+    const bytes = Uint8Array.from(atob(match[2]), (character) => character.charCodeAt(0));
+    if (bytes.byteLength < 500 || bytes.byteLength > 8_000_000) return null;
+    const subtype = match[1].split("/")[1].toLowerCase();
+    const extension = subtype === "x-m4a" ? "m4a" : subtype === "mpeg" ? "mp3" : subtype;
+    return { bytes, mimeType: match[1].toLowerCase(), extension };
+  } catch {
+    return null;
+  }
+}
+
+async function handleTranscription(request, env) {
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "Invalid request body." }, 400); }
+  const authorization = await authorizeOwner(request, env, body?.userId);
+  if (authorization.error) return authorization.error;
+  if (!env.OPENAI_API_KEY) return json({ error: "Jarvis transcription is not configured." }, 503);
+  const audio = decodeVoiceAudio(body?.audioData);
+  if (!audio) return json({ error: "The recording was empty or used an unsupported audio format." }, 400);
+  const form = new FormData();
+  form.append("file", new Blob([audio.bytes], { type: audio.mimeType }), `jarvis-voice.${audio.extension}`);
+  form.append("model", env.OPENAI_JARVIS_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe");
+  form.append("language", "en");
+  form.append("response_format", "json");
+  form.append("prompt", "A natural conversation with Jarvis about trading and everyday life. Forex terms may include PPA, MRH, MRL, break and retest, internal reversal, stop loss, take profit, R multiple, AUDUSD, EURUSD, EURJPY, AUDJPY, GBPUSD, NZDJPY, and EURAUD.");
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` }, body: form });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) return json({ error: payload?.error?.message || "Jarvis could not transcribe that recording." }, response.status);
+  const transcript = typeof payload?.text === "string" ? payload.text.trim().slice(0, 6000) : "";
+  if (!transcript) return json({ error: "I couldn't hear enough speech in that recording." }, 422);
+  return json({ transcript });
+}
+
 async function handleRoutine(request, env) {
   if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
   if (!env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${env.CRON_SECRET}`) return json({ error: "Unauthorized" }, 401);
@@ -2607,13 +2651,20 @@ async function handleRoutine(request, env) {
     const stale = forecasts.filter((item) => item.status === "Waiting" && Date.now() - new Date(item.updated_at || `${item.decision_date}T${item.decision_time || "00:00"}`).getTime() > 24 * 60 * 60 * 1000);
     const unlinked = forecasts.filter((item) => item.status === "Taken" && !trades.some((trade) => trade.pair === item.pair && trade.setup === item.setup && trade.direction === item.direction && trade.trade_date >= item.decision_date));
     const unreviewed = trades.filter((trade) => !trade.trade_quality && trade.trade_date >= shiftIsoDate(today, -1));
+    const dueFollowUps = syncedMemoriesFromJournal(journals).filter((memory) => memory?.operation !== "delete" && memory?.sensitivity !== "sensitive" && memory?.followUpAt && new Date(memory.followUpAt).getTime() <= Date.now()).slice(0, 3);
     const lines = [
+      ...dueFollowUps.map((memory) => `Follow-up: ${String(memory.value || memory.key).replace(/[.!?]+$/, "")}.`),
       stale.length ? `${stale.length} waiting forecast${stale.length === 1 ? " is" : "s are"} over 24 hours old.` : "",
       unlinked.length ? `${unlinked.length} Taken forecast${unlinked.length === 1 ? " is" : "s are"} not linked to a saved trade.` : "",
       unreviewed.length ? `${unreviewed.length} recent trade${unreviewed.length === 1 ? " still needs" : "s still need"} an execution review.` : "",
     ].filter(Boolean);
     if (!lines.length) return json({ ok: true, sent: false, reason: "nothing_due" });
     await sendPushover(env, { title: "JARVIS — EVENING CHECK-IN", message: `${lines.join("\n")}\n\nOpen Journaly when you’re ready; I’ll pick up the context there.`, priority: 0 });
+    if (dueFollowUps.length) {
+      const syncedAt = new Date().toISOString();
+      const updates = dueFollowUps.map((memory) => ({ operation: "upsert", category: memory.category, key: memory.key, value: memory.value, confidence: Math.max(0.9, Number(memory.confidence) || 0.9), source: "explicit", sensitivity: memory.sensitivity === "sensitive" ? "sensitive" : "normal", followUpAt: null }));
+      await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content: `${JARVIS_MEMORY_SYNC_PREFIX}\n${JSON.stringify({ updates, syncedAt })}`, advice: "Jarvis completed scheduled follow-ups.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: syncedAt }) });
+    }
     const content = `${JARVIS_ROUTINE_PREFIX}\n${JSON.stringify({ date: today, staleForecasts: stale.map((item) => item.id), unlinkedForecasts: unlinked.map((item) => item.id), unreviewedTrades: unreviewed.map((item) => item.id), sentAt: new Date().toISOString() })}`;
     await fetch(`${baseUrl}/rest/v1/journal_entries`, { method: "POST", headers: { ...headers, prefer: "return=minimal" }, body: JSON.stringify({ user_id: userId, entry_date: today, content, advice: "Jarvis background evening check-in sent.", image_url: "", pair: null, related_trade_id: null, related_discipline_id: null, updated_at: new Date().toISOString() }) });
     return json({ ok: true, sent: true, counts: { stale: stale.length, unlinked: unlinked.length, unreviewed: unreviewed.length } });
@@ -2622,7 +2673,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, calculateJournalyPositionSize, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
+export { archiveViewResult, calculateJournalyPositionSize, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal };
 
 export default {
   async fetch(request, env, ctx) {
@@ -2632,11 +2683,14 @@ export default {
     if (url.pathname === "/api/jarvis/reports") return handleCoachingReport(request, env);
     if (url.pathname === "/api/jarvis/health") return withDashboardCors(request, await handleHealth(request, env));
     if (url.pathname === "/api/jarvis/voice") return withDashboardCors(request, await handleVoice(request, env));
+    if (url.pathname === "/api/jarvis/transcribe") return withDashboardCors(request, await handleTranscription(request, env));
     if (url.pathname === "/api/jarvis/routine") return handleRoutine(request, env);
     if (url.pathname === "/api/jarvis/tradingview") return handleTradingView(request, env, ctx);
     if (url.pathname === "/api/jarvis/pushover/test") return withDashboardCors(request, await handlePushoverTest(request, env));
     const response = await env.ASSETS.fetch(request);
-    if (response.status !== 404 || url.pathname.includes(".")) return response;
-    return env.ASSETS.fetch(new Request(new URL("/index.html", request.url), request));
+    const assetResponse = response.status !== 404 || url.pathname.includes(".") ? response : await env.ASSETS.fetch(new Request(new URL("/index.html", request.url), request));
+    const headers = new Headers(assetResponse.headers);
+    headers.set("permissions-policy", "microphone=(self)");
+    return new Response(assetResponse.body, { status: assetResponse.status, statusText: assetResponse.statusText, headers });
   },
 };

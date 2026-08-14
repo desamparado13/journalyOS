@@ -1720,6 +1720,8 @@ label span,
 .jarvis-voice-input:hover,
 .jarvis-voice-input.is-listening { color: #67e8f9; background: rgba(34, 211, 238, 0.08); }
 .jarvis-voice-input.is-listening { box-shadow: 0 0 16px rgba(34, 211, 238, 0.22); animation: jarvis-status 1.2s ease-in-out infinite; }
+.jarvis-voice-input.is-transcribing { color: #67e8f9; background: rgba(34, 211, 238, 0.08); cursor: wait; }
+.jarvis-voice-input.is-transcribing svg { animation: jarvis-spin 1s linear infinite; }
 .jarvis-send { right: 10px; top: 12px; border: 1px solid rgba(103, 232, 249, 0.48); color: #e9feff; background: linear-gradient(145deg, #0891b2, #0e7490); box-shadow: 0 0 18px rgba(34, 211, 238, 0.18); }
 .jarvis-send:disabled { border-color: rgba(125, 211, 252, 0.09); color: #456475; background: #0a1b27; box-shadow: none; cursor: default; }
 .jarvis-send.is-stop { border-color: rgba(251, 113, 133, 0.45); background: linear-gradient(145deg, #be123c, #881337); box-shadow: 0 0 18px rgba(251, 113, 133, 0.16); }
@@ -1741,6 +1743,8 @@ label span,
 .jarvis-context-card button strong { color: #bad4e2; font-size: 0.72rem; }
 .jarvis-context-card button small { color: #557487; font-size: 0.61rem; }
 .jarvis-context-card button:hover strong { color: #67e8f9; }
+.jarvis-mission-card { border-color: rgba(167, 139, 250, 0.22); background: linear-gradient(145deg, rgba(24, 20, 52, 0.7), rgba(3, 14, 24, 0.76)); }
+.jarvis-mission-card header { color: #a78bfa; }
 .jarvis-workspace-card button.is-focused { margin-inline: -7px; width: calc(100% + 14px); padding-inline: 7px; border-radius: 8px; background: rgba(34, 211, 238, 0.07); }
 .jarvis-workspace-card button.is-focused strong { color: #67e8f9; }
 .jarvis-journey-card > div { position: relative; display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-top: 1px solid rgba(125, 211, 252, 0.07); }
