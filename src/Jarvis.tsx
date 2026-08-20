@@ -271,6 +271,18 @@ type JarvisForecastAction = {
 };
 
 type JarvisPositionSizingAction = {
+  calculationMode?: "calculator" | "profiles";
+  profileMode?: "main" | "half" | null;
+  profileResults?: Array<{
+    rowId: string;
+    balance: number;
+    type: string;
+    platform: string;
+    riskPercent: number;
+    riskAmount: number;
+    lots: number;
+    units: number;
+  }>;
   applyToCalculator: boolean;
   ready: boolean;
   pair: string | null;
@@ -280,7 +292,7 @@ type JarvisPositionSizingAction = {
   stopLossPrice: number | null;
   takeProfitPrice: number | null;
   quoteToUsdRate: number | null;
-  missingFields: Array<"pair" | "accountBalance" | "riskPercent" | "entryPrice" | "stopLossPrice" | "quoteToUsdRate">;
+  missingFields: Array<"pair" | "accountBalance" | "riskPercent" | "entryPrice" | "stopLossPrice" | "quoteToUsdRate" | "profiles">;
   result: {
     direction: "Long" | "Short";
     stopPips: number;
@@ -923,9 +935,28 @@ function normalizePositionSizingAction(value: unknown): JarvisPositionSizingActi
         takeProfitValid: typeof resultCandidate.takeProfitValid === "boolean" ? resultCandidate.takeProfitValid : null,
       }
     : null;
+  const calculationMode = candidate.calculationMode === "profiles" ? "profiles" : "calculator";
+  const profileResults = Array.isArray(candidate.profileResults) ? candidate.profileResults.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const profile = row as NonNullable<JarvisPositionSizingAction["profileResults"]>[number];
+    if (typeof profile.rowId !== "string" || !Number.isFinite(profile.balance) || !Number.isFinite(profile.riskPercent) || !Number.isFinite(profile.lots)) return [];
+    return [{
+      rowId: profile.rowId,
+      balance: Number(profile.balance),
+      type: typeof profile.type === "string" ? profile.type : "Account",
+      platform: typeof profile.platform === "string" ? profile.platform : "",
+      riskPercent: Number(profile.riskPercent),
+      riskAmount: Number(profile.riskAmount || 0),
+      lots: Number(profile.lots),
+      units: Number(profile.units || 0),
+    }];
+  }) : [];
   return {
+    calculationMode,
+    profileMode: candidate.profileMode === "half" ? "half" : candidate.profileMode === "main" ? "main" : null,
+    profileResults,
     applyToCalculator: candidate.applyToCalculator === true,
-    ready: candidate.ready === true && Boolean(result),
+    ready: candidate.ready === true && (calculationMode === "profiles" ? profileResults.length > 0 : Boolean(result)),
     pair: typeof candidate.pair === "string" && JARVIS_TRADE_PAIRS.has(candidate.pair) ? candidate.pair : null,
     accountBalance: numberOrNull(candidate.accountBalance),
     riskPercent: numberOrNull(candidate.riskPercent),
@@ -933,7 +964,7 @@ function normalizePositionSizingAction(value: unknown): JarvisPositionSizingActi
     stopLossPrice: numberOrNull(candidate.stopLossPrice),
     takeProfitPrice: numberOrNull(candidate.takeProfitPrice),
     quoteToUsdRate: numberOrNull(candidate.quoteToUsdRate),
-    missingFields: Array.isArray(candidate.missingFields) ? candidate.missingFields.filter((field): field is JarvisPositionSizingAction["missingFields"][number] => ["pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "quoteToUsdRate"].includes(String(field))) : [],
+    missingFields: Array.isArray(candidate.missingFields) ? candidate.missingFields.filter((field): field is JarvisPositionSizingAction["missingFields"][number] => ["pair", "accountBalance", "riskPercent", "entryPrice", "stopLossPrice", "quoteToUsdRate", "profiles"].includes(String(field))) : [],
     result,
   };
 }
@@ -1208,6 +1239,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     });
 
     trades.forEach((trade) => {
+      // A locked trade is complete by definition. Missing optional review data
+      // on historical records must not resurrect it as an Autopilot task.
+      if (trade.finalizedAt) return;
       const timestamp = recordTime(trade.date, trade.time);
       const age = Number.isFinite(timestamp) ? monitorClock - timestamp : 0;
       const missing = [
@@ -1222,7 +1256,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const forgotten = age > dayMs;
       items.push({
         id: `trade:${trade.id}:incomplete:${missing.join("-")}`,
-        priority: forgotten || trade.finalizedAt ? "medium" : "low",
+        priority: forgotten ? "medium" : "low",
         category: "trade_review",
         title: `${trade.pair} incomplete trade`,
         detail: `${forgotten ? "Forgotten trade" : "Trade still in progress"} · missing ${missing.join(", ")}`,
@@ -1577,6 +1611,25 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   }, [activeContext, userId]);
 
   useEffect(() => {
+    if (!activeContext?.tradeId) return;
+    const trackedTrade = trades.find((trade) => trade.id === activeContext.tradeId);
+    // Wait until the record is present so an initially empty/loading trade list
+    // cannot erase a valid cross-device context.
+    if (!trackedTrade || !trackedTrade.finalizedAt) return;
+    const finalizedTradeId = activeContext.tradeId;
+    if (activeContext.forecastId) {
+      setAndSyncActiveContext({ ...activeContext, tradeId: null, dataSource: "forecast", updatedAt: new Date().toISOString() });
+    } else {
+      setAndSyncActiveContext(null);
+    }
+    setWorkspace((current) => {
+      const updated = { ...current, contexts: current.contexts.filter((context) => context.tradeId !== finalizedTradeId), updatedAt: new Date().toISOString() };
+      void persistWorkspace(updated);
+      return updated;
+    });
+  }, [activeContext, trades]);
+
+  useEffect(() => {
     const requestState = () => window.postMessage({ source: JARVIS_EDGE_PAGE_SOURCE, type: "JOURNALY_EDGE_REQUEST" }, window.location.origin);
     const receiveState = (event: MessageEvent) => {
       if (event.source !== window || event.origin !== window.location.origin || event.data?.source !== JARVIS_EDGE_EXTENSION_SOURCE) return;
@@ -1638,15 +1691,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const actionable = monitorItems.filter((item) => item.priority !== "low");
     const changed = monitorItems.filter((item) => item.category === "change");
     const greeting = period === "morning" ? `Morning, ${preferredName}.` : period === "evening" ? `Evening, ${preferredName}.` : `Welcome back, ${preferredName}.`;
-    const changeLine = changed.length ? `${changed.length} thing${changed.length === 1 ? " changed" : "s changed"} since my last check.` : "Nothing unexpected changed since my last check.";
+    const changeLine = changed.length ? ` ${changed.length} Journaly item${changed.length === 1 ? " has" : "s have"} changed since your last visit.` : "";
     const attentionLine = actionable.length
-      ? `${actionable.length} item${actionable.length === 1 ? " needs" : "s need"} attention; first is ${actionable[0].title.toLowerCase()}: ${actionable[0].detail.toLowerCase()}.`
-      : "Nothing needs your attention right now.";
+      ? `${actionable.length === 1 ? "One thing is" : `${actionable.length} things are`} worth your attention. Start with ${actionable[0].title}: ${actionable[0].detail}.`
+      : "You’re caught up—nothing needs your attention right now.";
     setMessages((current) => [...current, {
       id: crypto.randomUUID(),
       role: "jarvis",
       title: period === "morning" ? "Morning briefing" : period === "evening" ? "Evening debrief" : "Autopilot update",
-      text: `${greeting} ${changeLine} ${attentionLine} I’ll keep the rest quiet unless it becomes actionable.`,
+      text: `${greeting} ${attentionLine}${changeLine}`,
     }]);
   }, [isOpen, memory.companionSettings.proactiveFollowups, monitorItems, observationReady, preferredName, userId]);
 
@@ -2189,6 +2242,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         setTradeDraftImage(null);
         if (!await onTradeCreated(existing.id)) throw new Error("The trade was saved, but Journaly could not verify the refreshed trade row yet.");
         await recordVerifiedAction(finalizedAt ? "trade_finalize" : "trade_update", existing.id, `${pair} ${formatR(pnl)} ${result}`);
+        if (finalizedAt && activeContext?.tradeId === existing.id) setAndSyncActiveContext(null);
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", title: finalizedAt ? "Trade finalized · Verified" : "Trade updated · Verified", text: finalizedAt ? `${pair} now shows ${formatR(pnl)} (${result}) with its final screenshot and notes. The database returned the saved row, the journal refreshed, and the record is now locked.` : `${pair} now shows ${formatR(pnl)} (${result}). The database returned the saved row and the journal refreshed. It remains pending final until you add the required screenshot.` }]);
         return true;
       }
@@ -2885,7 +2939,16 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                     {positionSizingDraft ? (
                       <article className={`jarvis-trade-draft is-${positionSizingDraft.ready ? "ready" : "draft"}`} aria-label="Jarvis position sizing">
                         <header><span>Position sizing</span><strong>{positionSizingDraft.pair || "Pair needed"}</strong></header>
-                        {positionSizingDraft.result ? (
+                        {positionSizingDraft.calculationMode === "profiles" && positionSizingDraft.profileResults?.length ? (
+                          <div className="jarvis-trade-draft-grid">
+                            {positionSizingDraft.profileResults.map((profile) => (
+                              <p key={profile.rowId}>
+                                <span>{profile.type}{profile.platform ? ` · ${profile.platform}` : ""} · {profile.riskPercent.toFixed(2)}%</span>
+                                <strong>{profile.lots.toFixed(2)} lots</strong>
+                              </p>
+                            ))}
+                          </div>
+                        ) : positionSizingDraft.result ? (
                           <div className="jarvis-trade-draft-grid">
                             <p><span>Direction</span><strong>{positionSizingDraft.result.direction}</strong></p>
                             <p><span>Standard lots</span><strong>{positionSizingDraft.result.lots.toFixed(3)}</strong></p>
@@ -2898,7 +2961,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                         {positionSizingDraft.missingFields.length ? <small>Jarvis still needs: {positionSizingDraft.missingFields.join(", ")}.</small> : <small>Calculated with Journaly's exact Position Sizing formula. This does not place an order.</small>}
                         <footer>
                           <button type="button" className="is-cancel" onClick={() => setPositionSizingDraft(null)}>Dismiss</button>
-                          <button type="button" className="is-confirm" disabled={!positionSizingDraft.ready} onClick={() => onPositionSizingApply(positionSizingDraft)}><Check size={15} /> Fill & open tab</button>
+                          <button type="button" className="is-confirm" disabled={!positionSizingDraft.ready} onClick={() => onPositionSizingApply(positionSizingDraft)}><Check size={15} /> {positionSizingDraft.calculationMode === "profiles" ? "Fill profiles & open tab" : "Fill & open tab"}</button>
                         </footer>
                       </article>
                     ) : null}

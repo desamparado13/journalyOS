@@ -55,6 +55,7 @@ const JARVIS_POSITION_SIZING_INSTRUCTIONS = `
 JOURNALY POSITION SIZING
 - Treat Position Sizing as a first-class Journaly tool. The current calculator values are available in CURRENT AUTHENTICATED SESSION.positionSizing.
 - For every request to calculate lots, units, risk amount, stop distance, reward-to-risk, or to fill/open the Position Sizing tab, call calculate_position_size. Never do position-sizing arithmetic yourself.
+- "Profile sizing" means calculate every saved profile row with that row's own balance and risk percentage (adjusted by the active Main/Half mode). It never means using the standalone calculator's account balance or risk percentage. Supply the requested pair, entry, stop, target, and quote conversion to calculate_position_size; the server will apply the authenticated profile rows.
 - Reuse valid values already present in positionSizing when the user omits them. The minimum required inputs are pair, account balance, risk percent, entry price, and stop-loss price. A non-USD quote pair also requires its quote-currency-to-USD conversion rate. Take profit is optional.
 - Every ready position-sizing calculation must set applyToCalculator=true and populate Journaly's Position Sizing tab automatically. Asking for a lot size is enough authorization because this only changes reversible calculator fields and never places an order.
 - When the tool reports ready=true, return positionSizingAction using the exact normalized inputs and result from the tool. Explain the verified result naturally in chat, including standard lots, units, risk amount, stop pips, and R:R/projected profit when a valid take profit was supplied.
@@ -97,6 +98,9 @@ AUTHORIZED EDGE COMPANION
 - Never imply access to unrelated browser tabs. The companion is limited to the one TradingView tab the user authorized and can be disconnected at any time.`;
 const JARVIS_CONVERSATION_INSTRUCTIONS = `
 JARVIS CONVERSATION RELEVANCE
+- Write in the natural, polished style of a strong ChatGPT answer: direct, fluid, context-aware, and appropriately detailed. Jarvis is the product name, not a character performance.
+- Avoid recurring persona catchphrases, canned verdict openers, and dashboard-like prose such as "Jarvis read," "Friday read," or a stack of emoji status labels. Use a decision label only when it genuinely helps a trading decision, and normally use no more than one emoji.
+- Prefer connected paragraphs and useful explanation over choppy fragments, repetitive restatements, or rigid templates. Vary the response length with the question instead of forcing every answer to be terse.
 - Act like a natural, attentive friend as well as a trading assistant. Match the topic and emotional weight of the user's latest message.
 - For greetings, check-ins, jokes, or ordinary conversation, respond socially and concisely. Do not volunteer a currency pair, setup, trade, forecast, market stance, statistic, or stale session explanation unless the user asks or it is directly necessary.
 - The latest user message controls the topic. A pair or setup mentioned in earlier conversation is not automatically current.
@@ -1920,6 +1924,10 @@ function buildMonitoringState(data = {}, nowValue = Date.now()) {
     const timestamp = recordTimestamp(trade);
     const age = timestamp === null ? 0 : now - timestamp;
     const finalized = trade.finalizedAt || trade.finalized_at || null;
+    // Finalization is the terminal workflow state. Optional review fields may be
+    // blank on an older locked record, but that must never put it back into the
+    // incomplete-trade queue.
+    if (finalized) return;
     const quality = trade.executionQuality || trade.trade_quality || null;
     const maeRecorded = trade.maeRecorded ?? trade.mae != null;
     const maePips = trade.maePips ?? trade.mae_pips ?? null;
@@ -1935,7 +1943,7 @@ function buildMonitoringState(data = {}, nowValue = Date.now()) {
     const forgotten = age > dayMs;
     items.push({
       id: `trade:${trade.id}:incomplete:${missing.join("-")}`,
-      priority: forgotten || finalized ? "medium" : "low",
+      priority: forgotten ? "medium" : "low",
       category: "trade_review",
       title: `${trade.pair || "Recent trade"} incomplete trade`,
       detail: `${forgotten ? "Forgotten trade" : "Trade still in progress"} · missing ${missing.join(", ")}`,
@@ -1990,15 +1998,15 @@ function buildMonitoringState(data = {}, nowValue = Date.now()) {
 }
 
 function verifiedMonitoringAnswer(result) {
-  if (!result?.items?.length) return "Everything I’m monitoring in Journaly is clear right now. Nothing needs your attention.";
+  if (!result?.items?.length) return "You’re caught up in Journaly. Nothing needs your attention right now.";
   const actionable = result.items.filter((item) => item.priority !== "low");
   if (!actionable.length) {
     const quiet = result.items.slice(0, 3).map((item) => item.title).join(", ");
-    return `Nothing urgent, Pot. I’m quietly keeping ${quiet} in context, and I’ll speak up if one of them becomes actionable.`;
+    return `Nothing needs action right now. I still have ${quiet} in context if you want to revisit any of it.`;
   }
   const lines = actionable.slice(0, 4).map((item, index) => `${index + 1}. **${item.title}** — ${item.detail}`);
-  const lead = actionable[0].priority === "high" ? "One thing deserves your attention first." : "Nothing is urgent, but a few things are worth a look.";
-  return `${lead}\n\n${lines.join("\n")}\n\nI’m still monitoring the lower-priority context quietly. Pick one and we’ll handle it together.`;
+  const lead = actionable[0].priority === "high" ? "Here’s what actually needs attention, in order:" : "Nothing is urgent, but these are worth reviewing:";
+  return `${lead}\n\n${lines.join("\n")}\n\nThe rest is only background context.`;
 }
 
 function buildAutopilotSnapshot(trades = [], forecasts = [], savedAt = new Date().toISOString()) {
@@ -2213,7 +2221,7 @@ function verifiedChartAnswer(assessment, matches) {
     history = `\n\nHistorical context (${weight}, n=${matches.sampleSize}): ${stats.totalR > 0 ? "+" : ""}${stats.totalR.toFixed(2)}R total${stats.winRate == null ? "" : ` · ${stats.winRate}% win rate`}. ${matches.sampleSize >= 30 ? "This can influence the opinion, but it does not override the current chart." : "I’m keeping it secondary to the current chart."}`;
   }
 
-  return `JARVIS — ${setup}${direction}\n\n${lead}\n\n${observed}\n\n${caution}${history}\n\nJarvis read: ${assessment.decision} · Confidence ${assessment.confidence}%`;
+  return `${lead}\n\nHere’s what I can verify for this ${setup}${direction}: ${observed}\n\n${caution}${history}\n\nMy call is **${assessment.decision}**, with ${assessment.confidence}% confidence based on what is visible.`;
 }
 
 function isoDateInManila(now = new Date()) {
@@ -2342,9 +2350,74 @@ function calculateJournalyPositionSize(args = {}) {
   };
 }
 
+function calculateJournalyProfileSizes(args = {}, positionSizing = {}) {
+  const profiles = Array.isArray(positionSizing?.profiles) ? positionSizing.profiles : [];
+  const profileMode = positionSizing?.profileMode === "half" ? "half" : "main";
+  const pair = normalizePair(args.pair || positionSizing?.pair || "");
+  const entryPrice = finitePositive(args.entryPrice ?? positionSizing?.entryPrice);
+  const stopLossPrice = finitePositive(args.stopLossPrice ?? positionSizing?.stopLossPrice);
+  const takeProfitPrice = finitePositive(args.takeProfitPrice ?? positionSizing?.takeProfitPrice);
+  const quoteCurrency = pair ? pair.slice(3, 6) : null;
+  const quoteToUsdRate = quoteCurrency === "USD" ? 1 : finitePositive(args.quoteToUsdRate ?? positionSizing?.quoteToUsdRate);
+  const validProfiles = profiles.filter((profile) => finitePositive(profile?.balance) && finitePositive(profile?.riskPercent));
+  const missingFields = [
+    !pair ? "pair" : null,
+    !entryPrice ? "entryPrice" : null,
+    !stopLossPrice || entryPrice === stopLossPrice ? "stopLossPrice" : null,
+    pair && quoteCurrency !== "USD" && !quoteToUsdRate ? "quoteToUsdRate" : null,
+    !validProfiles.length ? "profiles" : null,
+  ].filter(Boolean);
+  const profileResults = missingFields.length ? [] : validProfiles.map((profile) => {
+    const riskPercent = Number(profile.riskPercent) * (profileMode === "half" ? 0.5 : 1);
+    const calculation = calculateJournalyPositionSize({
+      applyToCalculator: true,
+      pair,
+      accountBalance: Number(profile.balance),
+      riskPercent,
+      entryPrice,
+      stopLossPrice,
+      takeProfitPrice,
+      quoteToUsdRate,
+    });
+    return {
+      rowId: String(profile.id),
+      balance: Number(profile.balance),
+      type: String(profile.type || "Account"),
+      platform: String(profile.platform || ""),
+      riskPercent,
+      riskAmount: calculation.result?.riskAmount || 0,
+      lots: calculation.result?.lots || 0,
+      units: calculation.result?.units || 0,
+    };
+  });
+  return {
+    calculationMode: "profiles",
+    profileMode,
+    applyToCalculator: true,
+    ready: missingFields.length === 0 && profileResults.length > 0,
+    pair: pair || null,
+    accountBalance: null,
+    riskPercent: null,
+    entryPrice,
+    stopLossPrice,
+    takeProfitPrice,
+    quoteToUsdRate,
+    missingFields,
+    result: null,
+    profileResults,
+    calculation: "deterministic_journaly_profile_sizing",
+  };
+}
+
 function verifiedPositionSizingAnswer(calculation) {
+  if (calculation?.calculationMode === "profiles" && calculation?.ready && calculation.profileResults?.length) {
+    const number = (value, digits = 2) => Number(value).toLocaleString("en-US", { maximumFractionDigits: digits });
+    const rows = calculation.profileResults.map((profile) => `- **${profile.type}${profile.platform ? ` · ${profile.platform}` : ""}:** ${number(profile.lots, 2)} lots at ${number(profile.riskPercent, 3)}% risk ($${number(profile.riskAmount, 2)})`);
+    const mode = calculation.profileMode === "half" ? "Half Profile" : "Main Profile";
+    return `${calculation.pair} profile sizing is ready using **${mode}** and each saved row's own balance and risk setting:\n\n${rows.join("\n")}\n\nI filled the Entry, SL, and TP fields in Profile Sizing. No broker order was placed.`;
+  }
   if (!calculation?.ready || !calculation?.result) {
-    const labels = { pair: "pair", accountBalance: "account balance", riskPercent: "risk percentage", entryPrice: "entry price", stopLossPrice: "stop-loss price", quoteToUsdRate: "quote-currency-to-USD rate" };
+    const labels = { pair: "pair", accountBalance: "account balance", riskPercent: "risk percentage", entryPrice: "entry price", stopLossPrice: "stop-loss price", quoteToUsdRate: "quote-currency-to-USD rate", profiles: "at least one valid saved profile" };
     return `I can size it, but I still need ${calculation.missingFields.map((field) => labels[field] || field).join(", ")}.`;
   }
   const { result } = calculation;
@@ -2810,6 +2883,7 @@ async function handleJarvis(request, env) {
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
   const monitoringIntent = /\b(?:what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|monitoring\s+(?:queue|status))\b/i.test(question);
   const alertExplanationIntent = /\b(?:why\s+did\s+you\s+(?:message|notify|interrupt|alert)\s+me|why\s+(?:this|that)\s+(?:message|notification|alert)|what\s+triggered\s+(?:this|that|your)\s+(?:message|notification|alert))\b/i.test(question);
+  const profileSizingIntent = /\b(?:profile\s+sizing|size\s+(?:all\s+)?(?:my\s+)?profiles?|profile\s+lots?|lots?\s+for\s+(?:all\s+)?(?:my\s+)?profiles?)\b/i.test(question);
   const explicitlyRequestedArchiveViews = requestedArchiveViews(question);
   const proactiveSchedule = requestedProactiveDelay(question);
   const interactionMode = conversationMode === "active_trade_management" ? conversationMode : chartImage ? "chart_review" : "conversation";
@@ -2937,7 +3011,9 @@ async function handleJarvis(request, env) {
             ? { type: "function", name: "get_monitoring_state" }
             : alertExplanationIntent && round === 0
               ? { type: "function", name: "get_last_jarvis_alert" }
-            : "auto";
+              : profileSizingIntent && round === 0
+                ? { type: "function", name: "calculate_position_size" }
+              : "auto";
         requestBody.parallel_tool_calls = true;
       }
 
@@ -2974,7 +3050,9 @@ async function handleJarvis(request, env) {
           let args = {};
           try { args = JSON.parse(call.arguments || "{}"); } catch { args = {}; }
           toolCallsUsed.push(call.name);
-          const toolResult = executeJournalyTool(call.name, args, toolData);
+          const toolResult = call.name === "calculate_position_size" && profileSizingIntent
+            ? calculateJournalyProfileSizes(args, toolData.positionSizing)
+            : executeJournalyTool(call.name, args, toolData);
           if (call.name === "calculate_position_size") verifiedPositionSizing = toolResult;
           if (call.name === "manage_position_profiles") verifiedPositionProfile = toolResult;
           if (call.name === "get_monthly_performance") verifiedMonthlyLedger = toolResult;
@@ -3053,6 +3131,9 @@ async function handleJarvis(request, env) {
       }
       if (verifiedPositionSizing) {
         result.positionSizingAction = {
+          calculationMode: verifiedPositionSizing.calculationMode || "calculator",
+          profileMode: verifiedPositionSizing.profileMode || null,
+          profileResults: verifiedPositionSizing.profileResults || [],
           applyToCalculator: verifiedPositionSizing.applyToCalculator,
           ready: verifiedPositionSizing.ready,
           pair: verifiedPositionSizing.pair,
@@ -3262,10 +3343,10 @@ async function handleRoutine(request, env) {
       changes.total ? `${changes.total} Journaly item${changes.total === 1 ? " changed" : "s changed"} since my last background check (${changes.tradeChanges} trade, ${changes.forecastChanges} forecast).` : "",
       ...actionable.slice(0, 4).map((item) => `${item.title}: ${item.detail}.`),
     ].filter(Boolean);
-    const salutation = period === "morning" ? "Morning, Pot." : "Evening, Pot.";
+    const salutation = period === "morning" ? "Good morning." : "Good evening.";
     const message = lines.length
-      ? `${salutation}\n\n${lines.join("\n")}\n\nI’m keeping the rest quiet. Open Journaly when you want to handle one together.`
-      : `${salutation} Nothing needs your attention in Journaly right now. I’m still keeping watch.`;
+      ? `${salutation} Here’s what is worth your attention in Journaly:\n\n${lines.join("\n")}`
+      : `${salutation} You’re caught up in Journaly; nothing needs your attention right now.`;
     const briefingTitle = period === "morning" ? "Morning briefing" : "Evening debrief";
     await sendPushover(env, { title: `JARVIS · ${briefingTitle}`, message, priority: 0 });
     const proactiveId = `routine:${period}:${today}`;
@@ -3285,7 +3366,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {

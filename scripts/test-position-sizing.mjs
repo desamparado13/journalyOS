@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker, { calculateJournalyPositionSize, managePositionProfiles } from "../server/index.js";
+import worker, { calculateJournalyPositionSize, calculateJournalyProfileSizes, managePositionProfiles } from "../server/index.js";
 
 const profiles = [
   { id: "main-1", balance: 1000, type: "Main", platform: "Exness", riskPercent: 1.5 },
@@ -73,6 +73,24 @@ assert.equal(missingRate.applyToCalculator, true, "the calculator action remains
 assert.deepEqual(missingRate.missingFields, ["quoteToUsdRate"]);
 assert.equal(missingRate.result, null);
 
+const profileSizing = calculateJournalyProfileSizes({
+  pair: "AUDUSD",
+  accountBalance: 10000,
+  riskPercent: 1,
+  entryPrice: 0.7114,
+  stopLossPrice: 0.71027,
+  takeProfitPrice: 0.71267,
+  quoteToUsdRate: 1,
+}, { profiles, profileMode: "main" });
+assert.equal(profileSizing.ready, true);
+assert.equal(profileSizing.calculationMode, "profiles");
+assert.equal(profileSizing.accountBalance, null, "profile sizing must not reuse the standalone calculator balance");
+assert.equal(profileSizing.riskPercent, null, "profile sizing must not reuse the standalone calculator risk");
+assert.equal(profileSizing.profileResults.length, 3);
+assert.ok(Math.abs(profileSizing.profileResults[0].lots - 0.1327433628) < 1e-6);
+assert.ok(Math.abs(profileSizing.profileResults[1].lots - 0.3318584071) < 1e-6);
+assert.ok(Math.abs(profileSizing.profileResults[2].lots - 8.8495575221) < 1e-6);
+
 const originalFetch = globalThis.fetch;
 let modelRound = 0;
 globalThis.fetch = async () => {
@@ -120,6 +138,50 @@ try {
   assert.ok(Math.abs(payload.positionSizingAction.result.lots - 0.2) < 1e-9);
   assert.match(payload.answer, /0\.2 standard lots/i);
   assert.match(payload.answer, /filled Journaly's Position Sizing tab/i);
+  assert.deepEqual(payload.toolsUsed, ["calculate_position_size"]);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+modelRound = 0;
+globalThis.fetch = async () => {
+  modelRound += 1;
+  if (modelRound === 1) {
+    return Response.json({
+      output: [{
+        type: "function_call",
+        name: "calculate_position_size",
+        call_id: "profile-size-1",
+        // This deliberately mimics the bad model call: the server must ignore
+        // the standalone balance/risk when the user asked for profile sizing.
+        arguments: JSON.stringify({ applyToCalculator: true, pair: "AUDUSD", accountBalance: 10000, riskPercent: 1, entryPrice: 0.7114, stopLossPrice: 0.71027, takeProfitPrice: 0.71267, quoteToUsdRate: 1 }),
+      }],
+      usage: {},
+    });
+  }
+  return Response.json({
+    output_text: JSON.stringify({ answer: "placeholder", memoryUpdates: [], learningSummary: null, tradeAction: null, forecastAction: null, positionSizingAction: null, positionProfileAction: null, chartAssessment: null }),
+    usage: {},
+  });
+};
+try {
+  const response = await worker.fetch(new Request("http://local/api/jarvis/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId: "position-sizing-test", question: "Jarvis, I need the profile sizing for AU. Entry 0.71140, stop 0.71027, TP 0.71267", context: { positionSizing: { profiles, profileMode: "main" }, sessionState: {} } }),
+  }), {
+    OPENAI_API_KEY: "test-key",
+    OPENAI_JARVIS_MODEL: "test-model",
+    JARVIS_AUTH_BYPASS_USER_ID: "position-sizing-test",
+    JARVIS_AUTH_BYPASS_EMAIL: "christian.angelo.desamparado@gmail.com",
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(payload.positionSizingAction.calculationMode, "profiles");
+  assert.equal(payload.positionSizingAction.profileResults.length, 3);
+  assert.equal(payload.positionSizingAction.result, null);
+  assert.match(payload.answer, /each saved row's own balance and risk/i);
+  assert.doesNotMatch(payload.answer, /0\.885 standard lots/i);
   assert.deepEqual(payload.toolsUsed, ["calculate_position_size"]);
 } finally {
   globalThis.fetch = originalFetch;

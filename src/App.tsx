@@ -4051,6 +4051,8 @@ export default function App() {
 
   function handleJarvisPositionSizingApply(action: {
     ready: boolean;
+    calculationMode?: "calculator" | "profiles";
+    profileMode?: "main" | "half" | null;
     pair: string | null;
     accountBalance: number | null;
     riskPercent: number | null;
@@ -4069,9 +4071,10 @@ export default function App() {
       takeProfitPrice: action.takeProfitPrice === null ? "" : String(action.takeProfitPrice),
       quoteToUsdRate: action.quoteToUsdRate === null ? current.quoteToUsdRate : String(action.quoteToUsdRate),
     }));
+    if (action.calculationMode === "profiles" && action.profileMode) setProfileMode(action.profileMode);
     setTradingMode("swing");
     setActiveView("position-sizing");
-    showToast({ tone: "success", title: "Position sizing ready", message: "Jarvis filled the calculator. No broker order was placed." });
+    showToast({ tone: "success", title: action.calculationMode === "profiles" ? "Profile sizing ready" : "Position sizing ready", message: action.calculationMode === "profiles" ? "Jarvis filled Entry, SL, and TP for every saved profile. No broker order was placed." : "Jarvis filled the calculator. No broker order was placed." });
   }
 
   function handleJarvisPositionProfileApply(action: {

@@ -12,6 +12,7 @@ const state = buildMonitoringState({
   ],
   trades: [
     { id: "trade-review", date: "2026-08-10", time: "09:00", pair: "EURUSD", setup: "Break and retest", direction: "Short", executionQuality: null, finalizedAt: null, notes: "", screenshot: "", maeRecorded: false, maePips: null, outcome: "Win" },
+    { id: "trade-finalized", date: "2026-08-09", time: "09:00", pair: "AUDJPY", setup: "Break and retest", direction: "Long", executionQuality: null, finalizedAt: "2026-08-09T10:00:00.000Z", notes: "", screenshot: "chart", maeRecorded: false, maePips: null, outcome: "Loss" },
   ],
   sessionState: { activePair: "GBPUSD", activeSetup: "Internal reversal" },
 }, now);
@@ -23,8 +24,9 @@ assert.equal(state.counts.low, 1);
 assert.equal(state.items[0].priority, "high");
 assert.ok(state.items.some((item) => item.id === "forecast:forecast-stale:stale"));
 assert.ok(state.items.some((item) => item.id.startsWith("trade:trade-review:incomplete:")));
+assert.ok(!state.items.some((item) => item.id.includes("trade-finalized")), "finalized trades must never return to the incomplete queue");
 assert.match(state.items.find((item) => item.id.startsWith("trade:trade-review:"))?.detail || "", /Forgotten trade.*final review.*execution rating.*notes.*chart.*MAE/i);
-assert.match(verifiedMonitoringAnswer(state), /deserves your attention first/i);
+assert.match(verifiedMonitoringAnswer(state), /actually needs attention/i);
 assert.match(verifiedMonitoringAnswer(state), /tax documents/i);
 assert.equal(detectConversationMode("Jarvis, what are you monitoring?", null, {}), "daily_routine");
 assert.equal(detectConversationMode("What currently needs attention?", null, {}), "daily_routine");
@@ -72,6 +74,6 @@ assert.equal(storedAlert.found, true);
 assert.match(verifiedLastAlertAnswer(storedAlert), /AUDUSD forecast waited over 24 hours/);
 
 const clear = buildMonitoringState({}, now);
-assert.match(verifiedMonitoringAnswer(clear), /everything.*clear/i);
+assert.match(verifiedMonitoringAnswer(clear), /caught up.*nothing needs your attention/i);
 
 console.log("Jarvis monitoring state, priority ranking, and routing passed.");
