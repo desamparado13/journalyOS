@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker, { detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal } from "../server/index.js";
+import worker, { detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isPriorPriceActionIntent, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal, verifiedPriorPriceActionAnswer } from "../server/index.js";
 
 const chart = "data:image/png;base64,test";
 const activeTradeMessages = [
@@ -33,6 +33,25 @@ assert.equal(detectConversationMode("give me my morning briefing", null, {}), "d
 assert.equal(detectConversationMode("My sister is visiting tomorrow", null, {}), "personal_conversation");
 assert.equal(detectConversationMode("I have been feeling more confident at work", null, {}), "personal_conversation");
 assert.equal(detectConversationMode("Can we talk about my relationship?", null, {}), "personal_conversation");
+
+assert.equal(isPriorPriceActionIntent("what kind of prior price actions is this?"), true);
+assert.equal(isPriorPriceActionIntent("whats this ppa from the 5"), true);
+assert.equal(explicitPriorPriceAction("This is an established trend example."), "Established Trend");
+const establishedTrendAssessment = enforceChartEvidenceGate({
+  setupCandidate: null,
+  direction: "Long",
+  priorPriceAction: "Established Trend",
+  decision: "WATCH",
+  visibleEvidence: ["Successive higher highs and higher lows are visible.", "Bullish displacement dominates with shallow pauses."],
+  missingEvidence: [],
+  conflictingEvidence: [],
+  features: { ppaQuality: "Strong", trendVisible: true },
+});
+const ppaAnswer = verifiedPriorPriceActionAnswer(establishedTrendAssessment, "what kind of prior price action is this?");
+assert.match(ppaAnswer, /\*\*Established Trend\*\*/);
+assert.doesNotMatch(ppaAnswer, /\b(?:TAKE|WATCH|SKIP)\b/);
+const correctedPpaAnswer = verifiedPriorPriceActionAnswer(establishedTrendAssessment, "This is an established trend example.");
+assert.match(correctedPpaAnswer, /^Yes—your classification is right\./);
 assert.equal(detectConversationMode("Calculate my EURUSD position risk", null, {}), "general_trading_conversation");
 
 const relevantMemories = selectRelevantMemories([
@@ -91,6 +110,7 @@ const modelPayload = {
   chartAssessment: {
     setupCandidate: "Break and retest",
     direction: "Long",
+    priorPriceAction: "Established Trend",
     decision: "WATCH",
     evidenceLevel: "Partial",
     visibleEvidence: ["Price has moved above the marked recent high."],
@@ -143,9 +163,9 @@ try {
   });
   const payload = await response.json();
   assert.equal(response.status, 200);
+  assert.equal(payload.conversationMode, "active_trade_management");
   assert.equal(payload.answer, modelAnswer, "active-trade answer must not be replaced by the pre-entry chart formatter");
   assert.equal(payload.tradeAction, null, "an existing active trade must not create a duplicate trade draft");
-  assert.equal(payload.conversationMode, "active_trade_management");
   assert.equal(payload.chartCompared, true);
   const currentTurn = capturedModelRequest.input.at(-1).content;
   assert.equal(currentTurn.filter((item) => item.type === "input_image").length, 2);
@@ -187,7 +207,7 @@ try {
   assert.equal(payload.conversationMode, "personal_conversation");
   assert.equal(payload.memoryUpdates[0].category, "life_event");
   assert.equal(payload.memoryUpdates[0].followUpAt, "2026-08-15T12:00:00+08:00");
-  assert.match(companionRequest.instructions, /JARVIS LIFE COMPANION/);
+  assert.match(companionRequest.instructions, /low-latency conversation lane/);
   assert.match(companionRequest.input.at(-1).content[0].text, /"personalMemoryEnabled":true/);
 } finally {
   globalThis.fetch = originalFetch;

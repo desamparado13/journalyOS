@@ -137,7 +137,7 @@ try {
   assert.equal(payload.positionSizingAction.applyToCalculator, true);
   assert.ok(Math.abs(payload.positionSizingAction.result.lots - 0.2) < 1e-9);
   assert.match(payload.answer, /0\.2 standard lots/i);
-  assert.match(payload.answer, /filled Journaly's Position Sizing tab/i);
+  assert.match(payload.answer, /ready to apply to Journaly's Position Sizing tab/i);
   assert.deepEqual(payload.toolsUsed, ["calculate_position_size"]);
 } finally {
   globalThis.fetch = originalFetch;

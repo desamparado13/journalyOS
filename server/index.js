@@ -80,6 +80,9 @@ JOURNALY NUMERIC ACCURACY
 const JARVIS_EVIDENCE_INSTRUCTIONS = `
 JARVIS CHART TRUST CONTRACT
 - When a chart image is attached, chartAssessment is mandatory. When there is no chart image, chartAssessment must be null.
+- Treat a request to identify PPA or prior price action as a classification question, not as an entry decision. Answer with the PPA category directly; do not add TAKE, WATCH, SKIP, setup-family requirements, or historical trade results unless the user separately asks for them.
+- Classify priorPriceAction as Established Trend, Ascending Channel, Descending Channel, Sideways, Choppy, or Unclear. Established Trend means sustained directional structure (HH/HL or LH/LL), dominant displacement, and relatively shallow/orderly pauses; parallel channel boundaries are not required. Ascending/Descending Channel requires reasonably parallel directional boundaries. Sideways is a bounded range without sustained direction. Choppy is irregular overlapping/whipsaw movement.
+- If the user explicitly labels the attached example with one of those PPA categories, acknowledge and preserve that user-confirmed example label instead of replacing it with a generic setup verdict.
 - Describe only evidence visible in the attached image. Never invent an entry marker, structure line, timeframe, session window, higher-timeframe context, or unseen candle.
 - When PREVIOUS CHART and CURRENT CHART are both supplied, compare only changes visibly supported by both images. Do not assume identical timeframe, zoom, scale, or annotations when they are not visibly consistent. Center the opinion on what changed and whether that change affects the user's documented trade or forecast plan.
 - Never mention historical resemblance or a historical edge in the prose answer. Journaly's deterministic matcher appends verified historical records after your analysis.
@@ -218,10 +221,11 @@ const RESPONSE_SCHEMA = {
     chartAssessment: {
       type: ["object", "null"],
       additionalProperties: false,
-      required: ["setupCandidate", "direction", "decision", "evidenceLevel", "visibleEvidence", "missingEvidence", "conflictingEvidence", "features"],
+      required: ["setupCandidate", "direction", "priorPriceAction", "decision", "evidenceLevel", "visibleEvidence", "missingEvidence", "conflictingEvidence", "features"],
       properties: {
         setupCandidate: { type: ["string", "null"], enum: ["REVERSAL", "Internal reversal", "Liquidity sweep", "Break and retest", "Flag", "Flag+", "EU timed entry", null] },
         direction: { type: ["string", "null"], enum: ["Long", "Short", null] },
+        priorPriceAction: { type: "string", enum: ["Established Trend", "Ascending Channel", "Descending Channel", "Sideways", "Choppy", "Unclear"] },
         decision: { type: "string", enum: ["TAKE", "SKIP", "WATCH", "ARMED", "INVALIDATED"] },
         evidenceLevel: { type: "string", enum: ["Clear", "Partial", "Insufficient"] },
         visibleEvidence: { type: "array", maxItems: 8, items: { type: "string", maxLength: 240 } },
@@ -509,7 +513,7 @@ function hasActiveTradeSignal(question) {
 
 function detectConversationMode(question, chartImage, sessionState = {}) {
   const text = String(question || "").trim().toLowerCase().replace(/[’]/g, "'");
-  const pendingTradeUpdate = Boolean(sessionState?.activeTradeId) && (/(?:update|correct|change|edit)/.test(text) || /\badd\s+(?:a\s+)?notes?\b/.test(text) || (/\b\d+(?:\.\d+)?\s*r\b/.test(text) && /\b(?:actual|result|closed|cut|early|notes?|trade)\b/.test(text)));
+  const pendingTradeUpdate = Boolean(sessionState?.activeTradeId) && (/\b(?:update|correct|change|edit)\b/.test(text) || /\badd\s+(?:a\s+)?notes?\b/.test(text) || (/\b\d+(?:\.\d+)?\s*r\b/.test(text) && /\b(?:actual|result|closed|cut|early|notes?)\b/.test(text)));
   if (pendingTradeUpdate) return "post_trade_review";
   const activeFollowUp = Boolean(sessionState?.activeTradeId) && /\b(?:hold|trail|move\s+(?:my\s+)?stop|take\s+profit|close|reduce|leave\s+it|what\s+now|how(?:'s|\s+is)\s+it|still\s+good)\b/.test(text);
   if (hasActiveTradeSignal(text) || activeFollowUp) return "active_trade_management";
@@ -2141,6 +2145,20 @@ const SETUP_EVIDENCE_REQUIREMENTS = {
   "EU timed entry": [["sessionTimingVisible", "visible EU session window"], ["trendVisible", "clear session direction"], ["triggerVisible", "confirmed trigger"]],
 };
 
+const PRIOR_PRICE_ACTIONS = ["Established Trend", "Ascending Channel", "Descending Channel", "Sideways", "Choppy", "Unclear"];
+
+function explicitPriorPriceAction(question) {
+  const text = String(question || "");
+  const asserted = text.match(/\b(?:this|that|it)\s+is\s+(?:an?\s+)?(established\s+trend|ascending\s+channel|descending\s+channel|sideways|choppy)\b/i);
+  if (!asserted) return null;
+  return PRIOR_PRICE_ACTIONS.find((label) => label.toLowerCase() === asserted[1].toLowerCase().replace(/\s+/g, " ")) || null;
+}
+
+function isPriorPriceActionIntent(question) {
+  const text = String(question || "");
+  return /\bppa\b|prior\s+price\s+actions?|\b(established\s+trend|ascending\s+channel|descending\s+channel|sideways|choppy)\s+example\b/i.test(text);
+}
+
 function enforceChartEvidenceGate(assessment) {
   const safe = assessment && typeof assessment === "object" ? assessment : {};
   const setup = Object.hasOwn(SETUP_EVIDENCE_REQUIREMENTS, safe.setupCandidate) ? safe.setupCandidate : null;
@@ -2160,7 +2178,8 @@ function enforceChartEvidenceGate(assessment) {
   const decision = evidenceLevel === "Clear" ? proposedDecision : ["SKIP", "INVALIDATED"].includes(proposedDecision) ? proposedDecision : "WATCH";
   const coverage = requirements.length ? supportedCount / requirements.length : 0;
   const confidence = Math.max(20, Math.min(95, Math.round(30 + coverage * 45 + (ppaVisible ? 10 : 0) + Math.min(visibleEvidence.length, 3) * 4 - conflictingEvidence.length * 8)));
-  return { setupCandidate: setup, direction: ["Long", "Short"].includes(safe.direction) ? safe.direction : null, decision, confidence, evidenceLevel, visibleEvidence, missingEvidence, conflictingEvidence, features };
+  const priorPriceAction = PRIOR_PRICE_ACTIONS.includes(safe.priorPriceAction) ? safe.priorPriceAction : "Unclear";
+  return { setupCandidate: setup, direction: ["Long", "Short"].includes(safe.direction) ? safe.direction : null, priorPriceAction, decision, confidence, evidenceLevel, visibleEvidence, missingEvidence, conflictingEvidence, features };
 }
 
 function deterministicHistoricalMatches(assessment, trades, activePair) {
@@ -2222,6 +2241,26 @@ function verifiedChartAnswer(assessment, matches) {
   }
 
   return `${lead}\n\nHere’s what I can verify for this ${setup}${direction}: ${observed}\n\n${caution}${history}\n\nMy call is **${assessment.decision}**, with ${assessment.confidence}% confidence based on what is visible.`;
+}
+
+function verifiedPriorPriceActionAnswer(assessment, question) {
+  const confirmed = explicitPriorPriceAction(question);
+  const classification = confirmed || assessment.priorPriceAction || "Unclear";
+  const evidence = assessment.visibleEvidence.length
+    ? assessment.visibleEvidence.slice(0, 3).map((item) => /[.!?]$/.test(item) ? item : `${item}.`).join(" ")
+    : "The crop does not show enough structure to classify it reliably.";
+
+  if (classification === "Unclear") return `I can’t classify the prior price action reliably from this crop. ${evidence}`;
+
+  const explanation = classification === "Established Trend"
+    ? "That means the important feature is sustained directional structure and displacement with relatively shallow pauses—not a pair of parallel channel boundaries."
+    : classification === "Ascending Channel" || classification === "Descending Channel"
+      ? "The defining feature is directional movement contained by reasonably parallel boundaries."
+      : classification === "Sideways"
+        ? "The defining feature is a bounded range without sustained directional progression."
+        : "The defining feature is irregular overlap and whipsaw without stable directional structure.";
+  const acknowledgement = confirmed ? "Yes—your classification is right. " : "";
+  return `${acknowledgement}This is **${classification}** prior price action. ${evidence}\n\n${explanation}`;
 }
 
 function isoDateInManila(now = new Date()) {
@@ -2414,7 +2453,7 @@ function verifiedPositionSizingAnswer(calculation) {
     const number = (value, digits = 2) => Number(value).toLocaleString("en-US", { maximumFractionDigits: digits });
     const rows = calculation.profileResults.map((profile) => `- **${profile.type}${profile.platform ? ` · ${profile.platform}` : ""}:** ${number(profile.lots, 2)} lots at ${number(profile.riskPercent, 3)}% risk ($${number(profile.riskAmount, 2)})`);
     const mode = calculation.profileMode === "half" ? "Half Profile" : "Main Profile";
-    return `${calculation.pair} profile sizing is ready using **${mode}** and each saved row's own balance and risk setting:\n\n${rows.join("\n")}\n\nI filled the Entry, SL, and TP fields in Profile Sizing. No broker order was placed.`;
+    return `${calculation.pair} profile sizing is ready using **${mode}** and each saved row's own balance and risk setting:\n\n${rows.join("\n")}\n\nThe Entry, SL, and TP values are ready to apply to Profile Sizing. No broker order was placed.`;
   }
   if (!calculation?.ready || !calculation?.result) {
     const labels = { pair: "pair", accountBalance: "account balance", riskPercent: "risk percentage", entryPrice: "entry price", stopLossPrice: "stop-loss price", quoteToUsdRate: "quote-currency-to-USD rate", profiles: "at least one valid saved profile" };
@@ -2431,7 +2470,7 @@ function verifiedPositionSizingAnswer(calculation) {
   else if (calculation.takeProfitPrice && result.takeProfitValid === false) lines.push(`That take-profit price is on the wrong side for this ${result.direction.toLowerCase()} setup, so I left R:R uncalculated.`);
   else lines.push("No take profit was supplied, so R:R and projected profit are still open.");
   lines.push(`Breakdown: ${number(result.miniLots, 2)} mini lots / ${number(result.microLots, 2)} micro lots.`);
-  if (calculation.applyToCalculator) lines.push("I filled Journaly's Position Sizing tab with these values. No broker order was placed.");
+  if (calculation.applyToCalculator) lines.push("These values are ready to apply to Journaly's Position Sizing tab. No broker order was placed.");
   return lines.join("\n\n");
 }
 
@@ -3186,9 +3225,15 @@ async function handleJarvis(request, env) {
       let historicalMatches = null;
       if (chartImage) {
         result.chartAssessment = enforceChartEvidenceGate(result.chartAssessment);
-        historicalMatches = deterministicHistoricalMatches(result.chartAssessment, toolData.trades, toolData.sessionState?.activePair || null);
+        const ppaIntent = isPriorPriceActionIntent(question);
+        const confirmedPpa = explicitPriorPriceAction(question);
+        historicalMatches = ppaIntent ? null : deterministicHistoricalMatches(result.chartAssessment, toolData.trades, toolData.sessionState?.activePair || null);
         if (!verifiedPositionSizing && conversationMode !== "active_trade_management" && result.tradeAction?.intent !== "update_pending") {
-          result.answer = verifiedChartAnswer(result.chartAssessment, historicalMatches);
+          result.answer = ppaIntent ? verifiedPriorPriceActionAnswer(result.chartAssessment, question) : verifiedChartAnswer(result.chartAssessment, historicalMatches);
+        }
+        if (confirmedPpa) {
+          result.chartAssessment.priorPriceAction = confirmedPpa;
+          result.learningSummary = `User-confirmed PPA example: ${confirmedPpa}. Preserve this classification for the attached chart example.`;
         }
       }
       if (verifiedPositionProfile) result.answer = verifiedPositionProfileAnswer(verifiedPositionProfile);
@@ -3366,7 +3411,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, feedbackStyleExamples, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isPriorPriceActionIntent, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedPriorPriceActionAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {

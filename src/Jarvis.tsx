@@ -37,7 +37,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, CSSProperties, FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const JARVIS_ORB_POSITION_KEY = "journaly-os-jarvis-orb-position";
@@ -150,6 +150,70 @@ type JarvisMessage = {
   attachmentName?: string;
   createdAt?: string;
 };
+
+function renderJarvisInline(text: string, keyPrefix: string): ReactNode[] {
+  const tokens = text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`|\*[^*\n]+\*)/g).filter(Boolean);
+  return tokens.map((token, index) => {
+    const key = `${keyPrefix}:${index}`;
+    if (token.startsWith("**") && token.endsWith("**")) return <strong key={key}>{token.slice(2, -2)}</strong>;
+    if (token.startsWith("`") && token.endsWith("`")) return <code key={key}>{token.slice(1, -1)}</code>;
+    if (token.startsWith("*") && token.endsWith("*")) return <em key={key}>{token.slice(1, -1)}</em>;
+    return token;
+  });
+}
+
+function JarvisRichText({ text, compact = false }: { text: string; compact?: boolean }) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index].trim();
+    if (!line) {
+      index += 1;
+      continue;
+    }
+    const heading = line.match(/^#{1,3}\s+(.+)$/);
+    if (heading) {
+      blocks.push(<h4 key={`heading:${index}`}>{renderJarvisInline(heading[1], `heading:${index}`)}</h4>);
+      index += 1;
+      continue;
+    }
+    const unordered = line.match(/^[-•]\s+(.+)$/);
+    if (unordered) {
+      const items: ReactNode[] = [];
+      while (index < lines.length) {
+        const match = lines[index].trim().match(/^[-•]\s+(.+)$/);
+        if (!match) break;
+        items.push(<li key={`ul:${index}`}>{renderJarvisInline(match[1], `ul:${index}`)}</li>);
+        index += 1;
+      }
+      blocks.push(<ul key={`ul-block:${index}`}>{items}</ul>);
+      continue;
+    }
+    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      const items: ReactNode[] = [];
+      while (index < lines.length) {
+        const match = lines[index].trim().match(/^\d+[.)]\s+(.+)$/);
+        if (!match) break;
+        items.push(<li key={`ol:${index}`}>{renderJarvisInline(match[1], `ol:${index}`)}</li>);
+        index += 1;
+      }
+      blocks.push(<ol key={`ol-block:${index}`}>{items}</ol>);
+      continue;
+    }
+    const paragraphLines = [line];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !/^(?:#{1,3}\s+|[-•]\s+|\d+[.)]\s+)/.test(lines[index].trim())) {
+      paragraphLines.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(<p key={`paragraph:${index}`}>{paragraphLines.flatMap((part, partIndex) => [partIndex ? <br key={`br:${index}:${partIndex}`} /> : null, ...renderJarvisInline(part, `paragraph:${index}:${partIndex}`)])}</p>);
+  }
+
+  return <div className={`jarvis-rich-text${compact ? " is-compact" : ""}`}>{blocks}</div>;
+}
 
 type JarvisMonitorItem = {
   id: string;
@@ -2084,7 +2148,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       setPrompt("");
       void askJarvis(spokenPrompt);
     };
-    recognition.onerror = () => { setIsListening(false); setAttachmentError("I couldnâ€™t hear that clearly. Try again."); };
+    recognition.onerror = () => { setIsListening(false); setAttachmentError("I couldn’t hear that clearly. Try again."); };
     recognition.onend = () => setIsListening(false);
     speechRecognitionRef.current = recognition;
     setAttachmentError("");
@@ -2412,7 +2476,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       if (!accessToken) throw new Error("Your Journaly session has expired.");
       const requestedPair = getPairFromPrompt(`${cleanPrompt} ${imageForRequest?.name || ""}`, [...orderedTrades, ...orderedBacktests].map((trade) => trade.pair));
       const wantsBacktest = /\b(backtest|back test|historical test)\b/i.test(cleanPrompt);
-      const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup/i.test(cleanPrompt);
+      const wantsChartReview = /analy[sz]e|chart|screenshot|latest trade|this trade|take this|setup|\bppa\b|prior\s+price\s+actions?/i.test(cleanPrompt);
       const hasExplicitChartContext = Boolean(imageForRequest) || wantsChartReview;
       const chartTrade = hasExplicitChartContext
         ? selectRequestedChart(orderedTrades, cleanPrompt, requestedPair)
@@ -2450,7 +2514,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           userId,
           question: cleanPrompt,
           history: recentHistory,
-          chartImage: imageForRequest?.dataUrl || (wantsChartReview ? activeChartRecord?.screenshot || null : null),
+          chartImage: imageForRequest?.dataUrl || (wantsChartReview ? lastChartImage?.dataUrl || persistedLastChart?.dataUrl || activeChartRecord?.screenshot || null : null),
           previousChartImage: previousChartForRequest?.dataUrl || null,
           context: {
             generatedAt: new Date().toISOString(),
@@ -2725,7 +2789,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <article className={`jarvis-ambient-message is-${message.role}`} key={message.id}>
                 <span>{message.role === "jarvis" ? "JARVIS" : "YOU"}</span>
                 {message.title ? <strong>{message.title}</strong> : null}
-                {message.text ? <p>{message.text}</p> : message.imagePreview ? <p>Image attached</p> : null}
+                {message.text ? <JarvisRichText text={message.text} compact /> : message.imagePreview ? <p>Image attached</p> : null}
                 {message.role === "jarvis" ? <button type="button" onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={12} /> : <Volume2 size={12} />}{speakingMessageId === message.id ? " Stop" : " Listen"}</button> : null}
               </article>
             )) : <div className="jarvis-ambient-welcome"><BrainCircuit size={23} /><strong>I’m with you, {preferredName}.</strong><p>Scroll through Journaly and talk to me from here. I keep the same memory and context as Command Center.</p></div>}
@@ -2877,7 +2941,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           {message.title ? <h3>{message.title}</h3> : null}
                           {message.imagePreview ? <img className="jarvis-message-image" src={message.imagePreview} alt={message.attachmentName || "Attached trading chart"} /> : null}
                           {message.attachmentName ? <small className="jarvis-attachment-name"><Paperclip size={11} /> {message.attachmentName}</small> : null}
-                          {message.text ? <p>{message.text}</p> : null}
+                          {message.text ? <JarvisRichText text={message.text} /> : null}
                           {message.metrics?.length ? <div className="jarvis-response-metrics">{message.metrics.map((metric) => <div className={metric.tone ? `is-${metric.tone}` : ""} key={`${metric.label}-${metric.value}`}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div> : null}
                           {message.role === "jarvis" ? (
                             <div className="jarvis-feedback">
@@ -2894,7 +2958,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                                   <button type="button" onClick={() => void saveMessageFeedback(message, "too_strict")}>Too strict</button>
                                   <button type="button" onClick={() => void saveMessageFeedback(message, "too_long")}>Too long</button>
                                   <button type="button" onClick={() => void saveMessageFeedback(message, "misread_context")}>Misread context</button>
-                                  <button type="button" onClick={() => void saveMessageFeedback(message, "unnatural")}>Didnâ€™t sound natural</button>
+                                  <button type="button" onClick={() => void saveMessageFeedback(message, "unnatural")}>Didn’t sound natural</button>
                                 </div>
                               ) : null}
                             </div>

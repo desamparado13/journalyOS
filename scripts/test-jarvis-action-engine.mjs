@@ -13,5 +13,8 @@ assert.match(appSource, /async function loadTrades\(expectedTradeId\?: string\):
 assert.match(appSource, /loadedTrades\.some\(\(trade\) => trade\.id === expectedTradeId\)/, "trade refresh must contain the written row");
 assert.match(appSource, /async function loadTradeDecisions\(expected\?:/, "forecast refresh must report verification success");
 assert.match(appSource, /decision\.id === expected\.id && decision\.status === expected\.status/, "forecast refresh must contain the requested persisted status");
+assert.match(jarvisSource, /function JarvisRichText/, "Jarvis replies need a structured rich-text renderer");
+assert.match(jarvisSource, /renderJarvisInline/, "Jarvis replies need safe inline emphasis rendering");
+assert.doesNotMatch(jarvisSource, /dangerouslySetInnerHTML/, "Jarvis rich text must not inject model-authored HTML");
 
 console.log("Jarvis verified action engine tests passed.");
