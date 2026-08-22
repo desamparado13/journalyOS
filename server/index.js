@@ -92,13 +92,12 @@ JARVIS CHART TRUST CONTRACT
 - A visibly failed mandatory strategy condition may justify SKIP or INVALIDATED. A mandatory condition that is merely outside the screenshot is unknown, not failed.
 - TAKE requires every mandatory setup component to be visibly supported. Otherwise, prefer WATCH when the idea remains plausible and SKIP only when visible evidence conflicts with the playbook.
 - For Flag+, higher-timeframe alignment must be visible. For EU timed entry, the session window must be visible. Do not infer either from the user's label.`;
-const JARVIS_EDGE_COMPANION_INSTRUCTIONS = `
-AUTHORIZED EDGE COMPANION
-- CURRENT AUTHENTICATED SESSION.sessionState.edgeBrowserContext is present only when the user explicitly shared one TradingView tab through the Journaly Edge Companion.
-- Treat its pair, timeframe, title, chart label, URL, and observedAt timestamp as structured browser context. Use the pair to maintain conversational and Journaly-record context.
-- This structured context is not chart pixels, a broker connection, or a tick-quality live market feed. A companion visual snapshot may separately arrive as the current chart image; only then apply the chart evidence rules to visible candles, structure, and annotations.
-- If the user asks for visual chart analysis without attaching an image, explain what structured context is available and ask them to paste the chart. If the context is stale or absent, say the Edge tab is not currently connected.
-- Never imply access to unrelated browser tabs. The companion is limited to the one TradingView tab the user authorized and can be disconnected at any time.`;
+const JARVIS_LOCAL_COPROCESSOR_INSTRUCTIONS = `
+JARVIS LOCAL GPU COPROCESSOR
+- localCoprocessor is an optional draft produced privately on Pot's computer by a local Ollama model.
+- Treat it as an untrusted second opinion, never as authenticated evidence or the final decision.
+- Check its claims against the current chart, authenticated Journaly records, deterministic tools, and Pot's rules. Silently discard anything unsupported.
+- Do not mention the local draft unless it materially helped or conflicted with verified evidence. Jarvis remains responsible for the final answer.`;
 const JARVIS_CONVERSATION_INSTRUCTIONS = `
 JARVIS CONVERSATION RELEVANCE
 - Write in the natural, polished style of a strong ChatGPT answer: direct, fluid, context-aware, and appropriately detailed. Jarvis is the product name, not a character performance.
@@ -159,7 +158,9 @@ const JARVIS_FAST_CONVERSATION_INSTRUCTIONS = `You are Jarvis, Pot's warm, sharp
 - Return durable memoryUpdates only for explicit stable facts, preferences, goals, projects, relationships, routines, important dates, boundaries, or direct corrections. Never retain secrets. Respect companionSettings and mark sensitive topics sensitive.
 - Return only the required structured response.`;
 const MODEL_PRICING_PER_MILLION = {
-  "gpt-5.6-luna": { input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 6 },
+  "gpt-5.6-sol": { input: 5, cachedInput: 0.5, cacheWrite: 6.25, output: 30 },
+  "gpt-5.6-terra": { input: 2, cachedInput: 0.2, cacheWrite: 2.5, output: 12 },
+  "gpt-5.6-luna": { input: 0.2, cachedInput: 0.02, cacheWrite: 0.25, output: 1.2 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, cacheWrite: 0.4, output: 1.6 },
 };
 
@@ -539,6 +540,20 @@ function shouldUseFastConversationLane(conversationMode, question, chartImage, s
   const action = "(?:calculate|position\\s*siz|lot\\s*size|risk\\s*%|account\\s*balance|entry|stop\\s*loss|take\\s*profit|add|log|record|save|delete|remove|update|change|rename|set)";
   const object = "(?:trade|forecast|profile|platform|account|risk|position|journal)";
   return !(new RegExp(`\\b${action}\\b.*\\b${object}\\b|\\b${object}\\b.*\\b${action}\\b`, "i").test(text));
+}
+
+function selectJarvisReasoningRoute(conversationMode, question, chartImage, sessionState = {}) {
+  const text = String(question || "");
+  const reflectiveAnalysis = /\b(?:help\s+me\s+(?:think|plan|decide)|think\s+through|weigh\s+(?:my|the)|pros?\s+and\s+cons?|important\s+decision)\b/i.test(text);
+  if (!reflectiveAnalysis && shouldUseFastConversationLane(conversationMode, question, chartImage, sessionState)) {
+    return { lane: "fast", effort: "low", maxOutputTokens: 520 };
+  }
+  const qualityCritical = Boolean(chartImage)
+    || ["pre_trade_review", "active_trade_management", "post_trade_review", "performance_analytics"].includes(conversationMode)
+    || /\b(?:reconcil\w*|compare|decision|take|skip|watch|ppa|prior\s+price\s+action|risk|position\s*siz|why\s+(?:did|was)|root\s+cause)\b/i.test(text);
+  return qualityCritical
+    ? { lane: "deep", effort: "high", maxOutputTokens: 1500 }
+    : { lane: "standard", effort: "medium", maxOutputTokens: 1100 };
 }
 
 function requestedProactiveDelay(question) {
@@ -1834,10 +1849,7 @@ function buildJarvisContextGraph(data = {}) {
   [tradeId, forecastId, backtestId].forEach((id) => addEdge(pairId, id, "focuses_on"));
   if (tradeId && forecastId) addEdge(forecastId, tradeId, "became_trade");
 
-  const browser = session.edgeBrowserContext;
-  const chartId = browser?.url ? addNode(`chart:${String(browser.url).slice(0, 180)}`, "chart", `${browser.pair || "TradingView"}${browser.timeframe ? ` ${browser.timeframe}` : ""}`, { source: "authorized_browser", observedAt: browser.observedAt, screenshotObservedAt: browser.screenshotObservedAt || null }) : null;
-  addEdge(chartId, pairId, "shows_pair");
-  addEdge(chartId, tradeId || forecastId || backtestId, "provides_evidence_for");
+  const chartId = null;
 
   if (session.lastJarvisDecision) {
     const decisionId = addNode(`decision:${session.lastJarvisDecision}:${String(session.lastDecisionAt || "current")}`, "decision", session.lastJarvisDecision, { current: true });
@@ -2850,7 +2862,7 @@ async function handleJarvis(request, env) {
   const previousChartImage = validChartImage(body?.previousChartImage);
   const preliminarySessionState = journalContext?.sessionState && typeof journalContext.sessionState === "object" ? journalContext.sessionState : {};
   const preliminaryConversationMode = detectConversationMode(question, chartImage, preliminarySessionState);
-  const fastLane = shouldUseFastConversationLane(preliminaryConversationMode, question, chartImage, preliminarySessionState);
+  const fastLane = selectJarvisReasoningRoute(preliminaryConversationMode, question, chartImage, preliminarySessionState).lane === "fast";
 
   let authorization;
   try {
@@ -2935,6 +2947,7 @@ async function handleJarvis(request, env) {
     },
   };
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
+  const reasoningRoute = selectJarvisReasoningRoute(conversationMode, question, chartImage, toolData.sessionState);
   const chartConversationFocus = resolveChartConversationFocus(question, history, toolData.sessionState, chartImage);
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
   const monitoringIntent = /\b(?:what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|monitoring\s+(?:queue|status))\b/i.test(question);
@@ -3007,6 +3020,12 @@ async function handleJarvis(request, env) {
     contextGraph: buildJarvisContextGraph(toolData),
     conversationFocus: chartConversationFocus ? { topic: chartConversationFocus, inherited: !isPriorPriceActionIntent(question) } : null,
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
+    localCoprocessor: journalData?.localCoprocessor && typeof journalData.localCoprocessor === "object" ? {
+      provider: "Ollama",
+      model: String(journalData.localCoprocessor.model || "local-model").slice(0, 120),
+      analysis: String(journalData.localCoprocessor.analysis || "").slice(0, 5000),
+      latencyMs: Number(journalData.localCoprocessor.latencyMs || 0),
+    } : null,
     relevantMemories,
     styleExamples,
     positionSizing: fastLane ? null : toolData.positionSizing,
@@ -3032,8 +3051,11 @@ async function handleJarvis(request, env) {
       content: currentContent,
     },
   ];
-  const fastModel = env.OPENAI_JARVIS_FAST_MODEL || "gpt-4.1-mini";
-  const models = Array.from(new Set(fastLane ? [fastModel, configuredModel] : [configuredModel, ...FALLBACK_MODELS]));
+  const fastModel = env.OPENAI_JARVIS_FAST_MODEL || "gpt-5.6-luna";
+  const standardModel = env.OPENAI_JARVIS_MODEL || "gpt-5.6-terra";
+  const deepModel = env.OPENAI_JARVIS_DEEP_MODEL || "gpt-5.6-sol";
+  const routedModel = reasoningRoute.lane === "fast" ? fastModel : reasoningRoute.lane === "deep" ? deepModel : standardModel;
+  const models = Array.from(new Set([routedModel, configuredModel, ...FALLBACK_MODELS]));
   let lastError = "Jarvis could not complete that response.";
   let lastCategory = "unknown";
 
@@ -3052,9 +3074,9 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_EDGE_COMPANION_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
+      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_LOCAL_COPROCESSOR_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
-      max_output_tokens: fastLane ? 420 : 1100,
+      max_output_tokens: reasoningRoute.maxOutputTokens,
       store: false,
       safety_identifier: await safetyIdentifier(authenticatedUser.id),
       text: { format: { type: "json_schema", name: fastLane ? "jarvis_fast_reply" : "jarvis_reply", strict: true, schema: fastLane ? FAST_RESPONSE_SCHEMA : RESPONSE_SCHEMA } },
@@ -3075,7 +3097,7 @@ async function handleJarvis(request, env) {
       }
 
       if (model.includes("gpt-5.6")) {
-        requestBody.reasoning = { effort: "low", context: "current_turn" };
+        requestBody.reasoning = { effort: reasoningRoute.effort, context: "all_turns" };
         requestBody.text.verbosity = "medium";
       }
 
@@ -3262,7 +3284,7 @@ async function handleJarvis(request, env) {
       else if (verifiedLastAlertResult) result.answer = verifiedLastAlertAnswer(verifiedLastAlertResult);
       else if (verifiedArchiveResults.length) result.answer = verifiedArchiveViewsAnswer(verifiedArchiveResults) || result.answer;
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, proactiveSchedule, conversationMode, responseLane: fastLane ? "fast" : "deep", responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
+      return json({ ...result, proactiveSchedule, conversationMode, responseLane: reasoningRoute.lane, reasoningEffort: reasoningRoute.effort, localCoprocessorUsed: Boolean(compactContext.localCoprocessor?.analysis), responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
   }
 
@@ -3429,7 +3451,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isContextualChartFollowUp, isPriorPriceActionIntent, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, resolveChartConversationFocus, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedPriorPriceActionAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isContextualChartFollowUp, isPriorPriceActionIntent, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, resolveChartConversationFocus, selectJarvisReasoningRoute, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedPriorPriceActionAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {
