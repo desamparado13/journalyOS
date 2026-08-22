@@ -107,6 +107,7 @@ JARVIS CONVERSATION RELEVANCE
 - Act like a natural, attentive friend as well as a trading assistant. Match the topic and emotional weight of the user's latest message.
 - For greetings, check-ins, jokes, or ordinary conversation, respond socially and concisely. Do not volunteer a currency pair, setup, trade, forecast, market stance, statistic, or stale session explanation unless the user asks or it is directly necessary.
 - The latest user message controls the topic. A pair or setup mentioned in earlier conversation is not automatically current.
+- Short chart follow-ups such as "how about this?", "this one?", or "same question" inherit sessionState.conversationFocus when a new chart is attached. Apply the inherited analytical question to the new chart; do not make the user repeat the term they just established.
 - Treat sessionState.activePair, activeSetup, activeTradeId, and activeBacktestId as current only when they are non-null. Never reconstruct missing active context from recent history or the latest record in a tool result.
 - When interactionMode is active_trade_management, the user is discussing a position they have already entered. Respond as a trading partner managing an existing position, not as if deciding whether to enter it. Do not lead with TAKE, WATCH, or SKIP and do not tell the user to wait for an entry trigger that has already occurred.
 - Use activeTrade as the current saved trade when it is present. If exact record details matter and activeTradeId is available, call get_trade. Do not create a duplicate tradeAction merely because the user says they are already in an existing trade.
@@ -2159,6 +2160,21 @@ function isPriorPriceActionIntent(question) {
   return /\bppa\b|prior\s+price\s+actions?|\b(established\s+trend|ascending\s+channel|descending\s+channel|sideways|choppy)\s+example\b/i.test(text);
 }
 
+function isContextualChartFollowUp(question) {
+  const text = String(question || "").trim();
+  return /^(?:(?:and\s+)?(?:how|what)\s+about\s+(?:this|that|it)(?:\s+one)?|(?:and\s+)?this(?:\s+one)?|same\s+(?:question|thing)|what\s+do\s+you\s+think)(?:\s*[?.!]*)$/i.test(text);
+}
+
+function resolveChartConversationFocus(question, history = [], sessionState = {}, chartImage = null) {
+  if (isPriorPriceActionIntent(question)) return "prior_price_action";
+  if (!chartImage || !isContextualChartFollowUp(question)) return null;
+  if (sessionState?.conversationFocus?.topic === "prior_price_action") return "prior_price_action";
+  const recentConversation = Array.isArray(history)
+    ? history.slice(-6).map((message) => String(message?.content || "")).join("\n")
+    : "";
+  return isPriorPriceActionIntent(recentConversation) ? "prior_price_action" : null;
+}
+
 function enforceChartEvidenceGate(assessment) {
   const safe = assessment && typeof assessment === "object" ? assessment : {};
   const setup = Object.hasOwn(SETUP_EVIDENCE_REQUIREMENTS, safe.setupCandidate) ? safe.setupCandidate : null;
@@ -2919,6 +2935,7 @@ async function handleJarvis(request, env) {
     },
   };
   const conversationMode = detectConversationMode(question, chartImage, toolData.sessionState);
+  const chartConversationFocus = resolveChartConversationFocus(question, history, toolData.sessionState, chartImage);
   const streakIntent = /\b(?:win\s*streak|loss\s*streak|wins?\s+in\s+a\s+row|losses?\s+in\s+a\s+row|consecutive\s+(?:wins?|losses?))\b/i.test(question);
   const monitoringIntent = /\b(?:what(?:'s|\s+is)\s+(?:jarvis\s+)?monitoring|what\s+(?:are\s+you|is\s+jarvis)\s+(?:currently\s+)?(?:monitoring|watching|tracking)|what\s+(?:currently\s+)?needs\s+attention|mission\s+control(?:\s+status)?|monitoring\s+(?:queue|status))\b/i.test(question);
   const alertExplanationIntent = /\b(?:why\s+did\s+you\s+(?:message|notify|interrupt|alert)\s+me|why\s+(?:this|that)\s+(?:message|notification|alert)|what\s+triggered\s+(?:this|that|your)\s+(?:message|notification|alert))\b/i.test(question);
@@ -2988,6 +3005,7 @@ async function handleJarvis(request, env) {
     workspace: { focusId: toolData.workspace?.focusId || null, contexts: Array.isArray(toolData.workspace?.contexts) ? toolData.workspace.contexts.slice(0, 8) : [] },
     recentJourney: journeyFromJournal(journalRows, toolData.sessionState?.activePair || null).slice(0, 10),
     contextGraph: buildJarvisContextGraph(toolData),
+    conversationFocus: chartConversationFocus ? { topic: chartConversationFocus, inherited: !isPriorPriceActionIntent(question) } : null,
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
     relevantMemories,
     styleExamples,
@@ -3225,7 +3243,7 @@ async function handleJarvis(request, env) {
       let historicalMatches = null;
       if (chartImage) {
         result.chartAssessment = enforceChartEvidenceGate(result.chartAssessment);
-        const ppaIntent = isPriorPriceActionIntent(question);
+        const ppaIntent = chartConversationFocus === "prior_price_action";
         const confirmedPpa = explicitPriorPriceAction(question);
         historicalMatches = ppaIntent ? null : deterministicHistoricalMatches(result.chartAssessment, toolData.trades, toolData.sessionState?.activePair || null);
         if (!verifiedPositionSizing && conversationMode !== "active_trade_management" && result.tradeAction?.intent !== "update_pending") {
@@ -3411,7 +3429,7 @@ async function handleRoutine(request, env) {
   }
 }
 
-export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isPriorPriceActionIntent, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedPriorPriceActionAnswer, verifiedTradeStreakAnswer };
+export { archiveViewResult, buildAutopilotSnapshot, buildJarvisContextGraph, buildMonitoringState, calculateJournalyPositionSize, calculateJournalyProfileSizes, compareAutopilotSnapshots, decodeVoiceAudio, detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isContextualChartFollowUp, isPriorPriceActionIntent, lastJarvisAlertResult, managePositionProfiles, monthlyReconciliationResult, monthlyReconciliationSeries, reconciliationStats, requestedArchiveViews, requestedProactiveDelay, resolveChartConversationFocus, selectRelevantMemories, shouldUseFastConversationLane, syncedMemoriesFromJournal, syncedSessionFromJournal, tradeStreakResult, verifiedArchiveViewsAnswer, verifiedLastAlertAnswer, verifiedMonitoringAnswer, verifiedPriorPriceActionAnswer, verifiedTradeStreakAnswer };
 
 export default {
   async fetch(request, env, ctx) {

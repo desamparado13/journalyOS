@@ -6,9 +6,11 @@ import {
   BookOpenCheck,
   BrainCircuit,
   Check,
+  ChevronLeft,
   ChevronRight,
   CircleDot,
   CircleDollarSign,
+  CalendarDays,
   Clock,
   Command,
   Crosshair,
@@ -149,7 +151,70 @@ type JarvisMessage = {
   imagePreview?: string;
   attachmentName?: string;
   createdAt?: string;
+  chatDate?: string;
 };
+
+type JarvisConversations = Record<string, JarvisMessage[]>;
+
+function localDateKey(value = new Date()) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function messageDateKey(message: JarvisMessage, fallback = localDateKey()) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(message.chatDate || "")) return message.chatDate as string;
+  if (message.createdAt) {
+    const parsed = new Date(message.createdAt);
+    if (!Number.isNaN(parsed.getTime())) return localDateKey(parsed);
+  }
+  return fallback;
+}
+
+function timestampForChatDate(chatDate: string) {
+  const now = new Date();
+  return `${chatDate}T${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
+}
+
+function groupMessagesByDate(messages: JarvisMessage[], fallback = localDateKey()): JarvisConversations {
+  return messages.reduce<JarvisConversations>((grouped, message) => {
+    const chatDate = messageDateKey(message, fallback);
+    const normalized = { ...message, chatDate };
+    grouped[chatDate] = [...(grouped[chatDate] || []), normalized].slice(-80);
+    return grouped;
+  }, {});
+}
+
+function calendarCells(monthDate: string) {
+  const [year, month] = monthDate.split("-").map(Number);
+  const first = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const cells: Array<string | null> = Array.from({ length: first.getDay() }, () => null);
+  for (let day = 1; day <= daysInMonth; day += 1) cells.push(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
+  while (cells.length % 7) cells.push(null);
+  return cells;
+}
+
+function shiftCalendarMonth(monthDate: string, amount: number) {
+  const [year, month] = monthDate.split("-").map(Number);
+  const shifted = new Date(year, month - 1 + amount, 1);
+  return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+type JarvisConversationFocus = {
+  topic: "prior_price_action";
+  label: "PPA classification";
+  inherited: boolean;
+};
+
+function inferConversationFocus(prompt: string, recentHistory: Array<{ role: string; content: string }>, hasChart: boolean): JarvisConversationFocus | null {
+  const explicitPpa = /\bppa\b|prior\s+price\s+actions?|\b(established\s+trend|ascending\s+channel|descending\s+channel|sideways|choppy)\s+example\b/i.test(prompt);
+  if (explicitPpa) return { topic: "prior_price_action", label: "PPA classification", inherited: false };
+  const contextualFollowUp = /^(?:(?:and\s+)?(?:how|what)\s+about\s+(?:this|that|it)(?:\s+one)?|(?:and\s+)?this(?:\s+one)?|same\s+(?:question|thing)|what\s+do\s+you\s+think)(?:\s*[?.!]*)$/i.test(prompt.trim());
+  if (!hasChart || !contextualFollowUp) return null;
+  const recentText = recentHistory.slice(-6).map((message) => message.content).join("\n");
+  return /\bppa\b|prior\s+price\s+actions?/i.test(recentText)
+    ? { topic: "prior_price_action", label: "PPA classification", inherited: true }
+    : null;
+}
 
 function renderJarvisInline(text: string, keyPrefix: string): ReactNode[] {
   const tokens = text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`|\*[^*\n]+\*)/g).filter(Boolean);
@@ -634,20 +699,27 @@ function clampOrbPosition(position: OrbPosition, width: number, height: number):
   };
 }
 
-function readJarvisMessages(userId: string): JarvisMessage[] {
+function validStoredMessages(value: unknown): JarvisMessage[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((message) => message && (message.role === "user" || message.role === "jarvis") && typeof message.text === "string")
+    .map((message) => ({
+      ...message,
+      text: message.text.replace(`\n\n${LEGACY_FALLBACK_NOTICE}`, "").replace(LEGACY_FALLBACK_NOTICE, "").trim(),
+    }))
+    .filter((message) => message.text.length > 0 || Boolean(message.imagePreview));
+}
+
+function readJarvisConversations(userId: string): JarvisConversations {
   try {
     const saved = JSON.parse(localStorage.getItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`) || "[]");
-    if (!Array.isArray(saved)) return [];
-    return saved
-      .filter((message) => message && (message.role === "user" || message.role === "jarvis") && typeof message.text === "string")
-      .map((message) => ({
-        ...message,
-        text: message.text.replace(`\n\n${LEGACY_FALLBACK_NOTICE}`, "").replace(LEGACY_FALLBACK_NOTICE, "").trim(),
-      }))
-      .filter((message) => message.text.length > 0 || Boolean(message.imagePreview))
-      .slice(-30);
+    if (Array.isArray(saved)) return groupMessagesByDate(validStoredMessages(saved).slice(-80));
+    if (!saved || typeof saved !== "object" || !saved.conversations || typeof saved.conversations !== "object") return {};
+    return Object.fromEntries(Object.entries(saved.conversations as Record<string, unknown>)
+      .filter(([date]) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+      .map(([date, dailyMessages]) => [date, validStoredMessages(dailyMessages).map((message) => ({ ...message, chatDate: date })).slice(-80)]));
   } catch {
-    return [];
+    return {};
   }
 }
 
@@ -853,13 +925,16 @@ function decodeLatestInternal<T>(entries: JarvisProps["journalEntries"], prefix:
   return (records[0] as { value: T; entryId: string; syncedAt: string } | undefined) || null;
 }
 
-function syncedMessages(entries: JarvisProps["journalEntries"]): { messages: JarvisMessage[]; entryId: string; syncedAt: string } | null {
-  const record = decodeLatestInternal<{ messages?: JarvisMessage[]; syncedAt?: string }>(entries, JARVIS_CHAT_SYNC_PREFIX);
-  if (!record || !Array.isArray(record.value.messages)) return null;
+function syncedMessages(entries: JarvisProps["journalEntries"]): { conversations: JarvisConversations; entryId: string; syncedAt: string } | null {
+  const record = decodeLatestInternal<{ messages?: JarvisMessage[]; conversations?: JarvisConversations; syncedAt?: string }>(entries, JARVIS_CHAT_SYNC_PREFIX);
+  if (!record) return null;
+  const conversations = record.value.conversations && typeof record.value.conversations === "object"
+    ? Object.fromEntries(Object.entries(record.value.conversations).filter(([date, daily]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && Array.isArray(daily)).map(([date, daily]) => [date, validStoredMessages(daily).map((message) => ({ ...message, chatDate: date })).slice(-80)]))
+    : groupMessagesByDate(validStoredMessages(record.value.messages));
   return {
     entryId: record.entryId,
     syncedAt: record.syncedAt,
-    messages: record.value.messages.filter((message) => message && (message.role === "user" || message.role === "jarvis") && typeof message.text === "string").slice(-40),
+    conversations,
   };
 }
 
@@ -1175,7 +1250,9 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
   const [isDraggingOrb, setIsDraggingOrb] = useState(false);
   const [prompt, setPrompt] = useState("");
-  const [messages, setMessages] = useState<JarvisMessage[]>(() => readJarvisMessages(userId));
+  const [selectedChatDate, setSelectedChatDate] = useState(localDateKey);
+  const [calendarMonth, setCalendarMonth] = useState(() => `${localDateKey().slice(0, 7)}-01`);
+  const [conversations, setConversations] = useState<JarvisConversations>(() => readJarvisConversations(userId));
   const [memory, setMemory] = useState<JarvisMemoryState>(() => readJarvisMemory(userId, username));
   const [activeContext, setActiveContext] = useState<JarvisActiveContext | null>(() => readJarvisActiveContext(userId));
   const [workspace, setWorkspace] = useState<JarvisWorkspace>(() => emptyWorkspace(readJarvisActiveContext(userId)));
@@ -1209,6 +1286,23 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [observationReady, setObservationReady] = useState(false);
   const [edgeCompanion, setEdgeCompanion] = useState<JarvisEdgeCompanionState>({ checked: false, installed: false, connected: false, context: null });
   const [lastActionReceipt, setLastActionReceipt] = useState<JarvisActionReceipt | null>(() => decodeLatestInternal<JarvisActionReceipt>(journalEntries, JARVIS_ACTION_RECEIPT_PREFIX)?.value || null);
+  const messages = conversations[selectedChatDate] || [];
+  function setMessagesForDate(targetDate: string, update: JarvisMessage[] | ((current: JarvisMessage[]) => JarvisMessage[])) {
+    setConversations((current) => {
+      const existing = current[targetDate] || [];
+      const existingIds = new Set(existing.map((message) => message.id));
+      const next = (typeof update === "function" ? update(existing) : update).map((message) => existingIds.has(message.id)
+        ? message
+        : { ...message, chatDate: targetDate, createdAt: timestampForChatDate(targetDate) });
+      const updated = { ...current };
+      if (next.length) updated[targetDate] = next.slice(-80);
+      else delete updated[targetDate];
+      return updated;
+    });
+  }
+  function setMessages(update: JarvisMessage[] | ((current: JarvisMessage[]) => JarvisMessage[])) {
+    setMessagesForDate(selectedChatDate, update);
+  }
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const compactInputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1235,6 +1329,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const isThinkingRef = useRef(false);
   const observationTimerRef = useRef<number | null>(null);
   const proactiveCheckinRef = useRef(new Set<string>());
+  const decisionLedgerUnavailableRef = useRef(false);
   const isOpenRef = useRef(isOpen);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
@@ -1244,6 +1339,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const latestTrade = latestFirst(trades)[0];
   const qualityRate = reviewedTrades.length ? Math.round((goodTrades / reviewedTrades.length) * 100) : 0;
   const preferredName = memory.preferredName || displayName || "trader";
+  const calendarDates = useMemo(() => calendarCells(calendarMonth), [calendarMonth]);
+  const chatDates = useMemo(() => new Set(Object.entries(conversations).filter(([, daily]) => daily.length > 0).map(([date]) => date)), [conversations]);
+  const selectedDateLabel = new Date(`${selectedChatDate}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const calendarMonthLabel = new Date(`${calendarMonth}T12:00:00`).toLocaleDateString([], { month: "long", year: "numeric" });
   const missionMemories = useMemo(() => {
     const missionCategories = new Set(["goal", "project", "routine", "important_date", "life_event", "wellbeing"]);
     return memory.memories
@@ -1480,7 +1579,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       if (cancelled) return;
       const fresh = responses.filter((report): report is { key: string; period: "week" | "month"; text: string } => Boolean(report) && !seen.includes(report.key));
       if (!fresh.length) return;
-      setMessages((current) => [...current, ...fresh.map((report) => ({ id: crypto.randomUUID(), role: "jarvis" as const, title: report.period === "month" ? "Monthly coaching report" : "Weekly coaching report", text: report.text }))]);
+      setMessagesForDate(localDateKey(), (current) => [...current, ...fresh.map((report) => ({ id: crypto.randomUUID(), role: "jarvis" as const, title: report.period === "month" ? "Monthly coaching report" : "Weekly coaching report", text: report.text }))]);
       localStorage.setItem(`${JARVIS_REPORT_SEEN_KEY_PREFIX}:${userId}`, JSON.stringify([...new Set([...seen, ...fresh.map((report) => report.key)])].slice(-30)));
     });
     return () => { cancelled = true; };
@@ -1511,13 +1610,16 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   useEffect(() => { isThinkingRef.current = isThinking; }, [isThinking]);
 
   useEffect(() => {
-    const storedMessages = messages.slice(-30).map(({ imagePreview: _imagePreview, ...message }) => message);
-    localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify(storedMessages));
+    const storedConversations = Object.fromEntries(Object.entries(conversations).map(([date, dailyMessages]) => [
+      date,
+      dailyMessages.slice(-80).map(({ imagePreview: _imagePreview, ...message }) => ({ ...message, chatDate: date })),
+    ]));
+    localStorage.setItem(`${JARVIS_CHAT_KEY_PREFIX}:${userId}`, JSON.stringify({ version: 2, conversations: storedConversations }));
     if (!supabase) return;
     if (chatSyncTimerRef.current) window.clearTimeout(chatSyncTimerRef.current);
-    chatSyncTimerRef.current = window.setTimeout(() => void persistSyncedConversation(storedMessages), 900);
+    chatSyncTimerRef.current = window.setTimeout(() => void persistSyncedConversation(storedConversations), 900);
     return () => { if (chatSyncTimerRef.current) window.clearTimeout(chatSyncTimerRef.current); };
-  }, [messages, userId]);
+  }, [conversations, userId]);
 
   useLayoutEffect(() => {
     if (!isOpen) {
@@ -1595,7 +1697,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       createdAt: new Date().toISOString(),
     };
     localStorage.setItem(key, JSON.stringify([...seen, actionable.id].slice(-100)));
-    setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
+    setMessagesForDate(localDateKey(), (current) => current.some((item) => item.id === message.id) ? current : [...current, message]);
     void persistAutopilotAlert(message, actionable);
     if (!isOpen) {
       setInAppNotification(message);
@@ -1621,7 +1723,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       createdAt: new Date().toISOString(),
     };
     const clearedFollowUp: JarvisMemoryUpdate = { ...due, operation: "upsert", source: "explicit", followUpAt: null, confidence: Math.max(0.9, due.confidence) };
-    setMessages((current) => [...current, checkin]);
+    setMessagesForDate(localDateKey(), (current) => [...current, checkin]);
     setMemory((current) => applyMemoryUpdates(current, [clearedFollowUp]));
     void persistMemoryUpdates([clearedFollowUp]);
   }, [isOpen, memory, preferredName]);
@@ -1634,11 +1736,23 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     const remoteChat = syncedMessages(journalEntries);
     const proactiveMessages = syncedProactiveMessages(journalEntries);
     chatSyncEntryIdRef.current = remoteChat?.entryId || chatSyncEntryIdRef.current;
-    if (remoteChat?.messages.length || proactiveMessages.length) setMessages((current) => {
-      const localNewest = current.at(-1)?.createdAt || "";
-      const base = remoteChat?.messages.length && remoteChat.syncedAt > localNewest ? remoteChat.messages : current;
-      const known = new Set(base.map((message) => message.id));
-      return [...base, ...proactiveMessages.filter((message) => !known.has(message.id))].slice(-60);
+    if (Object.keys(remoteChat?.conversations || {}).length || proactiveMessages.length) setConversations((current) => {
+      const merged: JarvisConversations = { ...current };
+      const incoming = { ...(remoteChat?.conversations || {}) };
+      for (const message of proactiveMessages) {
+        const date = messageDateKey(message);
+        incoming[date] = [...(incoming[date] || []), { ...message, chatDate: date }];
+      }
+      let changed = false;
+      for (const [date, dailyMessages] of Object.entries(incoming)) {
+        const existing = merged[date] || [];
+        const known = new Set(existing.map((message) => message.id));
+        const fresh = dailyMessages.filter((message) => !known.has(message.id));
+        if (!fresh.length) continue;
+        merged[date] = [...existing, ...fresh].sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || ""))).slice(-80);
+        changed = true;
+      }
+      return changed ? merged : current;
     });
     try {
       const seen = new Set<string>(JSON.parse(localStorage.getItem(`${JARVIS_PROACTIVE_SEEN_KEY_PREFIX}:${userId}`) || "[]"));
@@ -1964,13 +2078,50 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     });
   }
 
-  async function persistSyncedConversation(nextMessages: JarvisMessage[], allowEmpty = false) {
-    if (!supabase || (!nextMessages.length && !allowEmpty)) return;
+  async function recordDecisionIntelligenceEvent(input: {
+    caseKey: string;
+    eventType: "observation" | "question" | "assessment" | "recommendation" | "user_decision" | "execution" | "outcome" | "reflection" | "correction";
+    idempotencyKey: string;
+    topic: string | null;
+    summary: string;
+    decision?: string | null;
+    confidence?: number | null;
+    evidence?: Record<string, unknown>;
+    model?: string | null;
+    context: JarvisActiveContext | null;
+    sourceType: "conversation" | "chart" | "forecast" | "trade" | "backtest" | "tradingview";
+  }) {
+    if (!supabase || decisionLedgerUnavailableRef.current) return;
+    const { error } = await supabase.rpc("record_jarvis_decision_event", {
+      p_case_key: input.caseKey,
+      p_event_type: input.eventType,
+      p_topic: input.topic,
+      p_summary: input.summary.slice(0, 2000),
+      p_decision: input.decision || null,
+      p_confidence: Number.isFinite(input.confidence) ? input.confidence : null,
+      p_evidence: input.evidence || {},
+      p_source: input.eventType === "question" ? "user" : "jarvis",
+      p_model: input.model || null,
+      p_idempotency_key: input.idempotencyKey,
+      p_pair: input.context?.pair || null,
+      p_setup: input.context?.setup || null,
+      p_direction: null,
+      p_source_type: input.sourceType,
+      p_related_trade_id: input.context?.tradeId || null,
+      p_related_forecast_id: input.context?.forecastId || null,
+      p_related_backtest_id: input.context?.backtestId || null,
+      p_context: { dataSource: input.context?.dataSource || null },
+    });
+    if (error && ["42883", "PGRST202"].includes(String(error.code || ""))) decisionLedgerUnavailableRef.current = true;
+  }
+
+  async function persistSyncedConversation(nextConversations: JarvisConversations, allowEmpty = false) {
+    if (!supabase || (!Object.keys(nextConversations).length && !allowEmpty)) return;
     const syncedAt = new Date().toISOString();
     const payload = {
       entry_date: syncedAt.slice(0, 10),
-      content: `${JARVIS_CHAT_SYNC_PREFIX}\n${JSON.stringify({ messages: nextMessages.slice(-40), syncedAt })}`,
-      advice: "Jarvis cross-device conversation history.", image_url: "", pair: activeContext?.pair || null,
+      content: `${JARVIS_CHAT_SYNC_PREFIX}\n${JSON.stringify({ version: 2, conversations: nextConversations, syncedAt })}`,
+      advice: "Jarvis date-scoped cross-device conversation history.", image_url: "", pair: activeContext?.pair || null,
       related_trade_id: activeContext?.tradeId || null, related_discipline_id: activeContext?.forecastId || null, updated_at: syncedAt,
     };
     if (chatSyncEntryIdRef.current) await supabase.from("journal_entries").update(payload).eq("id", chatSyncEntryIdRef.current).eq("user_id", userId);
@@ -2457,6 +2608,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       role: message.role === "jarvis" ? "assistant" : "user",
       content: [message.title, message.text].filter(Boolean).join("\n"),
     }));
+    const conversationFocus = inferConversationFocus(cleanPrompt, recentHistory, Boolean(imageForRequest));
     const userMessage: JarvisMessage = { id: crypto.randomUUID(), role: "user", text: visiblePrompt, imagePreview: imageForRequest?.dataUrl, attachmentName: imageForRequest?.name, createdAt: new Date().toISOString() };
     setMessages((current) => [...current, userMessage]);
     setPrompt("");
@@ -2505,6 +2657,24 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         updatedAt: new Date().toISOString(),
       } : activeContext && (!requestedPair || activeContext.pair === requestedPair) ? activeContext : null;
       if (nextActiveContext && nextActiveContext !== activeContext) setAndSyncActiveContext(nextActiveContext);
+      const decisionCaseKey = nextActiveContext?.tradeId ? `trade:${nextActiveContext.tradeId}`
+        : nextActiveContext?.forecastId ? `forecast:${nextActiveContext.forecastId}`
+          : nextActiveContext?.backtestId ? `backtest:${nextActiveContext.backtestId}`
+            : `chart:${userMessage.id}`;
+      const decisionSourceType = nextActiveContext?.tradeId ? "trade"
+        : nextActiveContext?.forecastId ? "forecast"
+          : nextActiveContext?.backtestId ? "backtest"
+            : "chart";
+      if (imageForRequest) void recordDecisionIntelligenceEvent({
+        caseKey: decisionCaseKey,
+        eventType: "question",
+        idempotencyKey: `${userMessage.id}:question`,
+        topic: conversationFocus?.topic || "chart_review",
+        summary: cleanPrompt,
+        evidence: { chartAttached: true, previousChartAttached: Boolean(previousChartForRequest), inheritedFocus: conversationFocus?.inherited || false, attachmentName: imageForRequest.name },
+        context: nextActiveContext,
+        sourceType: decisionSourceType,
+      });
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
       const response = await fetch("/api/jarvis/chat", {
@@ -2546,6 +2716,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               activeForecastId: nextActiveContext?.forecastId || activeForecast?.id || null,
               lastChartAvailable: Boolean(imageForRequest || activeChartRecord?.screenshot),
               lastJarvisDecision: lastDecision,
+              conversationFocus,
               rollingConversation: recentHistory.slice(-8),
               pendingTradeDraft: tradeDraft,
               pendingForecastDraft: forecastDraft,
@@ -2648,6 +2819,27 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       if (shouldArchiveLearning && typeof payload.learningSummary === "string" && payload.learningSummary.trim()) {
         void persistLearningRecord(cleanPrompt, payload.learningSummary, learningSource);
       }
+      if (imageForRequest) void recordDecisionIntelligenceEvent({
+        caseKey: decisionCaseKey,
+        eventType: "assessment",
+        idempotencyKey: `${userMessage.id}:assessment`,
+        topic: conversationFocus?.topic || "chart_review",
+        summary: payload.answer,
+        decision: conversationFocus?.topic === "prior_price_action"
+          ? payload.chartAssessment?.priorPriceAction || null
+          : payload.chartAssessment?.decision || null,
+        confidence: Number(payload.chartAssessment?.confidence),
+        evidence: {
+          priorPriceAction: payload.chartAssessment?.priorPriceAction || null,
+          evidenceLevel: payload.chartAssessment?.evidenceLevel || null,
+          visibleEvidence: Array.isArray(payload.chartAssessment?.visibleEvidence) ? payload.chartAssessment.visibleEvidence.slice(0, 8) : [],
+          missingEvidence: Array.isArray(payload.chartAssessment?.missingEvidence) ? payload.chartAssessment.missingEvidence.slice(0, 8) : [],
+          conflictingEvidence: Array.isArray(payload.chartAssessment?.conflictingEvidence) ? payload.chartAssessment.conflictingEvidence.slice(0, 8) : [],
+        },
+        model: payload.model || null,
+        context: nextActiveContext,
+        sourceType: decisionSourceType,
+      });
       if (Number.isFinite(payload?.usage?.costUsd)) {
         const requestCost = Math.max(0, Number(payload.usage.costUsd));
         setSpend((current) => {
@@ -2827,6 +3019,27 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
 
           <div className="jarvis-layout">
             <aside className="jarvis-rail">
+              <section className="jarvis-mini-calendar" aria-label="Daily Jarvis chats">
+                <header>
+                  <button type="button" aria-label="Previous month" onClick={() => setCalendarMonth((current) => shiftCalendarMonth(current, -1))}><ChevronLeft size={14} /></button>
+                  <span><CalendarDays size={14} /><strong>{calendarMonthLabel}</strong></span>
+                  <button type="button" aria-label="Next month" onClick={() => setCalendarMonth((current) => shiftCalendarMonth(current, 1))}><ChevronRight size={14} /></button>
+                </header>
+                <div className="jarvis-calendar-weekdays" aria-hidden="true">{["S", "M", "T", "W", "T", "F", "S"].map((day, index) => <span key={`${day}:${index}`}>{day}</span>)}</div>
+                <div className="jarvis-calendar-days">
+                  {calendarDates.map((date, index) => date ? (
+                    <button
+                      type="button"
+                      key={date}
+                      className={`${date === selectedChatDate ? "is-selected" : ""}${date === localDateKey() ? " is-today" : ""}${chatDates.has(date) ? " has-chat" : ""}`}
+                      disabled={date > localDateKey() || isThinking}
+                      aria-label={`${date}${chatDates.has(date) ? ", has chat history" : ", no messages"}`}
+                      onClick={() => setSelectedChatDate(date)}
+                    ><span>{Number(date.slice(-2))}</span></button>
+                  ) : <i key={`empty:${index}`} />)}
+                </div>
+                <footer><i /><span>Chat history</span><button type="button" onClick={() => { const today = localDateKey(); setSelectedChatDate(today); setCalendarMonth(`${today.slice(0, 7)}-01`); }}>Today</button></footer>
+              </section>
               <div className="jarvis-rail-title"><Command size={15} /><span>Command center</span></div>
               <nav aria-label="Jarvis sections">
                 <button className="is-active" type="button"><Sparkles size={17} /> Intelligence <ChevronRight size={15} /></button>
@@ -2837,7 +3050,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <button type="button" onClick={() => askJarvis("Analyze my full Edge Lab. Show my strongest and weakest hours, sessions, weekdays, pairs, setups, and pair/setup combinations using deterministic data.")}><Clock size={17} /> Edge Lab</button>
                 <button type="button" onClick={() => askJarvis("Compare my live trades against my backtests.")}><Activity size={17} /> Live vs backtest</button>
                 <button className={showMemoryCenter ? "is-active" : ""} type="button" onClick={() => setShowMemoryCenter((current) => !current)}><BrainCircuit size={17} /> Memory <span>{memory.memories.length}</span></button>
-                <button type="button" onClick={() => { setMessages([]); void persistSyncedConversation([], true); setTradeDraft(null); setTradeDraftImage(null); setForecastDraft(null); setAndSyncActiveContext(null); setFeedbackTarget(null); setLastChartImage(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
+                <button type="button" onClick={() => { setMessages([]); void persistSyncedConversation({}, true); setTradeDraft(null); setTradeDraftImage(null); setForecastDraft(null); setAndSyncActiveContext(null); setFeedbackTarget(null); setLastChartImage(null); setAttachedImage(null); setAttachmentError(""); setPrompt(""); }}><RefreshCcw size={17} /> New conversation</button>
               </nav>
 
               {showMemoryCenter ? <section className="jarvis-memory-center">
@@ -2913,6 +3126,10 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
             </aside>
 
             <main className="jarvis-conversation">
+              <div className="jarvis-chat-daybar">
+                <div><CalendarDays size={15} /><span><strong>{selectedChatDate === localDateKey() ? "Today" : selectedDateLabel}</strong><small>{messages.length ? `${messages.length} message${messages.length === 1 ? "" : "s"}` : "New daily chat"}</small></span></div>
+                <div><input type="date" max={localDateKey()} value={selectedChatDate} aria-label="Open Jarvis chat date" disabled={isThinking} onChange={(event) => { if (!event.target.value) return; setSelectedChatDate(event.target.value); setCalendarMonth(`${event.target.value.slice(0, 7)}-01`); }} />{selectedChatDate !== localDateKey() ? <button type="button" onClick={() => { const today = localDateKey(); setSelectedChatDate(today); setCalendarMonth(`${today.slice(0, 7)}-01`); }}>Back to today</button> : null}</div>
+              </div>
               <div className="jarvis-feed" ref={feedRef}>
                 {messages.length === 0 ? (
                   <div className="jarvis-welcome">
@@ -3063,7 +3280,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   ref={inputRef}
                   rows={1}
                   value={prompt}
-                  placeholder={voicePhase === "listening" ? "Listening…" : attachedImage ? "Ask Jarvis about this chart..." : "Ask Jarvis about trading or life..."}
+                  placeholder={voicePhase === "listening" ? "Listening…" : attachedImage ? "Ask Jarvis about this chart..." : selectedChatDate === localDateKey() ? "Ask Jarvis about trading or life..." : `Reply in the ${selectedChatDate} chat...`}
                   onChange={(event) => setPrompt(event.target.value)}
                   onPaste={pasteImage}
                   onKeyDown={(event) => {
@@ -3118,7 +3335,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><Clock size={16} /><span>Trading journey</span><b>{journey.length}</b></header>
                 {journey.length ? journey.slice(0, 6).map((event) => <div key={event.id}><i className={`is-${event.kind}`} /><span><strong>{event.title}</strong><small>{event.detail}</small></span></div>) : <p>Your forecast-to-result timeline will build here.</p>}
               </section>
-              <section className="jarvis-context-card">
+              <section className="jarvis-context-card jarvis-execution-card">
                 <header><Gauge size={16} /><span>Execution pulse</span></header>
                 <div className="jarvis-quality-gauge" style={{ "--jarvis-gauge": `${qualityRate * 3.6}deg` } as CSSProperties}><strong>{qualityRate}%</strong><small>Good</small></div>
                 <p>{reviewedTrades.length ? `${goodTrades} Good executions from ${reviewedTrades.length} reviewed trades.` : "Rate trades to activate your quality pulse."}</p>

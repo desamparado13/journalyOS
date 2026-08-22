@@ -1600,7 +1600,7 @@ label span,
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 218px minmax(420px, 1fr) 294px;
+  grid-template-columns: 230px minmax(420px, 1fr) 220px;
   min-height: 0;
 }
 
@@ -1615,6 +1615,32 @@ label span,
 }
 .jarvis-rail { display: flex; flex-direction: column; border-right: 1px solid rgba(125, 211, 252, 0.11); }
 .jarvis-context-panel { display: grid; align-content: start; gap: 12px; border-left: 1px solid rgba(125, 211, 252, 0.11); }
+.jarvis-rail > :not(.jarvis-mini-calendar):not(.jarvis-spend-card),
+.jarvis-context-panel > :not(.jarvis-execution-card) { display: none !important; }
+.jarvis-mini-calendar { display: grid; gap: 11px; padding: 13px; border: 1px solid rgba(103, 232, 249, 0.16); border-radius: 14px; background: linear-gradient(150deg, rgba(8, 34, 49, 0.82), rgba(3, 16, 27, 0.92)); box-shadow: inset 0 1px rgba(255, 255, 255, 0.025); }
+.jarvis-mini-calendar header { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; gap: 6px; align-items: center; }
+.jarvis-mini-calendar header > span { display: flex; min-width: 0; align-items: center; justify-content: center; gap: 6px; color: #79dcea; }
+.jarvis-mini-calendar header strong { overflow: hidden; color: #c7eef4; font-size: 0.67rem; text-overflow: ellipsis; white-space: nowrap; }
+.jarvis-mini-calendar header button,
+.jarvis-mini-calendar footer button { display: grid; min-height: 28px; padding: 0; place-items: center; border: 1px solid rgba(125, 211, 252, 0.11); border-radius: 8px; color: #7195a7; background: rgba(7, 25, 37, 0.8); cursor: pointer; }
+.jarvis-mini-calendar header button:hover,
+.jarvis-mini-calendar footer button:hover { color: #dffcff; border-color: rgba(103, 232, 249, 0.3); background: rgba(34, 211, 238, 0.08); }
+.jarvis-calendar-weekdays,
+.jarvis-calendar-days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.jarvis-calendar-weekdays span { color: #42687b; font-size: 0.51rem; font-weight: 850; text-align: center; }
+.jarvis-calendar-days > button,
+.jarvis-calendar-days > i { position: relative; display: grid; aspect-ratio: 1; min-width: 0; place-items: center; border: 0; border-radius: 7px; color: #66899b; background: transparent; font: inherit; font-size: 0.58rem; font-style: normal; cursor: pointer; }
+.jarvis-calendar-days > button:hover:not(:disabled) { color: #dffcff; background: rgba(34, 211, 238, 0.09); }
+.jarvis-calendar-days > button.is-today { box-shadow: inset 0 0 0 1px rgba(103, 232, 249, 0.28); color: #9cecf4; }
+.jarvis-calendar-days > button.is-selected { color: #03131d; background: #67e8f9; box-shadow: 0 0 14px rgba(34, 211, 238, 0.22); font-weight: 900; }
+.jarvis-calendar-days > button.has-chat::after { position: absolute; right: 3px; bottom: 2px; left: 3px; height: 2px; border-radius: 999px; background: #2dd4bf; box-shadow: 0 0 5px rgba(45, 212, 191, 0.65); content: ""; }
+.jarvis-calendar-days > button.is-selected.has-chat::after { background: #075985; box-shadow: none; }
+.jarvis-calendar-days > button:disabled { opacity: 0.22; cursor: default; }
+.jarvis-mini-calendar footer { display: flex; align-items: center; gap: 6px; padding-top: 2px; color: #55798a; font-size: 0.55rem; }
+.jarvis-mini-calendar footer > i { width: 5px; height: 5px; border-radius: 50%; background: #2dd4bf; box-shadow: 0 0 5px rgba(45, 212, 191, 0.6); }
+.jarvis-mini-calendar footer button { width: auto; min-height: 24px; margin-left: auto; padding: 0 8px; font-size: 0.55rem; font-weight: 750; }
+.jarvis-rail > .jarvis-spend-card { margin-top: 12px; margin-bottom: 0; }
+.jarvis-context-panel > .jarvis-execution-card { display: block; }
 .jarvis-rail-title { gap: 8px; padding: 0 8px 16px; color: #63869a; font-size: 0.65rem; font-weight: 800; letter-spacing: 0.13em; text-transform: uppercase; }
 .jarvis-rail nav { display: grid; gap: 5px; }
 .jarvis-rail nav button {
@@ -1711,7 +1737,17 @@ label span,
 .jarvis-safety-card strong { display: block; color: #a7f3d0; font-size: 0.7rem; }
 .jarvis-safety-card p { margin: 2px 0 0; color: #57798a; font-size: 0.61rem; line-height: 1.35; }
 
-.jarvis-conversation { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.jarvis-conversation { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
+.jarvis-chat-daybar { display: flex; min-height: 54px; align-items: center; justify-content: space-between; gap: 12px; padding: 8px clamp(18px, 4vw, 44px); border-bottom: 1px solid rgba(125, 211, 252, 0.09); background: rgba(3, 13, 23, 0.58); }
+.jarvis-chat-daybar > div { display: flex; align-items: center; gap: 9px; color: #67e8f9; }
+.jarvis-chat-daybar > div > span { display: grid; gap: 1px; }
+.jarvis-chat-daybar strong { color: #b8dce6; font-size: 0.7rem; }
+.jarvis-chat-daybar small { color: #4d7184; font-size: 0.56rem; }
+.jarvis-chat-daybar input,
+.jarvis-chat-daybar button { min-height: 30px; border: 1px solid rgba(125, 211, 252, 0.13); border-radius: 8px; color: #83a9ba; background: rgba(5, 21, 33, 0.9); font: inherit; font-size: 0.6rem; font-weight: 700; color-scheme: dark; }
+.jarvis-chat-daybar input { width: 118px; padding: 0 7px; }
+.jarvis-chat-daybar button { padding: 0 9px; cursor: pointer; }
+.jarvis-chat-daybar button:hover { color: #d9fbff; border-color: rgba(103, 232, 249, 0.3); }
 .jarvis-feed { min-height: 0; padding: 28px clamp(22px, 5vw, 72px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(56, 189, 248, 0.3) transparent; }
 .jarvis-welcome { display: grid; justify-items: center; width: min(720px, 100%); min-height: 100%; margin: auto; align-content: center; text-align: center; }
 .jarvis-hero-core { position: relative; display: grid; width: 118px; height: 118px; margin-bottom: 24px; place-items: center; }
@@ -1894,7 +1930,7 @@ label span,
 @keyframes jarvis-notification-in { from { opacity: 0; transform: translateY(-12px) scale(0.97); } }
 
 @media (max-width: 1100px) {
-  .jarvis-layout { grid-template-columns: 190px minmax(380px, 1fr) 250px; }
+  .jarvis-layout { grid-template-columns: 210px minmax(380px, 1fr) 210px; }
   .jarvis-context-panel { padding-inline: 12px; }
   .jarvis-feed { padding-inline: 24px; }
 }

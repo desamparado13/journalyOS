@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import worker, { detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isPriorPriceActionIntent, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal, verifiedPriorPriceActionAnswer } from "../server/index.js";
+import worker, { detectChartInteractionMode, detectConversationMode, enforceChartEvidenceGate, explicitPriorPriceAction, feedbackStyleExamples, isContextualChartFollowUp, isPriorPriceActionIntent, resolveChartConversationFocus, selectRelevantMemories, syncedMemoriesFromJournal, syncedSessionFromJournal, verifiedPriorPriceActionAnswer } from "../server/index.js";
 
 const chart = "data:image/png;base64,test";
 const activeTradeMessages = [
@@ -36,6 +36,11 @@ assert.equal(detectConversationMode("Can we talk about my relationship?", null, 
 
 assert.equal(isPriorPriceActionIntent("what kind of prior price actions is this?"), true);
 assert.equal(isPriorPriceActionIntent("whats this ppa from the 5"), true);
+assert.equal(isContextualChartFollowUp("how about this?"), true);
+assert.equal(resolveChartConversationFocus("how about this?", [{ role: "user", content: "what is this PPA?" }], {}, chart), "prior_price_action");
+assert.equal(resolveChartConversationFocus("how about this?", [], { conversationFocus: { topic: "prior_price_action" } }, chart), "prior_price_action");
+assert.equal(resolveChartConversationFocus("how about this?", [{ role: "user", content: "what is this PPA?" }], {}, null), null);
+assert.equal(resolveChartConversationFocus("analyze the setup", [{ role: "user", content: "what is this PPA?" }], {}, chart), null);
 assert.equal(explicitPriorPriceAction("This is an established trend example."), "Established Trend");
 const establishedTrendAssessment = enforceChartEvidenceGate({
   setupCandidate: null,
@@ -174,6 +179,62 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+let ppaFollowUpRequest = null;
+globalThis.fetch = async (_url, init) => {
+  ppaFollowUpRequest = JSON.parse(init.body);
+  return Response.json({
+    output_text: JSON.stringify({
+      answer: "placeholder",
+      learningSummary: null,
+      memoryUpdates: [],
+      tradeAction: null,
+      forecastAction: null,
+      positionSizingAction: null,
+      positionProfileAction: null,
+      chartAssessment: {
+        setupCandidate: null,
+        direction: "Short",
+        priorPriceAction: "Descending Channel",
+        decision: "WATCH",
+        visibleEvidence: ["Lower swing highs are visible.", "Price continues to respect a descending structure."],
+        missingEvidence: [],
+        conflictingEvidence: [],
+        features: { ppaQuality: "Strong", trendVisible: true },
+      },
+    }),
+    usage: {},
+  });
+};
+try {
+  const response = await worker.fetch(new Request("http://local/api/jarvis/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      userId: "ppa-continuity-test",
+      question: "how about this?",
+      history: [
+        { role: "user", content: "what is this PPA?" },
+        { role: "assistant", content: "This is Established Trend prior price action." },
+      ],
+      chartImage: chart,
+      previousChartImage: "data:image/png;base64,previous",
+      context: { sessionState: { conversationFocus: { topic: "prior_price_action", label: "PPA classification", inherited: true } } },
+    }),
+  }), {
+    OPENAI_API_KEY: "test-key",
+    OPENAI_JARVIS_MODEL: "test-model",
+    JARVIS_AUTH_BYPASS_USER_ID: "ppa-continuity-test",
+    JARVIS_AUTH_BYPASS_EMAIL: "christian.angelo.desamparado@gmail.com",
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.match(payload.answer, /\*\*Descending Channel\*\*/);
+  assert.doesNotMatch(payload.answer, /\b(?:TAKE|WATCH|SKIP)\b/);
+  assert.match(ppaFollowUpRequest.input.at(-1).content[0].text, /"conversationFocus":\{"topic":"prior_price_action","inherited":true\}/);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 let companionRequest = null;
 globalThis.fetch = async (_url, init) => {
   companionRequest = JSON.parse(init.body);
@@ -213,4 +274,4 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log("Jarvis intelligence routing and companion context: 35/35 passed");
+console.log("Jarvis intelligence routing and companion context tests passed");

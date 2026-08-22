@@ -26,6 +26,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 
 Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades`, `backtests`, and Journal tables plus row-level security policies. Then run `supabase-trade-decisions.sql` to create the Discipline log table, followed by `supabase-journal-entries.sql` to enable secure Journal links to Discipline entries.
 
+Run `supabase-jarvis-decision-intelligence.sql` to enable Jarvis's auditable decision-case ledger. Chart questions and Jarvis assessments then dual-write as linked evidence events; the app remains compatible while this optional migration is pending.
+
 If you already created the table before the importer existed, run the latest `supabase-schema.sql` again. It includes additive `alter table ... add column if not exists` statements for Journaly V2 import metadata.
 
 If the app cannot load Discipline entries because `public.trade_decisions` is missing, run `supabase-trade-decisions.sql` against the Supabase project configured in `.env.local`. The script reloads the API schema cache when it finishes.

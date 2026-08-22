@@ -14,6 +14,8 @@
     "test:trade-update": "node scripts/test-jarvis-trade-update.mjs",
     "test:action-engine": "node scripts/test-jarvis-action-engine.mjs",
     "test:latency-routing": "node scripts/test-jarvis-latency-routing.mjs",
+    "test:interaction": "node scripts/test-jarvis-interaction-mode.mjs",
+    "test:daily-chat": "node scripts/test-jarvis-daily-chat.mjs",
     "test:voice": "node scripts/test-jarvis-voice.mjs",
     "test:position-sizing": "node scripts/test-position-sizing.mjs",
     "test:streaks": "node scripts/test-jarvis-streaks.mjs",
