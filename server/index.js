@@ -92,12 +92,6 @@ JARVIS CHART TRUST CONTRACT
 - A visibly failed mandatory strategy condition may justify SKIP or INVALIDATED. A mandatory condition that is merely outside the screenshot is unknown, not failed.
 - TAKE requires every mandatory setup component to be visibly supported. Otherwise, prefer WATCH when the idea remains plausible and SKIP only when visible evidence conflicts with the playbook.
 - For Flag+, higher-timeframe alignment must be visible. For EU timed entry, the session window must be visible. Do not infer either from the user's label.`;
-const JARVIS_LOCAL_COPROCESSOR_INSTRUCTIONS = `
-JARVIS LOCAL GPU COPROCESSOR
-- localCoprocessor is an optional draft produced privately on Pot's computer by a local Ollama model.
-- Treat it as an untrusted second opinion, never as authenticated evidence or the final decision.
-- Check its claims against the current chart, authenticated Journaly records, deterministic tools, and Pot's rules. Silently discard anything unsupported.
-- Do not mention the local draft unless it materially helped or conflicted with verified evidence. Jarvis remains responsible for the final answer.`;
 const JARVIS_CONVERSATION_INSTRUCTIONS = `
 JARVIS CONVERSATION RELEVANCE
 - Write in the natural, polished style of a strong ChatGPT answer: direct, fluid, context-aware, and appropriately detailed. Jarvis is the product name, not a character performance.
@@ -3020,12 +3014,6 @@ async function handleJarvis(request, env) {
     contextGraph: buildJarvisContextGraph(toolData),
     conversationFocus: chartConversationFocus ? { topic: chartConversationFocus, inherited: !isPriorPriceActionIntent(question) } : null,
     chartComparisonAvailable: Boolean(previousChartImage && chartImage),
-    localCoprocessor: journalData?.localCoprocessor && typeof journalData.localCoprocessor === "object" ? {
-      provider: "Ollama",
-      model: String(journalData.localCoprocessor.model || "local-model").slice(0, 120),
-      analysis: String(journalData.localCoprocessor.analysis || "").slice(0, 5000),
-      latencyMs: Number(journalData.localCoprocessor.latencyMs || 0),
-    } : null,
     relevantMemories,
     styleExamples,
     positionSizing: fastLane ? null : toolData.positionSizing,
@@ -3074,7 +3062,7 @@ async function handleJarvis(request, env) {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
       const requestBody = {
       model: connection.modelName(model),
-      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_LOCAL_COPROCESSOR_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
+      instructions: fastLane ? JARVIS_FAST_CONVERSATION_INSTRUCTIONS : `${isOwnerProfile ? `${JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_OWNER_KNOWLEDGE}` : JARVIS_SYSTEM_PROMPT}\n\n${JARVIS_CONVERSATION_INSTRUCTIONS}\n\n${JARVIS_COMPANION_INSTRUCTIONS}\n\n${JARVIS_MEMORY_INSTRUCTIONS}\n\n${JARVIS_TRADE_WRITE_INSTRUCTIONS}\n\n${JARVIS_FORECAST_INSTRUCTIONS}\n\n${JARVIS_POSITION_SIZING_INSTRUCTIONS}\n\n${JARVIS_ANALYTICS_INSTRUCTIONS}\n\n${JARVIS_EVIDENCE_INSTRUCTIONS}\n\n${JARVIS_SELF_REVIEW_INSTRUCTIONS}`,
       input: roundInput,
       max_output_tokens: reasoningRoute.maxOutputTokens,
       store: false,
@@ -3284,7 +3272,7 @@ async function handleJarvis(request, env) {
       else if (verifiedLastAlertResult) result.answer = verifiedLastAlertAnswer(verifiedLastAlertResult);
       else if (verifiedArchiveResults.length) result.answer = verifiedArchiveViewsAnswer(verifiedArchiveResults) || result.answer;
       else if (verifiedStatResult) result.answer = verifiedStatisticsAnswer(verifiedStatResult) || result.answer;
-      return json({ ...result, proactiveSchedule, conversationMode, responseLane: reasoningRoute.lane, reasoningEffort: reasoningRoute.effort, localCoprocessorUsed: Boolean(compactContext.localCoprocessor?.analysis), responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
+      return json({ ...result, proactiveSchedule, conversationMode, responseLane: reasoningRoute.lane, reasoningEffort: reasoningRoute.effort, responseTimeMs: Date.now() - startedAt, historicalMatches, model, provider: connection.provider, chartCompared: Boolean(previousChartImage && chartImage), chartReviewed: Boolean(chartImage), toolsUsed: [...new Set(toolCallsUsed)], selfReview: { contextMatched: true, evidenceBounded: !/\b(live price|currently trading at|market is now)\b/i.test(result.answer) || Boolean(chartImage), toneAligned: !/no entry is validated|evidence:\s*partial|what remains unclear/i.test(result.answer) }, usage: usageSummary(model, usage) });
     }
   }
 

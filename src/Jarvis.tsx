@@ -53,8 +53,6 @@ const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
 const JARVIS_MONITOR_NOTIFIED_KEY_PREFIX = "journaly-os-jarvis-monitor-notified-v1";
 const JARVIS_OBSERVATION_SNAPSHOT_KEY_PREFIX = "journaly-os-jarvis-observation-v1";
 const JARVIS_AUTOPILOT_BRIEFING_KEY_PREFIX = "journaly-os-jarvis-autopilot-briefing-v1";
-const JARVIS_LOCAL_PAGE_SOURCE = "journaly-os";
-const JARVIS_LOCAL_EXTENSION_SOURCE = "journaly-local-bridge";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
@@ -303,18 +301,6 @@ type JarvisActiveContext = {
   forecastId: string | null;
   dataSource: "live" | "backtest" | "forecast" | null;
   updatedAt: string;
-};
-
-type JarvisLocalCoprocessorState = {
-  checked: boolean;
-  available: boolean;
-  model: string | null;
-};
-
-type JarvisLocalCoprocessorResult = JarvisLocalCoprocessorState & {
-  analysis: string | null;
-  latencyMs?: number;
-  error?: string;
 };
 
 type JarvisActionReceipt = {
@@ -1244,7 +1230,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [monitorClock, setMonitorClock] = useState(() => Date.now());
   const [recentChanges, setRecentChanges] = useState<JarvisMonitorItem[]>([]);
   const [observationReady, setObservationReady] = useState(false);
-  const [localCoprocessor, setLocalCoprocessor] = useState<JarvisLocalCoprocessorState>({ checked: false, available: false, model: null });
   const [lastActionReceipt, setLastActionReceipt] = useState<JarvisActionReceipt | null>(() => decodeLatestInternal<JarvisActionReceipt>(journalEntries, JARVIS_ACTION_RECEIPT_PREFIX)?.value || null);
   const messages = conversations[selectedChatDate] || [];
   function setMessagesForDate(targetDate: string, update: JarvisMessage[] | ((current: JarvisMessage[]) => JarvisMessage[])) {
@@ -1290,7 +1275,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const observationTimerRef = useRef<number | null>(null);
   const proactiveCheckinRef = useRef(new Set<string>());
   const decisionLedgerUnavailableRef = useRef(false);
-  const localCoprocessorRequestsRef = useRef(new Map<string, (result: JarvisLocalCoprocessorResult | null) => void>());
   const isOpenRef = useRef(isOpen);
   const orbDrag = useRef({ pointerId: -1, offsetX: 0, offsetY: 0, startX: 0, startY: 0, moved: false });
 
@@ -1767,44 +1751,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       return updated;
     });
   }, [activeContext, trades]);
-
-  useEffect(() => {
-    const requestState = () => window.postMessage({ source: JARVIS_LOCAL_PAGE_SOURCE, type: "JOURNALY_LOCAL_REQUEST" }, window.location.origin);
-    const receiveState = (event: MessageEvent) => {
-      if (event.source !== window || event.origin !== window.location.origin || event.data?.source !== JARVIS_LOCAL_EXTENSION_SOURCE) return;
-      if (event.data.type === "JOURNALY_LOCAL_READY") requestState();
-      if (event.data.type === "JOURNALY_LOCAL_STATE") {
-        const state = event.data.state && typeof event.data.state === "object" ? event.data.state : {};
-        setLocalCoprocessor({ checked: true, available: state.available === true, model: typeof state.model === "string" ? state.model : null });
-      }
-      if (event.data.type === "JOURNALY_LOCAL_RESULT") {
-        const requestId = String(event.data.requestId || "");
-        const resolve = localCoprocessorRequestsRef.current.get(requestId);
-        if (!resolve) return;
-        localCoprocessorRequestsRef.current.delete(requestId);
-        const result = event.data.result && typeof event.data.result === "object" ? event.data.result : null;
-        resolve(result ? {
-          checked: true,
-          available: result.available === true,
-          model: typeof result.model === "string" ? result.model : null,
-          analysis: typeof result.analysis === "string" ? result.analysis.slice(0, 5000) : null,
-          latencyMs: Number.isFinite(Number(result.latencyMs)) ? Number(result.latencyMs) : undefined,
-          error: typeof result.error === "string" ? result.error : undefined,
-        } : null);
-      }
-    };
-    window.addEventListener("message", receiveState);
-    requestState();
-    const poll = window.setInterval(requestState, 5000);
-    const unavailable = window.setTimeout(() => setLocalCoprocessor((current) => current.checked ? current : { ...current, checked: true }), 1200);
-    return () => {
-      window.removeEventListener("message", receiveState);
-      window.clearInterval(poll);
-      window.clearTimeout(unavailable);
-      localCoprocessorRequestsRef.current.forEach((resolve) => resolve(null));
-      localCoprocessorRequestsRef.current.clear();
-    };
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(`${JARVIS_VOICE_REPLIES_KEY_PREFIX}:${userId}`, String(voiceReplies));
@@ -2529,30 +2475,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }
   }
 
-  async function requestLocalCoprocessorAnalysis(question: string, history: Array<{ role: string; content: string }>, image: string | null) {
-    if (!localCoprocessor.available || !localCoprocessor.model) return null;
-    const requestId = crypto.randomUUID();
-    const result = await new Promise<JarvisLocalCoprocessorResult | null>((resolve) => {
-      localCoprocessorRequestsRef.current.set(requestId, resolve);
-      window.postMessage({
-        source: JARVIS_LOCAL_PAGE_SOURCE,
-        type: "JOURNALY_LOCAL_ANALYZE",
-        requestId,
-        question,
-        context: JSON.stringify({ recentConversation: history.slice(-6), activePair: activeContext?.pair || null, activeSetup: activeContext?.setup || null, dataSource: activeContext?.dataSource || null }),
-        image,
-      }, window.location.origin);
-      window.setTimeout(() => {
-        const pending = localCoprocessorRequestsRef.current.get(requestId);
-        if (!pending) return;
-        localCoprocessorRequestsRef.current.delete(requestId);
-        pending(null);
-      }, 26000);
-    });
-    if (result) setLocalCoprocessor({ checked: true, available: result.available, model: result.model });
-    return result?.available && result.analysis ? result : null;
-  }
-
   async function askJarvis(nextPrompt: string) {
     const visiblePrompt = nextPrompt.trim();
     const imageForRequest = attachedImage;
@@ -2603,11 +2525,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     setIsThinking(true);
     const requestController = new AbortController();
     requestAbortRef.current = requestController;
-    const useLocalCoprocessor = Boolean(imageForRequest) || /\b(?:analy[sz]e|compare|reconcil|decision|ppa|risk|review|why|plan|strategy)\b/i.test(cleanPrompt);
-    const localCoprocessorPromise = useLocalCoprocessor
-      ? requestLocalCoprocessorAnalysis(cleanPrompt, recentHistory, imageForRequest?.dataUrl || null)
-      : Promise.resolve(null);
-
     try {
       const orderedTrades = latestFirst(trades);
       const orderedBacktests = latestFirst(backtests);
@@ -2667,7 +2584,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       });
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
-      const localDraft = await localCoprocessorPromise;
       const response = await fetch("/api/jarvis/chat", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
@@ -2696,7 +2612,6 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               activeForecasts: activeForecasts.length,
               learnedCases: learningRecords.length,
             },
-            localCoprocessor: localDraft ? { model: localDraft.model, analysis: localDraft.analysis, latencyMs: localDraft.latencyMs || 0 } : null,
             positionSizing,
             sessionState: {
               activeContextExplicit: true,

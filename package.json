@@ -6,8 +6,7 @@
   "description": "Premium trading journal for FX execution review.",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-edge-companion.mjs && tsc -p tsconfig.json && vite build && node scripts/prepare-sites-build.mjs",
-    "build:edge-companion": "node scripts/build-edge-companion.mjs",
+    "build": "tsc -p tsconfig.json && vite build && node scripts/prepare-sites-build.mjs",
     "analyze:jarvis-images": "node scripts/analyze-jarvis-reference-images.mjs",
     "analyze:jarvis-backtests": "node scripts/analyze-jarvis-backtests.mjs",
     "test:jarvis": "node scripts/test-jarvis-api.mjs",
@@ -20,7 +19,6 @@
     "test:position-sizing": "node scripts/test-position-sizing.mjs",
     "test:streaks": "node scripts/test-jarvis-streaks.mjs",
     "test:edge-views": "node scripts/test-jarvis-edge-views.mjs",
-    "test:edge-companion": "node scripts/test-edge-companion.mjs",
     "test:proactive": "node scripts/test-jarvis-proactive.mjs",
     "test:monitoring": "node scripts/test-jarvis-monitoring.mjs",
     "test:autopilot": "node scripts/test-jarvis-autopilot-routine.mjs",
