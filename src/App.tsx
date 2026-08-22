@@ -320,6 +320,7 @@ type AppView =
   | "trade-calendar"
   | "monthly-heatmap"
   | "week-edge"
+  | "edge-discovery"
   | "trade-performance"
   | "yearly-comparison"
   | "discipline"
@@ -346,6 +347,8 @@ const appViews: readonly AppView[] = [
   "trade-images",
   "trade-calendar",
   "monthly-heatmap",
+  "week-edge",
+  "edge-discovery",
   "trade-performance",
   "yearly-comparison",
   "discipline",
@@ -364,6 +367,27 @@ type SessionUser = {
 };
 
 type TradeQuality = "Good" | "Mid" | "Bad";
+
+type EdgeDiscoveryConfidence = "Exploratory" | "Developing" | "Established";
+type EdgeDiscoveryStatus = "Validated" | "Emerging" | "Diverging" | "Weak" | "Unproven";
+type EdgeDiscoveryRow = {
+  id: string;
+  label: string;
+  dimensions: string[];
+  liveSamples: number;
+  liveTotalR: number;
+  liveExpectancy: number;
+  liveWinRate: number;
+  liveProfitFactor: number;
+  liveMaxDrawdown: number;
+  goodExecutionRate: number | null;
+  reviewedTrades: number;
+  backtestSamples: number;
+  backtestExpectancy: number | null;
+  confidence: EdgeDiscoveryConfidence;
+  status: EdgeDiscoveryStatus;
+  score: number;
+};
 
 type Trade = {
   id: string;
@@ -1433,6 +1457,145 @@ function buildSessionEdgeSummary(items: JournalItem[]) {
     weakestCombo: [...byCombo].sort((a, b) => a.totalR - b.totalR)[0],
     totalEntries: sessionEntries.length,
   };
+}
+
+function formatEdgeTimeWindow(time: string) {
+  const [hour = 0] = time.split(":").map(Number);
+  const start = Math.floor(hour / 3) * 3;
+  const end = (start + 3) % 24;
+  return `${formatMinuteLabel(start * 60)}-${formatMinuteLabel(end * 60)}`;
+}
+
+function buildEdgeDiscovery(trades: Trade[], backtests: Backtest[]) {
+  type DiscoveryItem = Trade | Backtest;
+  type DimensionKey = "setup" | "pair" | "session" | "weekday" | "direction" | "time";
+  type DimensionPair = [DimensionKey, string];
+  type DiscoveryGroup = { label: string; dimensions: string[]; items: DiscoveryItem[] };
+
+  const recipes: DimensionKey[][] = [
+    ["setup", "pair"],
+    ["setup", "session"],
+    ["pair", "session"],
+    ["setup", "weekday"],
+    ["setup", "direction"],
+    ["setup", "time"],
+    ["setup", "pair", "session"],
+  ];
+  const dimensionNames: Record<DimensionKey, string> = {
+    setup: "Setup",
+    pair: "Pair",
+    session: "Session",
+    weekday: "Weekday",
+    direction: "Direction",
+    time: "Time window",
+  };
+
+  function dimensionValues(item: DiscoveryItem) {
+    return {
+      setup: [item.setup],
+      pair: [item.pair],
+      session: getEdgeSessionsForTime(item.time),
+      weekday: [parseDatedItemDate(item).toLocaleDateString("en-US", { weekday: "long" })],
+      direction: [item.direction],
+      time: [formatEdgeTimeWindow(item.time)],
+    } satisfies Record<DimensionKey, string[]>;
+  }
+
+  function addItems(items: DiscoveryItem[]) {
+    const groups = new Map<string, DiscoveryGroup>();
+    items.forEach((item) => {
+      const values = dimensionValues(item);
+      recipes.forEach((recipe) => {
+        const combinations = recipe.reduce<DimensionPair[][]>(
+          (current, key) => current.flatMap((combination) =>
+            values[key].map((value) => [...combination, [key, value] as DimensionPair])),
+          [[]],
+        );
+        combinations.forEach((combination) => {
+          const id = JSON.stringify(combination);
+          const dimensions = combination.map(([key]) => dimensionNames[key]);
+          const label = combination.map(([key, value]) => `${dimensionNames[key]}: ${value}`).join(" · ");
+          const group: DiscoveryGroup = groups.get(id) || { label, dimensions, items: [] };
+          group.items.push(item);
+          groups.set(id, group);
+        });
+      });
+    });
+    return groups;
+  }
+
+  function summarize(items: DiscoveryItem[]) {
+    const ordered = [...items].sort((a, b) => parseDatedItemDate(a).getTime() - parseDatedItemDate(b).getTime());
+    let equity = 0;
+    let peak = 0;
+    let maxDrawdown = 0;
+    let wins = 0;
+    let grossWin = 0;
+    let grossLoss = 0;
+    ordered.forEach((item) => {
+      equity += item.pnl;
+      peak = Math.max(peak, equity);
+      maxDrawdown = Math.max(maxDrawdown, peak - equity);
+      if (item.pnl > 0) {
+        wins += 1;
+        grossWin += item.pnl;
+      } else if (item.pnl < 0) {
+        grossLoss += Math.abs(item.pnl);
+      }
+    });
+    const totalR = ordered.reduce((sum, item) => sum + item.pnl, 0);
+    return {
+      samples: ordered.length,
+      totalR,
+      expectancy: ordered.length ? totalR / ordered.length : 0,
+      winRate: ordered.length ? Math.round((wins / ordered.length) * 100) : 0,
+      profitFactor: grossLoss === 0 ? grossWin : grossWin / grossLoss,
+      maxDrawdown,
+    };
+  }
+
+  const liveGroups = addItems(trades);
+  const backtestGroups = addItems(backtests);
+  const rows: EdgeDiscoveryRow[] = Array.from(liveGroups.entries()).map(([id, group]) => {
+    const live = summarize(group.items);
+    const testedItems = backtestGroups.get(id)?.items || [];
+    const tested = summarize(testedItems);
+    const reviewed = group.items.filter((item): item is Trade => "quality" in item && item.quality !== null);
+    const goodExecutions = reviewed.filter((item) => item.quality === "Good").length;
+    const confidence: EdgeDiscoveryConfidence = live.samples >= 30 ? "Established" : live.samples >= 15 ? "Developing" : "Exploratory";
+    const hasDirectionalConflict = tested.samples >= 10 && Math.sign(live.expectancy) !== Math.sign(tested.expectancy);
+    const status: EdgeDiscoveryStatus =
+      live.samples >= 10 && tested.samples >= 20 && live.expectancy > 0 && tested.expectancy > 0
+        ? "Validated"
+        : live.samples >= 5 && hasDirectionalConflict
+          ? "Diverging"
+          : live.samples >= 5 && live.expectancy <= 0
+            ? "Weak"
+            : live.expectancy > 0
+              ? "Emerging"
+              : "Unproven";
+
+    return {
+      id,
+      label: group.label,
+      dimensions: group.dimensions,
+      liveSamples: live.samples,
+      liveTotalR: live.totalR,
+      liveExpectancy: live.expectancy,
+      liveWinRate: live.winRate,
+      liveProfitFactor: live.profitFactor,
+      liveMaxDrawdown: live.maxDrawdown,
+      goodExecutionRate: reviewed.length ? Math.round((goodExecutions / reviewed.length) * 100) : null,
+      reviewedTrades: reviewed.length,
+      backtestSamples: tested.samples,
+      backtestExpectancy: tested.samples ? tested.expectancy : null,
+      confidence,
+      status,
+      score: live.expectancy * Math.sqrt(Math.min(live.samples, 30)),
+    };
+  });
+
+  return rows.sort((a, b) => b.score - a.score || b.liveSamples - a.liveSamples);
 }
 
 function summarizeJournalItems(year: string, items: JournalItem[]): YearlyComparisonRow {
@@ -2995,6 +3158,8 @@ export default function App() {
       mostActiveDay: [...activeDays].sort((a, b) => b.trades - a.trades || b.totalR - a.totalR)[0],
     };
   }, [trades, weekEdgeMonth]);
+
+  const edgeDiscovery = useMemo(() => buildEdgeDiscovery(trades, backtests), [backtests, trades]);
 
   const performanceBreakdown = useMemo(() => {
     function summarize(label: string, groupTrades: Trade[]) {
@@ -5027,6 +5192,7 @@ export default function App() {
               activeView === "trade-calendar" ||
               activeView === "monthly-heatmap" ||
               activeView === "week-edge" ||
+              activeView === "edge-discovery" ||
               activeView === "trade-performance" ||
               activeView === "yearly-comparison" ||
               activeView === "discipline"
@@ -6581,6 +6747,7 @@ export default function App() {
         activeView === "trade-calendar" ||
         activeView === "monthly-heatmap" ||
         activeView === "week-edge" ||
+        activeView === "edge-discovery" ||
         activeView === "trade-performance" ||
         activeView === "yearly-comparison" ||
         activeView === "discipline" ? (
@@ -6598,6 +6765,8 @@ export default function App() {
                     ? "Monthly heatmap"
                   : activeView === "week-edge"
                     ? "Week Edge"
+                  : activeView === "edge-discovery"
+                    ? "Edge Discovery"
                     : activeView === "trade-performance"
                       ? "Performance"
                       : activeView === "yearly-comparison"
@@ -6650,6 +6819,13 @@ export default function App() {
                 onClick={() => setActiveView("week-edge")}
               >
                 Week Edge
+              </button>
+              <button
+                className={activeView === "edge-discovery" ? "is-active" : ""}
+                type="button"
+                onClick={() => setActiveView("edge-discovery")}
+              >
+                Edge Discovery
               </button>
               <button
                 className={activeView === "trade-performance" ? "is-active" : ""}
@@ -6837,6 +7013,10 @@ export default function App() {
 
             {activeView === "week-edge" ? (
               <WeekEdge data={weekEdge} month={weekEdgeMonth} monthOptions={weekEdgeMonthOptions} onMonthChange={setWeekEdgeMonth} />
+            ) : null}
+
+            {activeView === "edge-discovery" ? (
+              <EdgeDiscovery data={edgeDiscovery} liveTrades={trades.length} backtests={backtests.length} />
             ) : null}
 
             {activeView === "trade-performance" ? (
@@ -9443,6 +9623,106 @@ function WeekEdge({
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function EdgeDiscovery({
+  data,
+  liveTrades,
+  backtests,
+}: {
+  data: EdgeDiscoveryRow[];
+  liveTrades: number;
+  backtests: number;
+}) {
+  const [minimumSamples, setMinimumSamples] = useState(3);
+  const [focus, setFocus] = useState<"all" | "opportunities" | "leaks">("all");
+  const visibleRows = useMemo(() => {
+    const scoped = data.filter((row) => row.liveSamples >= minimumSamples).filter((row) => {
+      if (focus === "opportunities") return row.liveExpectancy > 0;
+      if (focus === "leaks") return row.liveExpectancy <= 0;
+      return true;
+    });
+    return scoped.slice(0, 36);
+  }, [data, focus, minimumSamples]);
+  const eligibleRows = data.filter((row) => row.liveSamples >= minimumSamples);
+  const validated = eligibleRows.filter((row) => row.status === "Validated").length;
+  const diverging = eligibleRows.filter((row) => row.status === "Diverging").length;
+  const strongest = eligibleRows.find((row) => row.liveExpectancy > 0);
+  const weakest = [...eligibleRows].sort((a, b) => a.liveExpectancy - b.liveExpectancy)[0];
+
+  return (
+    <section className="edge-discovery-panel">
+      <div className="edge-discovery-header">
+        <div>
+          <p className="eyebrow">Edge Discovery Lab</p>
+          <h3>Find the conditions behind your results</h3>
+          <p>Journaly ranks setup, pair, session, weekday, direction, and three-hour combinations using live expectancy weighted by sample size.</p>
+        </div>
+        <label>
+          <span>Minimum live sample</span>
+          <select value={minimumSamples} onChange={(event) => setMinimumSamples(Number(event.target.value))}>
+            {[3, 5, 10, 15, 30].map((value) => <option key={value} value={value}>{value} trades</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="edge-discovery-summary" aria-label="Edge Discovery summary">
+        <article><span>Live source</span><strong>{liveTrades}</strong><small>trades analyzed</small></article>
+        <article><span>Backtest source</span><strong>{backtests}</strong><small>tests compared</small></article>
+        <article><span>Validated edges</span><strong>{validated}</strong><small>positive live + backtest</small></article>
+        <article><span>Diverging signals</span><strong>{diverging}</strong><small>live and tested disagree</small></article>
+      </div>
+
+      {strongest || weakest ? (
+        <div className="edge-discovery-callouts">
+          {strongest ? <p><span>Strongest current read</span><strong>{strongest.label}</strong><em>{formatNumber(strongest.liveExpectancy)}R expectancy across {strongest.liveSamples} live trades</em></p> : null}
+          {weakest && weakest.liveExpectancy <= 0 ? <p className="is-leak"><span>Largest execution leak</span><strong>{weakest.label}</strong><em>{formatNumber(weakest.liveExpectancy)}R expectancy across {weakest.liveSamples} live trades</em></p> : null}
+        </div>
+      ) : null}
+
+      <div className="edge-discovery-toolbar" aria-label="Edge Discovery focus">
+        {(["all", "opportunities", "leaks"] as const).map((option) => (
+          <button className={focus === option ? "is-active" : ""} type="button" key={option} onClick={() => setFocus(option)}>
+            {option === "all" ? "All signals" : option === "opportunities" ? "Opportunities" : "Leaks"}
+          </button>
+        ))}
+        <span>{visibleRows.length} of {eligibleRows.length} conditions shown</span>
+      </div>
+
+      {visibleRows.length ? (
+        <div className="edge-discovery-grid">
+          {visibleRows.map((row) => (
+            <article className={`edge-discovery-card is-${row.status.toLowerCase()}`} key={row.id}>
+              <header>
+                <span className="edge-status">{row.status}</span>
+                <span className="edge-confidence">{row.confidence}</span>
+              </header>
+              <h4>{row.label}</h4>
+              <div className="edge-discovery-metrics">
+                <p><span>Expectancy</span><strong className={row.liveExpectancy >= 0 ? "positive-r" : "negative-r"}>{formatNumber(row.liveExpectancy)}R</strong></p>
+                <p><span>Total R</span><strong>{formatNumber(row.liveTotalR)}R</strong></p>
+                <p><span>Sample</span><strong>{row.liveSamples}</strong></p>
+                <p><span>Win rate</span><strong>{row.liveWinRate}%</strong></p>
+                <p><span>Profit factor</span><strong>{formatNumber(row.liveProfitFactor)}</strong></p>
+                <p><span>Max drawdown</span><strong>{formatNumber(row.liveMaxDrawdown)}R</strong></p>
+              </div>
+              <footer>
+                <span>Backtest <strong>{row.backtestExpectancy === null ? "No match" : `${formatNumber(row.backtestExpectancy)}R · ${row.backtestSamples}`}</strong></span>
+                <span>Good execution <strong>{row.goodExecutionRate === null ? "Unrated" : `${row.goodExecutionRate}% · ${row.reviewedTrades}`}</strong></span>
+              </footer>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <strong>Not enough matching trades yet</strong>
+          <p>Lower the minimum sample or keep logging trades to reveal repeatable conditions.</p>
+        </div>
+      )}
+
+      <p className="edge-discovery-note">Validated requires at least 10 live trades, 20 matching backtests, and positive expectancy in both. Other labels are directional evidence—not trading signals.</p>
     </section>
   );
 }
