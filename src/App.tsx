@@ -236,7 +236,7 @@ type Theme = "light" | "dark";
 type TradingMode = "swing" | "daytrade";
 type ClockPeriod = "AM" | "PM";
 type ClockSource = "live" | "backtest";
-type EdgeMode = "clock" | "session" | "week";
+type EdgeMode = "clock" | "session" | "week" | "discovery";
 type LearnNote = {
   id: string;
   timestamp: string;
@@ -320,7 +320,6 @@ type AppView =
   | "trade-calendar"
   | "monthly-heatmap"
   | "week-edge"
-  | "edge-discovery"
   | "trade-performance"
   | "yearly-comparison"
   | "discipline"
@@ -348,7 +347,6 @@ const appViews: readonly AppView[] = [
   "trade-calendar",
   "monthly-heatmap",
   "week-edge",
-  "edge-discovery",
   "trade-performance",
   "yearly-comparison",
   "discipline",
@@ -5192,7 +5190,6 @@ export default function App() {
               activeView === "trade-calendar" ||
               activeView === "monthly-heatmap" ||
               activeView === "week-edge" ||
-              activeView === "edge-discovery" ||
               activeView === "trade-performance" ||
               activeView === "yearly-comparison" ||
               activeView === "discipline"
@@ -5898,6 +5895,14 @@ export default function App() {
                   <CalendarDays size={16} />
                   Week Edge
                 </button>
+                <button
+                  className={edgeMode === "discovery" ? "is-active" : ""}
+                  type="button"
+                  onClick={() => setEdgeMode("discovery")}
+                >
+                  <Sparkles size={16} />
+                  Edge Discovery
+                </button>
               </div>
 
               {edgeMode === "clock" ? (
@@ -5911,13 +5916,15 @@ export default function App() {
                 />
               ) : edgeMode === "session" ? (
                 <SessionEdge trades={trades} backtests={backtests} source={clockSource} onSourceChange={setClockSource} />
-              ) : (
+              ) : edgeMode === "week" ? (
                 <WeekEdge
                   data={weekEdge}
                   month={weekEdgeMonth}
                   monthOptions={weekEdgeMonthOptions}
                   onMonthChange={setWeekEdgeMonth}
                 />
+              ) : (
+                <EdgeDiscovery data={edgeDiscovery} liveTrades={trades.length} backtests={backtests.length} />
               )}
             </section>
           </section>
@@ -6747,7 +6754,6 @@ export default function App() {
         activeView === "trade-calendar" ||
         activeView === "monthly-heatmap" ||
         activeView === "week-edge" ||
-        activeView === "edge-discovery" ||
         activeView === "trade-performance" ||
         activeView === "yearly-comparison" ||
         activeView === "discipline" ? (
@@ -6765,8 +6771,6 @@ export default function App() {
                     ? "Monthly heatmap"
                   : activeView === "week-edge"
                     ? "Week Edge"
-                  : activeView === "edge-discovery"
-                    ? "Edge Discovery"
                     : activeView === "trade-performance"
                       ? "Performance"
                       : activeView === "yearly-comparison"
@@ -6819,13 +6823,6 @@ export default function App() {
                 onClick={() => setActiveView("week-edge")}
               >
                 Week Edge
-              </button>
-              <button
-                className={activeView === "edge-discovery" ? "is-active" : ""}
-                type="button"
-                onClick={() => setActiveView("edge-discovery")}
-              >
-                Edge Discovery
               </button>
               <button
                 className={activeView === "trade-performance" ? "is-active" : ""}
@@ -7013,10 +7010,6 @@ export default function App() {
 
             {activeView === "week-edge" ? (
               <WeekEdge data={weekEdge} month={weekEdgeMonth} monthOptions={weekEdgeMonthOptions} onMonthChange={setWeekEdgeMonth} />
-            ) : null}
-
-            {activeView === "edge-discovery" ? (
-              <EdgeDiscovery data={edgeDiscovery} liveTrades={trades.length} backtests={backtests.length} />
             ) : null}
 
             {activeView === "trade-performance" ? (
