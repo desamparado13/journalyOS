@@ -4,20 +4,21 @@ import { supabase } from "./supabaseClient";
 
 export type DayTradeView = "daytrade-dashboard" | "daytrade-add" | "daytrade-backtest";
 
-type Pair = "GBPUSD" | "EURUSD" | "EURGBP";
+type Pair = "GBPUSD";
+type Timeframe = "5M" | "15M";
 type CurrentEntryType = "Break and Retest" | "Internal Reversal";
 type LegacyEntryType = "Golden entry" | "Order Block Entry" | "Liquidity Sweep" | "3 Kings" | "Break Entry" | "FVG Hunt";
 type EntryType = CurrentEntryType | LegacyEntryType;
 type Outcome = "Win" | "Loss" | "Breakeven";
 
-const pairOptions: Pair[] = ["GBPUSD", "EURUSD", "EURGBP"];
+const pairOptions: Pair[] = ["GBPUSD"];
+const timeframeOptions: Timeframe[] = ["5M", "15M"];
 const entryTypeOptions: CurrentEntryType[] = ["Break and Retest", "Internal Reversal"];
 const legacyEntryTypeOptions: LegacyEntryType[] = [
   "Golden entry", "Order Block Entry", "Liquidity Sweep", "3 Kings", "Break Entry", "FVG Hunt",
 ];
-const PAIR_MIGRATION_CUTOFF = "2026-07-29T23:15:00Z";
 const LEGACY_META_PREFIX = "[journaly-daytrade]";
-const BACKTEST_LIST_COLUMNS = "id,trade_date,pair,entry_type,result_r,mae_r,outcome,notes,created_at";
+const BACKTEST_LIST_COLUMNS = "id,trade_date,pair,timeframe,entry_type,result_r,outcome,notes,created_at";
 
 const monthOptions = [
   ["01", "January"],
@@ -38,9 +39,9 @@ type DayTradeRecord = {
   id: string;
   date: string;
   pair: Pair;
+  timeframe: Timeframe;
   entryType: EntryType;
   resultR: number;
-  maeR: number;
   outcome: Outcome;
   image: string;
   storageNotes: string;
@@ -50,18 +51,18 @@ type DayTradeRecord = {
 type DayTradeForm = {
   date: string;
   pair: Pair;
+  timeframe: Timeframe;
   entryType: EntryType;
   resultR: string;
-  maeR: string;
   imageFile: File | null;
 };
 
 type DayTradeEditForm = {
   date: string;
   pair: Pair;
+  timeframe: Timeframe;
   entryType: EntryType;
   resultR: string;
-  maeR: string;
   imageFile: File | null;
 };
 
@@ -87,9 +88,9 @@ function blankForm(date = localDateString(new Date())): DayTradeForm {
   return {
     date,
     pair: "GBPUSD",
+    timeframe: "5M",
     entryType: "Break and Retest",
     resultR: "",
-    maeR: "",
     imageFile: null,
   };
 }
@@ -164,19 +165,18 @@ function isCheckConstraintError(error: { code?: string; message?: string } | nul
 function fromRow(row: any): DayTradeRecord {
   const resultR = Number(row.result_r || 0);
   const stored = parseStoredMetadata(row.notes);
-  const storedPair = stored.pair || row.pair;
   const storedEntryType = stored.entryType || row.entry_type;
   return {
     id: row.id,
     date: row.trade_date,
-    pair: pairOptions.includes(storedPair) ? storedPair : "GBPUSD",
+    pair: "GBPUSD",
+    timeframe: timeframeOptions.includes(row.timeframe) ? row.timeframe : "5M",
     entryType: entryTypeOptions.includes(storedEntryType as CurrentEntryType)
       ? storedEntryType
       : legacyEntryTypeOptions.includes(storedEntryType as LegacyEntryType)
         ? storedEntryType
         : "Break and Retest",
     resultR,
-    maeR: Number(row.mae_r || 0),
     outcome: outcomeFromR(resultR),
     image: row.before_image_url || "",
     storageNotes: stored.notes,
@@ -273,7 +273,7 @@ export default function DayTradeJournal({
         .from("daytrade_backtests")
         .update({ pair: "GBPUSD" })
         .eq("user_id", userId)
-        .lt("created_at", PAIR_MIGRATION_CUTOFF)
+        // DayTrade backtests are GBPUSD-only now; normalize older labels too.
         .neq("pair", "GBPUSD");
       const backtest = await supabase
         .from("daytrade_backtests")
@@ -350,8 +350,6 @@ export default function DayTradeJournal({
   }, [calendarMonth]);
   const parsedResultR = Number(form.resultR);
   const hasValidResultR = form.resultR.trim() !== "" && Number.isFinite(parsedResultR);
-  const parsedMaeR = Number(form.maeR);
-  const hasValidMaeR = form.maeR.trim() !== "" && Number.isFinite(parsedMaeR) && parsedMaeR >= 0;
   const automaticOutcome = hasValidResultR ? outcomeFromR(parsedResultR) : null;
   const chartViewerIndex = chartViewerId ? filtered.findIndex((trade) => trade.id === chartViewerId) : -1;
   const chartViewerTrade = chartViewerIndex >= 0 ? filtered[chartViewerIndex] : null;
@@ -376,10 +374,6 @@ export default function DayTradeJournal({
       setMessage("Enter a valid RR, such as 3, 0, or -1.");
       return;
     }
-    if (!hasValidMaeR) {
-      setMessage("Enter a valid MAE in R. MAE cannot be negative.");
-      return;
-    }
     setIsLoading(true);
     setMessage("");
     try {
@@ -388,9 +382,9 @@ export default function DayTradeJournal({
         user_id: userId,
         trade_date: form.date,
         pair: form.pair,
+        timeframe: form.timeframe,
         entry_type: form.entryType,
         result_r: parsedResultR,
-        mae_r: parsedMaeR,
         outcome: automaticOutcome,
         before_image_url: image,
         notes: "",
@@ -520,9 +514,9 @@ export default function DayTradeJournal({
     setEditForm({
       date: trade.date,
       pair: trade.pair,
+      timeframe: trade.timeframe,
       entryType: trade.entryType,
       resultR: String(trade.resultR),
-      maeR: String(trade.maeR),
       imageFile: null,
     });
     setMessage("");
@@ -531,13 +525,8 @@ export default function DayTradeJournal({
   async function saveEdit(trade: DayTradeRecord) {
     if (!supabase || !editForm) return;
     const resultR = Number(editForm.resultR);
-    const maeR = Number(editForm.maeR);
     if (!editForm.resultR.trim() || !Number.isFinite(resultR)) {
       setMessage("Enter a valid RR, such as 3, 0, or -1.");
-      return;
-    }
-    if (!editForm.maeR.trim() || !Number.isFinite(maeR) || maeR < 0) {
-      setMessage("Enter a valid MAE in R. MAE cannot be negative.");
       return;
     }
     setIsLoading(true);
@@ -547,9 +536,9 @@ export default function DayTradeJournal({
       const payload: Record<string, unknown> = {
         trade_date: editForm.date,
         pair: editForm.pair,
+        timeframe: editForm.timeframe,
         entry_type: editForm.entryType,
         result_r: resultR,
-        mae_r: maeR,
         outcome: outcomeFromR(resultR),
         notes: trade.storageNotes,
       };
@@ -597,14 +586,14 @@ export default function DayTradeJournal({
     <section className="daytrade-app">
       <header className="daytrade-hero">
         <div>
-          <p className="eyebrow">GBPUSD / EURUSD / EURGBP · Fast backtesting</p>
+          <p className="eyebrow">GBPUSD · 5M / 15M fast backtesting</p>
           <h1>Quick Backtest Logger</h1>
           <p>Log only the entry model and final R result. The outcome and next date are handled automatically.</p>
         </div>
         <div className="daytrade-rule-score">
           <span>Required inputs</span>
           <strong>6 fields</strong>
-          <small>Date · Pair · Entry · RR · MAE · Image</small>
+          <small>Date · Pair · Timeframe · Entry · RR · Image</small>
         </div>
       </header>
 
@@ -684,9 +673,9 @@ export default function DayTradeJournal({
             <div className="daytrade-field-grid">
               <Field label="Date"><input required type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></Field>
               <Field label="Pair"><select value={form.pair} onChange={(event) => setForm({ ...form, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
+              <Field label="Timeframe"><select value={form.timeframe} onChange={(event) => setForm({ ...form, timeframe: event.target.value as Timeframe })}>{timeframeOptions.map((timeframe) => <option key={timeframe}>{timeframe}</option>)}</select></Field>
               <Field label="Entry"><select value={form.entryType} onChange={(event) => setForm({ ...form, entryType: event.target.value as EntryType })}>{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
               <Field label="RR"><input required type="number" step="any" value={form.resultR} placeholder="e.g. 3, 4, 5, or -1" onChange={(event) => setForm({ ...form, resultR: event.target.value })} /></Field>
-              <Field label="MAE (R)"><input required type="number" min="0" step="any" value={form.maeR} placeholder="e.g. 0.5" onChange={(event) => setForm({ ...form, maeR: event.target.value })} /></Field>
               <Field label="Result"><input readOnly className={automaticOutcome ? `daytrade-result-${automaticOutcome.toLowerCase()}` : ""} value={automaticOutcome || "Enter RR"} /></Field>
             </div>
             <label className="daytrade-upload daytrade-quick-upload"><ImagePlus size={24} /><strong>Chart image (optional)</strong><span>{form.imageFile?.name || "Upload trade chart if available"}</span><input type="file" accept="image/*" onChange={(event) => setForm({ ...form, imageFile: event.target.files?.[0] || null })} /></label>
@@ -698,7 +687,7 @@ export default function DayTradeJournal({
       {activeView === "daytrade-backtest" ? (
         <div className="daytrade-records">
           <div className="daytrade-records-heading">
-            <div><span>GBPUSD / EURUSD / EURGBP research database</span><h2>Backtest records</h2></div>
+            <div><span>GBPUSD · 5M / 15M research database</span><h2>Backtest records</h2></div>
             <div className="daytrade-records-heading-actions">
               <strong>{filtered.length} shown · {records.length} total</strong>
               <button
@@ -721,9 +710,9 @@ export default function DayTradeJournal({
                   <div className="daytrade-inline-edit">
                     <Field label="Date"><input required type="date" value={editForm.date} onChange={(event) => setEditForm({ ...editForm, date: event.target.value })} /></Field>
                     <Field label="Pair"><select value={editForm.pair} onChange={(event) => setEditForm({ ...editForm, pair: event.target.value as Pair })}>{pairOptions.map((pair) => <option key={pair}>{pair}</option>)}</select></Field>
+                    <Field label="Timeframe"><select value={editForm.timeframe} onChange={(event) => setEditForm({ ...editForm, timeframe: event.target.value as Timeframe })}>{timeframeOptions.map((timeframe) => <option key={timeframe}>{timeframe}</option>)}</select></Field>
                     <Field label="Entry"><select value={editForm.entryType} onChange={(event) => setEditForm({ ...editForm, entryType: event.target.value as EntryType })}>{legacyEntryTypeOptions.includes(editForm.entryType as LegacyEntryType) ? <option value={editForm.entryType}>{editForm.entryType} (legacy)</option> : null}{entryTypeOptions.map((entryType) => <option key={entryType}>{entryType}</option>)}</select></Field>
                     <Field label="RR"><input required type="number" step="any" value={editForm.resultR} onChange={(event) => setEditForm({ ...editForm, resultR: event.target.value })} /></Field>
-                    <Field label="MAE (R)"><input required type="number" min="0" step="any" value={editForm.maeR} onChange={(event) => setEditForm({ ...editForm, maeR: event.target.value })} /></Field>
                     <Field label="Result"><input readOnly value={editForm.resultR.trim() && Number.isFinite(Number(editForm.resultR)) ? outcomeFromR(Number(editForm.resultR)) : "Enter RR"} /></Field>
                     <label className="daytrade-edit-image"><ImagePlus size={18} /><span>{editForm.imageFile?.name || "Replace chart image (optional)"}</span><input type="file" accept="image/*" onChange={(event) => setEditForm({ ...editForm, imageFile: event.target.files?.[0] || null })} /></label>
                     <div className="daytrade-edit-actions">
@@ -750,8 +739,8 @@ export default function DayTradeJournal({
                         <b className={`daytrade-record-result ${trade.resultR >= 0 ? "positive-r" : "negative-r"}`}>{trade.resultR.toFixed(2)}R</b>
                       </div>
                       <div>
-                        <small>MAE</small>
-                        <strong>{trade.maeR.toFixed(2)}R</strong>
+                        <small>Timeframe</small>
+                        <strong>{trade.timeframe}</strong>
                       </div>
                     </div>
                     <div className="daytrade-edit-actions">
@@ -781,7 +770,7 @@ export default function DayTradeJournal({
           <div className="daytrade-chart-stage">
             <div className="daytrade-chart-info">
               <strong>{chartViewerTrade.pair} · {chartViewerTrade.entryType}</strong>
-              <span>{chartViewerTrade.date} · {chartViewerTrade.resultR.toFixed(2)}R · MAE {chartViewerTrade.maeR.toFixed(2)}R · {chartViewerIndex + 1} of {filtered.length}</span>
+              <span>{chartViewerTrade.date} · {chartViewerTrade.timeframe} · {chartViewerTrade.resultR.toFixed(2)}R · {chartViewerIndex + 1} of {filtered.length}</span>
             </div>
             {filtered.length > 1 ? (
               <>

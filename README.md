@@ -78,6 +78,22 @@ Build for production:
 npm.cmd run build
 ```
 
+## Journaly Codex Desktop
+
+The Windows desktop app opens Journaly and starts Christian's private localhost Codex bridge automatically. It includes a native Bridge Center for Codex sign-in and service health, so no separate terminal is needed during normal use.
+
+Inside Jarvis, **Codex Research Center** provides complete journal analysis, deep backtest forensics, targeted and periodic reviews, trade/strategy/behavior research, data auditing, experiment design, screenshot vision, decision checklists, approval-only action drafts, coaching plans, and Markdown/Word/printable PDF reports. Codex runs against a bounded owner-authenticated snapshot in an ephemeral read-only directory; it cannot place broker orders or silently edit Journaly.
+
+```powershell
+npm.cmd run desktop:start
+```
+
+Build the portable Windows app:
+
+```powershell
+npm.cmd run desktop:build
+```
+
 ## Notes
 
 Screenshots are currently saved as data URLs in the `trades.screenshot_url` field. For production, move screenshots to Supabase Storage and save the public or signed URL in this column.

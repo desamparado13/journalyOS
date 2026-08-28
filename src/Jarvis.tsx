@@ -49,12 +49,16 @@ const JARVIS_SPEND_KEY_PREFIX = "journaly-os-jarvis-spend-v1";
 const JARVIS_REPORT_SEEN_KEY_PREFIX = "journaly-os-jarvis-report-seen-v1";
 const JARVIS_ACTIVE_CONTEXT_KEY_PREFIX = "journaly-os-jarvis-active-context-v1";
 const JARVIS_VOICE_REPLIES_KEY_PREFIX = "journaly-os-jarvis-voice-replies-v1";
+const JARVIS_VOICE_PRESET_KEY_PREFIX = "journaly-os-jarvis-voice-preset-v1";
 const JARVIS_PROACTIVE_SEEN_KEY_PREFIX = "journaly-os-jarvis-proactive-seen-v1";
 const JARVIS_MONITOR_NOTIFIED_KEY_PREFIX = "journaly-os-jarvis-monitor-notified-v1";
 const JARVIS_OBSERVATION_SNAPSHOT_KEY_PREFIX = "journaly-os-jarvis-observation-v1";
 const JARVIS_AUTOPILOT_BRIEFING_KEY_PREFIX = "journaly-os-jarvis-autopilot-briefing-v1";
+const JARVIS_STARTUP_GREETING_KEY_PREFIX = "journaly-os-jarvis-startup-greeting-v1";
 const JARVIS_ORB_MARGIN = 8;
 const OWNER_USERNAME = "christian.angelo.desamparado";
+const OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
+const CODEX_BRIDGE_URL = (import.meta.env.VITE_JOURNALY_CODEX_BRIDGE_URL || "http://127.0.0.1:4317").replace(/\/$/, "");
 const LEGACY_FALLBACK_NOTICE = "AI conversation is temporarily unavailable, so this response uses Journaly’s local analytics.";
 const JARVIS_IMAGE_MAX_BYTES = 3 * 1024 * 1024;
 const JARVIS_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -132,6 +136,18 @@ type JarvisForecast = {
   updatedAt: string;
 };
 
+type JarvisCTraderStatus = {
+  enabled?: boolean;
+  configured?: boolean;
+  authenticated?: boolean;
+  environment?: string;
+  endpoint?: string;
+  selectedAccount?: { ctidTraderAccountId?: number; brokerTitleShort?: string; traderLogin?: number } | null;
+  liveTradingEnabled?: boolean;
+  demoTradingEnabled?: boolean;
+  lastError?: string;
+};
+
 type JarvisSession = {
   isOpen: boolean;
   label: string;
@@ -150,12 +166,80 @@ type JarvisMessage = {
   attachmentName?: string;
   createdAt?: string;
   chatDate?: string;
+  codexReport?: {
+    mode: CodexResearchMode;
+    generatedAt: string;
+    model: string;
+    imagesAnalyzed: number;
+    summary: string;
+    followUpQuestions: string[];
+    actionDrafts: CodexActionDraft[];
+  };
 };
+
+type CodexResearchMode = "deep_analysis" | "backtest_forensics" | "targeted_investigation" | "weekly_review" | "monthly_review" | "trade_forensics" | "strategy_research" | "behavior_audit" | "data_quality" | "research_experiment" | "chart_review" | "decision_checklist" | "action_drafts" | "coaching_plan";
+
+type CodexActionDraft = {
+  type: "trade_update" | "forecast_update" | "journal_entry" | "review_task" | "research_task" | "data_cleanup";
+  title: string;
+  reason: string;
+  payload: string;
+};
+
+type CodexUsageWindow = {
+  usedPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+};
+
+type CodexUsageSnapshot = {
+  available: boolean;
+  limitId: string;
+  limitName: string;
+  planType: string | null;
+  primary: CodexUsageWindow | null;
+  secondary: CodexUsageWindow | null;
+  rateLimitReachedType: string | null;
+  resetCreditsAvailable: number;
+  updatedAt: string | null;
+};
+
+const CODEX_RESEARCH_MODES: Array<{ id: CodexResearchMode; label: string; description: string }> = [
+  { id: "deep_analysis", label: "Complete intelligence", description: "Full live, backtest, forecast, risk, and behavior report." },
+  { id: "backtest_forensics", label: "Backtest forensics", description: "Deep robustness, segmentation, drawdown, outlier, and screenshot review." },
+  { id: "targeted_investigation", label: "Targeted investigation", description: "Test one precise question and competing explanations." },
+  { id: "weekly_review", label: "Weekly review", description: "Compare the latest seven days with your prior baseline." },
+  { id: "monthly_review", label: "Monthly review", description: "Month-over-month performance and possible edge decay." },
+  { id: "trade_forensics", label: "Trade forensics", description: "Reconstruct one trade from thesis through result." },
+  { id: "strategy_research", label: "Strategy research", description: "Compare setups, pairs, directions, and live vs backtest." },
+  { id: "behavior_audit", label: "Behavior audit", description: "Find repeated execution leaks without overdiagnosing." },
+  { id: "data_quality", label: "Data-quality audit", description: "Find gaps, duplicates, conflicts, drift, and cleanup priorities." },
+  { id: "research_experiment", label: "Research experiment", description: "Design a falsifiable test with metrics and sample targets." },
+  { id: "chart_review", label: "Screenshot review", description: "Read every visible chart detail and connect it to saved evidence." },
+  { id: "decision_checklist", label: "Decision checklist", description: "Prepare take, wait, and invalidate criteria—never a live signal." },
+  { id: "action_drafts", label: "Action drafts", description: "Propose minimal Journaly changes for your approval." },
+  { id: "coaching_plan", label: "Coaching plan", description: "Build a measurable execution-improvement program." },
+];
 
 type JarvisConversations = Record<string, JarvisMessage[]>;
 
 function localDateKey(value = new Date()) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function codexPercent(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.min(100, Math.max(0, Math.round(numeric))) : null;
+}
+
+function codexWindowDescription(window: CodexUsageWindow | null, label: string) {
+  const used = codexPercent(window?.usedPercent);
+  if (used === null) return null;
+  const duration = Number(window?.windowDurationMins);
+  const durationText = Number.isFinite(duration) && duration > 0 ? duration >= 1440 ? `${Math.round(duration / 1440)}d window` : duration >= 60 ? `${Math.round(duration / 60)}h window` : `${Math.round(duration)}m window` : "quota window";
+  const resetTime = Number(window?.resetsAt);
+  const resetText = Number.isFinite(resetTime) && resetTime > 0 ? `resets ${new Date(resetTime * 1000).toLocaleString()}` : "reset time unavailable";
+  return `${label}: ${used}% used, ${100 - used}% left · ${durationText} · ${resetText}`;
 }
 
 function messageDateKey(message: JarvisMessage, fallback = localDateKey()) {
@@ -330,8 +414,10 @@ type JarvisJourneyEvent = {
 
 type JarvisFeedbackReason = "helpful" | "too_strict" | "too_long" | "misread_context" | "unnatural";
 
+type JarvisSpeechRecognitionResult = ArrayLike<{ transcript: string; confidence?: number }> & { isFinal?: boolean };
+
 type JarvisSpeechRecognitionEvent = {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  results: ArrayLike<JarvisSpeechRecognitionResult>;
 };
 
 type JarvisSpeechRecognition = {
@@ -339,7 +425,7 @@ type JarvisSpeechRecognition = {
   interimResults: boolean;
   lang: string;
   onresult: ((event: JarvisSpeechRecognitionEvent) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event?: { error?: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
@@ -513,6 +599,7 @@ type JarvisCompanionSettings = {
   proactiveFollowups: boolean;
   autonomyMode: "observe" | "assist";
   handsFreeVoice: boolean;
+  wakeWordEnabled: boolean;
 };
 
 type JarvisMemoryState = {
@@ -537,7 +624,7 @@ function normalizedUsername(username: string) {
 function defaultJarvisMemory(username: string): JarvisMemoryState {
   const isOwnerProfile = normalizedUsername(username) === OWNER_USERNAME;
   return {
-    preferredName: isOwnerProfile ? "Pot" : null,
+    preferredName: isOwnerProfile ? "Sir" : null,
     preferences: {
       familiarity: isOwnerProfile ? "high" : "medium",
       humor: isOwnerProfile ? "medium" : "low",
@@ -554,6 +641,7 @@ function defaultJarvisMemory(username: string): JarvisMemoryState {
       proactiveFollowups: true,
       autonomyMode: "assist",
       handsFreeVoice: false,
+      wakeWordEnabled: isOwnerProfile,
     },
     memories: [],
   };
@@ -593,6 +681,7 @@ function applyMemoryUpdates(state: JarvisMemoryState, updates: JarvisMemoryUpdat
         companion_proactive_followups: "proactiveFollowups",
         companion_autonomy_mode: "autonomyMode",
         companion_hands_free_voice: "handsFreeVoice",
+        companion_wake_word: "wakeWordEnabled",
       } as const;
       const setting = settingMap[key as keyof typeof settingMap];
       if (setting) {
@@ -921,6 +1010,10 @@ function readVoiceReplies(userId: string) {
   return localStorage.getItem(`${JARVIS_VOICE_REPLIES_KEY_PREFIX}:${userId}`) === "true";
 }
 
+function readVoicePreset(userId: string): "vale" | "cedar" {
+  return localStorage.getItem(`${JARVIS_VOICE_PRESET_KEY_PREFIX}:${userId}`) === "cedar" ? "cedar" : "vale";
+}
+
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -1191,6 +1284,12 @@ function buildJarvisResponse(prompt: string, trades: JarvisTrade[], forecasts: J
 }
 
 export default function Jarvis({ userId, username, displayName, trades, backtests, forecasts, session, journalEntries, positionSizing, onTradeCreated, onForecastChanged, onPositionSizingApply, onPositionProfileApply }: JarvisProps) {
+  const isPrivateCodexDesktop = window.journalyDesktop?.isPrivateDesktop === true
+    && window.journalyDesktop?.codexChatEnabled === true
+    && normalizedUsername(username) === OWNER_USERNAME;
+  const voiceChatEnabled = window.journalyDesktop?.isPrivateDesktop !== true
+    || window.journalyDesktop?.voiceChatEnabled === true;
+  const desktopCodexPaused = window.journalyDesktop?.isPrivateDesktop === true && !isPrivateCodexDesktop;
   const [isOpen, setIsOpen] = useState(false);
   const [isAmbient, setIsAmbient] = useState(true);
   const [orbPosition, setOrbPosition] = useState<OrbPosition | null>(readOrbPosition);
@@ -1207,9 +1306,17 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [feedbackTarget, setFeedbackTarget] = useState<string | null>(null);
   const [lastChartImage, setLastChartImage] = useState<{ dataUrl: string; name: string } | null>(null);
   const [voiceReplies, setVoiceReplies] = useState(() => readVoiceReplies(userId));
+  const [voicePreset, setVoicePreset] = useState<"vale" | "cedar">(() => readVoicePreset(userId));
   const [isListening, setIsListening] = useState(false);
+  const [liveVoiceTranscript, setLiveVoiceTranscript] = useState("");
+  const [liveJarvisAnswer, setLiveJarvisAnswer] = useState("");
   const [voicePhase, setVoicePhase] = useState<"idle" | "listening" | "transcribing">("idle");
   const [continuousVoiceActive, setContinuousVoiceActive] = useState(false);
+  const [showDesktopVoiceCompanion, setShowDesktopVoiceCompanion] = useState(false);
+  const [desktopVoiceCompact, setDesktopVoiceCompact] = useState(true);
+  const [wakeWordState, setWakeWordState] = useState<"starting" | "listening" | "paused" | "unsupported">("starting");
+  const [wakeWordNativeReady, setWakeWordNativeReady] = useState(false);
+  const [wakeWordAcknowledgement, setWakeWordAcknowledgement] = useState("");
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [aiHealth, setAiHealth] = useState<JarvisHealth | null>(null);
   const [spend, setSpend] = useState<JarvisSpend>(() => readJarvisSpend(userId));
@@ -1225,6 +1332,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const [isSavingTrade, setIsSavingTrade] = useState(false);
   const [isSavingForecast, setIsSavingForecast] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
+  const [codexBridgeState, setCodexBridgeState] = useState<"idle" | "analyzing" | "ready" | "offline">("idle");
+  const [codexUsage, setCodexUsage] = useState<CodexUsageSnapshot | null>(null);
+  const [ctraderStatus, setCTraderStatus] = useState<JarvisCTraderStatus | null>(null);
+  const [ctraderBusy, setCTraderBusy] = useState(false);
+  const [showCodexCenter, setShowCodexCenter] = useState(false);
+  const [codexResearchMode, setCodexResearchMode] = useState<CodexResearchMode>("deep_analysis");
   const [unreadProactiveCount, setUnreadProactiveCount] = useState(0);
   const [inAppNotification, setInAppNotification] = useState<JarvisMessage | null>(null);
   const [monitorClock, setMonitorClock] = useState(() => Date.now());
@@ -1263,7 +1376,21 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const chatSyncTimerRef = useRef<number | null>(null);
   const requestAbortRef = useRef<AbortController | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceActivityFrameRef = useRef<number | null>(null);
+  const voiceActivityContextRef = useRef<AudioContext | null>(null);
+  const streamingVoiceGenerationRef = useRef(0);
+  const streamingVoiceQueueRef = useRef<Array<{ text: string; audio: Promise<Blob | null> }>>([]);
+  const streamingVoicePlayingRef = useRef(false);
+  const streamingVoiceBufferRef = useRef("");
+  const streamingVoiceTokenRef = useRef("");
+  const streamingVoiceQueuedRef = useRef(false);
+  const streamingVoiceResponseCompleteRef = useRef(false);
   const speechRecognitionRef = useRef<JarvisSpeechRecognition | null>(null);
+  const fastVoiceTranscriptRef = useRef("");
+  const wakeWordRecognitionRef = useRef<JarvisSpeechRecognition | null>(null);
+  const wakeWordRestartTimerRef = useRef<number | null>(null);
+  const wakeWordShouldListenRef = useRef(false);
+  const wakeWordTriggeredAtRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
@@ -1283,11 +1410,63 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   const activeForecasts = forecasts.filter((item) => item.status === "Waiting");
   const latestTrade = latestFirst(trades)[0];
   const qualityRate = reviewedTrades.length ? Math.round((goodTrades / reviewedTrades.length) * 100) : 0;
-  const preferredName = memory.preferredName || displayName || "trader";
+  const preferredName = normalizedUsername(username) === OWNER_USERNAME ? "Sir" : memory.preferredName || displayName || "trader";
+  const wakeWordEligible = voiceChatEnabled && isPrivateCodexDesktop
+    && memory.companionSettings.wakeWordEnabled
+    && !isListening
+    && !isThinking
+    && (!showDesktopVoiceCompanion || Boolean(speakingMessageId));
+  const desktopVoiceState = speakingMessageId ? "speaking" : isThinking ? "thinking" : voicePhase === "transcribing" ? "transcribing" : isListening ? "listening" : "ready";
+  const desktopVoiceStatus = desktopVoiceState === "speaking" ? "Speaking" : desktopVoiceState === "thinking" ? "Thinking" : desktopVoiceState === "transcribing" ? "Understanding you" : desktopVoiceState === "listening" ? "Listening" : "Ready when you are";
+  const latestVoiceUserMessage = [...messages].reverse().find((message) => message.role === "user");
+  const latestVoiceJarvisMessage = [...messages].reverse().find((message) => message.role === "jarvis");
   const calendarDates = useMemo(() => calendarCells(calendarMonth), [calendarMonth]);
   const chatDates = useMemo(() => new Set(Object.entries(conversations).filter(([, daily]) => daily.length > 0).map(([date]) => date)), [conversations]);
   const selectedDateLabel = new Date(`${selectedChatDate}T12:00:00`).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const calendarMonthLabel = new Date(`${calendarMonth}T12:00:00`).toLocaleDateString([], { month: "long", year: "numeric" });
+  const codexAnalysisSnapshot = useMemo(() => {
+    const newest = <T extends { date: string; time?: string; updatedAt?: string; createdAt?: string }>(items: T[], maximum: number) => [...items]
+      .sort((a, b) => `${b.updatedAt || b.createdAt || b.date} ${b.time || ""}`.localeCompare(`${a.updatedAt || a.createdAt || a.date} ${a.time || ""}`))
+      .slice(0, maximum);
+    const analysisTrades = newest(trades, 500).map((trade) => ({
+      id: trade.id, date: trade.date, time: trade.time, pair: trade.pair, setup: trade.setup, direction: trade.direction,
+      maeR: trade.maeRecorded ? trade.mae : null, maePips: trade.maePips, resultR: trade.pnl, result: trade.result,
+      executionQuality: trade.quality, notes: trade.notes, hasScreenshot: Boolean(trade.screenshot), finalizedAt: trade.finalizedAt,
+    }));
+    const analysisBacktests = newest(backtests, 1000).map((trade) => ({
+      id: trade.id, date: trade.date, time: trade.time, pair: trade.pair, setup: trade.setup, direction: trade.direction,
+      durationMinutes: trade.durationMinutes, stopLossPips: trade.stopLossPips, maePips: trade.maePips, resultR: trade.pnl,
+      result: trade.result, notes: trade.notes, scaleIn: trade.scaleIn, hasScreenshot: Boolean(trade.screenshot),
+    }));
+    const analysisForecasts = newest(forecasts, 250).map((forecast) => ({
+      id: forecast.id, date: forecast.date, time: forecast.time, pair: forecast.pair, setup: forecast.setup,
+      direction: forecast.direction, status: forecast.status, entryPlan: forecast.entryPlan, riskPercent: forecast.riskPercent,
+      reasonToTake: forecast.reasonToTake, reasonCancelled: forecast.reasonCancelled, outcome: forecast.outcome,
+      resultR: forecast.resultR, notes: forecast.notes, createdAt: forecast.createdAt, updatedAt: forecast.updatedAt,
+    }));
+    const humanJournalEntries = newest(journalEntries.filter((entry) => !entry.content.trimStart().startsWith("[[JARVIS_")), 100).map((entry) => ({
+      id: entry.id, date: entry.date, content: entry.content.slice(0, 6000), advice: entry.advice.slice(0, 3000),
+      hasImage: Boolean(entry.image), createdAt: entry.createdAt, updatedAt: entry.updatedAt,
+    }));
+    return {
+      generatedAt: new Date().toISOString(),
+      userId,
+      summary: {
+        totalTrades: trades.length,
+        includedTrades: analysisTrades.length,
+        totalBacktests: backtests.length,
+        includedBacktests: analysisBacktests.length,
+        totalForecasts: forecasts.length,
+        includedForecasts: analysisForecasts.length,
+        totalHumanJournalEntries: journalEntries.filter((entry) => !entry.content.trimStart().startsWith("[[JARVIS_")).length,
+        includedJournalEntries: humanJournalEntries.length,
+      },
+      trades: analysisTrades,
+      backtests: analysisBacktests,
+      forecasts: analysisForecasts,
+      journalEntries: humanJournalEntries,
+    };
+  }, [backtests, forecasts, journalEntries, trades, userId]);
   const missionMemories = useMemo(() => {
     const missionCategories = new Set(["goal", "project", "routine", "important_date", "life_event", "wellbeing"]);
     return memory.memories
@@ -1425,10 +1604,36 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     ? "<0.01%"
     : `${brainUsage.freeDatabaseReferencePercent.toFixed(brainUsage.freeDatabaseReferencePercent < 1 ? 2 : 1)}%`;
   const brainBreakdown = `Memory ${formatDataSize(brainUsage.memory).text} · Conversations ${formatDataSize(brainUsage.conversation).text} · Charts ${formatDataSize(brainUsage.charts).text} · Learning ${formatDataSize(brainUsage.learning).text}`;
+  const codexUsedPercent = codexPercent(codexUsage?.primary?.usedPercent);
+  const codexLeftPercent = codexUsedPercent === null ? null : 100 - codexUsedPercent;
+  const codexUsageLabel = codexUsedPercent === null ? "Usage --" : `${codexUsedPercent}% used`;
+  const codexUsageTitle = [
+    codexWindowDescription(codexUsage?.primary || null, "Primary Codex limit"),
+    codexWindowDescription(codexUsage?.secondary || null, "Secondary Codex limit"),
+    codexUsage?.resetCreditsAvailable ? `${codexUsage.resetCreditsAvailable} rate-limit reset credit${codexUsage.resetCreditsAvailable === 1 ? "" : "s"} available` : null,
+    codexUsage?.updatedAt ? `Updated ${new Date(codexUsage.updatedAt).toLocaleTimeString()}` : null,
+  ].filter(Boolean).join("\n") || "Waiting for the live Codex usage snapshot.";
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
     return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isPrivateCodexDesktop) return;
+    let cancelled = false;
+    async function refreshCodexUsage() {
+      const response = await fetch(`${CODEX_BRIDGE_URL}/codex-usage`, { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) return;
+      const payload = await response.json().catch(() => null);
+      if (!cancelled && payload?.available) setCodexUsage(payload as CodexUsageSnapshot);
+    }
+    void refreshCodexUsage();
+    const timer = window.setInterval(refreshCodexUsage, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [isPrivateCodexDesktop]);
 
   useEffect(() => {
     if (!isOpen || isAmbient) return;
@@ -1553,6 +1758,54 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
   useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
   useEffect(() => { voicePhaseRef.current = voicePhase; }, [voicePhase]);
   useEffect(() => { isThinkingRef.current = isThinking; }, [isThinking]);
+
+  useEffect(() => {
+    if (!isPrivateCodexDesktop || !window.journalyDesktop?.onWakeWord) return;
+    const wakeWordCaptureEnabled = wakeWordEligible && !speakingMessageId && !isThinking && !isListening && !continuousVoiceActive;
+    if (wakeWordCaptureEnabled) setWakeWordState("starting");
+    void window.journalyDesktop.setWakeWordActive(wakeWordCaptureEnabled);
+    void window.journalyDesktop.getStatus().then((status) => {
+      if (status.wakeWordReady && wakeWordCaptureEnabled) {
+        setWakeWordNativeReady(true);
+        setWakeWordState("listening");
+      }
+    }).catch(() => undefined);
+    const unsubscribe = window.journalyDesktop.onWakeWord((payload) => {
+      if (payload.type === "ready") {
+        setWakeWordNativeReady(true);
+        if (wakeWordCaptureEnabled) setWakeWordState("listening");
+        return;
+      }
+      if (payload.type === "error") {
+        setWakeWordNativeReady(false);
+        return;
+      }
+      if (payload.type === "paused") {
+        setWakeWordNativeReady(false);
+        setWakeWordState("paused");
+        return;
+      }
+      if (payload.type !== "recognized" || !wakeWordCaptureEnabled) return;
+      const wakeMatch = String(payload.text || "").trim().match(/^(?:hey\s+)?jarvis$/i);
+      if (!wakeMatch) return;
+      summonJarvisFromWakeWord(wakeMatch?.[1] || "");
+    });
+    return unsubscribe;
+  }, [continuousVoiceActive, isListening, isPrivateCodexDesktop, isThinking, speakingMessageId, wakeWordEligible]);
+
+  useEffect(() => {
+    const shouldUseBrowserFallback = wakeWordEligible && !speakingMessageId && !isThinking && !isListening && !continuousVoiceActive;
+    wakeWordShouldListenRef.current = shouldUseBrowserFallback;
+    if (shouldUseBrowserFallback) startWakeWordListener();
+    else {
+      stopWakeWordListener("paused");
+      if (wakeWordEligible && wakeWordNativeReady) setWakeWordState("listening");
+    }
+    return () => {
+      wakeWordShouldListenRef.current = false;
+      stopWakeWordListener("paused");
+    };
+  }, [continuousVoiceActive, isListening, isThinking, speakingMessageId, wakeWordEligible, wakeWordNativeReady]);
 
   useEffect(() => {
     const storedConversations = Object.fromEntries(Object.entries(conversations).map(([date, dailyMessages]) => [
@@ -1757,8 +2010,16 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     if (!voiceReplies && "speechSynthesis" in window) window.speechSynthesis.cancel();
   }, [userId, voiceReplies]);
 
+  useEffect(() => {
+    localStorage.setItem(`${JARVIS_VOICE_PRESET_KEY_PREFIX}:${userId}`, voicePreset);
+  }, [userId, voicePreset]);
+
   useEffect(() => () => {
+    stopVoiceActivityMonitor();
+    stopStreamingVoice();
     speechRecognitionRef.current?.stop();
+    wakeWordShouldListenRef.current = false;
+    stopWakeWordListener("paused");
     if (voiceStopTimerRef.current) window.clearTimeout(voiceStopTimerRef.current);
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -2106,6 +2367,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       proactiveFollowups: "companion_proactive_followups",
       autonomyMode: "companion_autonomy_mode",
       handsFreeVoice: "companion_hands_free_voice",
+      wakeWordEnabled: "companion_wake_word",
     }[key];
     const update: JarvisMemoryUpdate = { operation: "upsert", category: "preference", key: memoryKey, value: String(value), confidence: 1, source: "explicit", sensitivity: "normal", followUpAt: null };
     setMemory((current) => applyMemoryUpdates(current, [update]));
@@ -2143,7 +2405,130 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     void persistActiveContext(next);
   }
 
+  function cleanStreamingSpeechText(value: string) {
+    return value
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/\[([^\]]+)]\([^\s)]+\)/g, "$1")
+      .replace(/[*_`#>|]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function stopStreamingVoice() {
+    streamingVoiceGenerationRef.current += 1;
+    streamingVoiceQueueRef.current = [];
+    streamingVoiceBufferRef.current = "";
+    streamingVoiceTokenRef.current = "";
+    streamingVoicePlayingRef.current = false;
+    streamingVoiceQueuedRef.current = false;
+    streamingVoiceResponseCompleteRef.current = false;
+    audioRef.current?.pause();
+    window.speechSynthesis.cancel();
+  }
+
+  function beginStreamingVoice(accessToken: string) {
+    stopStreamingVoice();
+    streamingVoiceTokenRef.current = accessToken;
+    return streamingVoiceGenerationRef.current;
+  }
+
+  async function requestStreamingVoiceAudio(text: string, accessToken: string, generation: number) {
+    try {
+      const response = await fetch(`${CODEX_BRIDGE_URL}/voice`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId, text, voicePreset, lowLatency: true }),
+      });
+      if (!response.ok || generation !== streamingVoiceGenerationRef.current) return null;
+      return response.blob();
+    } catch { return null; }
+  }
+
+  async function playStreamingVoiceQueue(generation: number) {
+    if (streamingVoicePlayingRef.current || generation !== streamingVoiceGenerationRef.current) return;
+    streamingVoicePlayingRef.current = true;
+    try {
+      while (generation === streamingVoiceGenerationRef.current && streamingVoiceQueueRef.current.length) {
+        const segment = streamingVoiceQueueRef.current.shift();
+        if (!segment) continue;
+        const blob = await segment.audio;
+        if (generation !== streamingVoiceGenerationRef.current) return;
+        setSpeakingMessageId("streaming-voice");
+        if (blob) {
+          const objectUrl = URL.createObjectURL(blob);
+          const audio = new Audio(objectUrl);
+          audioRef.current = audio;
+          await new Promise<void>((resolve) => {
+            audio.onended = () => { URL.revokeObjectURL(objectUrl); resolve(); };
+            audio.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(); };
+            void audio.play().catch(() => { URL.revokeObjectURL(objectUrl); resolve(); });
+          });
+        } else if ("speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined") {
+          await new Promise<void>((resolve) => {
+            const utterance = new SpeechSynthesisUtterance(segment.text);
+            utterance.rate = 0.98;
+            utterance.pitch = 0.94;
+            utterance.onend = () => resolve();
+            utterance.onerror = () => resolve();
+            window.speechSynthesis.speak(utterance);
+          });
+        }
+      }
+    } finally {
+      streamingVoicePlayingRef.current = false;
+      if (generation !== streamingVoiceGenerationRef.current) return;
+      if (streamingVoiceQueueRef.current.length) void playStreamingVoiceQueue(generation);
+      else if (streamingVoiceResponseCompleteRef.current) {
+        setSpeakingMessageId(null);
+        resumeContinuousVoice();
+      }
+    }
+  }
+
+  function queueStreamingVoiceDelta(delta: string, generation: number, flush = false) {
+    if (generation !== streamingVoiceGenerationRef.current) return;
+    streamingVoiceBufferRef.current += delta;
+    const segments: string[] = [];
+    let buffer = streamingVoiceBufferRef.current;
+    const sentencePattern = /^([\s\S]*?[.!?](?:["')\]]+)?)(?=\s|$)/;
+    while (true) {
+      const match = buffer.match(sentencePattern);
+      if (!match) break;
+      segments.push(match[1]);
+      buffer = buffer.slice(match[0].length).trimStart();
+    }
+    if (!segments.length && buffer.length >= 72) {
+      const clauseMatch = buffer.match(/^([\s\S]{48,120}?[,;:—-])(?=\s|$)/);
+      if (clauseMatch) {
+        segments.push(clauseMatch[1]);
+        buffer = buffer.slice(clauseMatch[0].length).trimStart();
+      }
+    }
+    while (buffer.length > 160) {
+      const splitAt = Math.max(buffer.lastIndexOf(" ", 125), 90);
+      segments.push(buffer.slice(0, splitAt));
+      buffer = buffer.slice(splitAt).trimStart();
+    }
+    if (flush && buffer.trim()) { segments.push(buffer); buffer = ""; }
+    streamingVoiceBufferRef.current = buffer;
+    if (flush) streamingVoiceResponseCompleteRef.current = true;
+    const accessToken = streamingVoiceTokenRef.current;
+    for (const rawSegment of segments) {
+      const text = cleanStreamingSpeechText(rawSegment);
+      if (!text) continue;
+      streamingVoiceQueuedRef.current = true;
+      streamingVoiceQueueRef.current.push({ text, audio: requestStreamingVoiceAudio(text, accessToken, generation) });
+    }
+    if (streamingVoiceQueueRef.current.length) void playStreamingVoiceQueue(generation);
+    else if (flush && !streamingVoicePlayingRef.current) {
+      setSpeakingMessageId(null);
+      resumeContinuousVoice();
+    }
+  }
+
   async function speakJarvisMessage(message: JarvisMessage) {
+    if (!voiceChatEnabled) return;
+    stopStreamingVoice();
     audioRef.current?.pause();
     window.speechSynthesis.cancel();
     if (speakingMessageId === message.id) {
@@ -2156,7 +2541,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
       if (!token) throw new Error("No authenticated voice session");
-      const response = await fetch("/api/jarvis/voice", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ userId, text: message.text.slice(0, 4096) }) });
+      const response = await fetch(isPrivateCodexDesktop ? `${CODEX_BRIDGE_URL}/voice` : "/api/jarvis/voice", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ userId, text: message.text.slice(0, 4096), voicePreset }) });
       if (!response.ok) throw new Error("Dedicated voice unavailable");
       const blob = await response.blob();
       const audio = new Audio(URL.createObjectURL(blob));
@@ -2175,6 +2560,53 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     utterance.onend = () => { setSpeakingMessageId(null); resumeContinuousVoice(); };
     utterance.onerror = () => { setSpeakingMessageId(null); resumeContinuousVoice(); };
     window.speechSynthesis.speak(utterance);
+  }
+
+  useEffect(() => {
+    if (!isPrivateCodexDesktop || !window.journalyDesktop?.getStatus || !window.journalyDesktop?.onStatus) return;
+    let cancelled = false;
+    let greeted = false;
+    const greetingKey = `${JARVIS_STARTUP_GREETING_KEY_PREFIX}:${userId}`;
+    const greetWhenOnline = (status: { launchId?: string; bridgeReady?: boolean; codexLoggedIn?: boolean; ctrader?: JarvisCTraderStatus }) => {
+      if (status.ctrader) setCTraderStatus(status.ctrader);
+      const launchId = String(status.launchId || "");
+      if (cancelled || greeted || !launchId || !status.bridgeReady || !status.codexLoggedIn) return;
+      if (localStorage.getItem(greetingKey) === launchId) return;
+      greeted = true;
+      localStorage.setItem(greetingKey, launchId);
+      const hour = new Date().getHours();
+      const salutation = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+      const message: JarvisMessage = {
+        id: crypto.randomUUID(),
+        role: "jarvis",
+        title: "Jarvis online",
+        text: `${salutation}, Sir. Jarvis is online and ready. How may I assist you today?`,
+        createdAt: new Date().toISOString(),
+      };
+      setCodexBridgeState("ready");
+      setMessages((current) => [...current, message]);
+      if (!isOpenRef.current) setInAppNotification(message);
+      window.setTimeout(() => { if (!cancelled) void speakJarvisMessage(message); }, 500);
+    };
+    void window.journalyDesktop.getStatus().then(greetWhenOnline).catch(() => undefined);
+    const unsubscribe = window.journalyDesktop.onStatus(greetWhenOnline);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [isPrivateCodexDesktop, userId, voiceChatEnabled]);
+
+  async function connectCTraderFromPulse() {
+    if (!window.journalyDesktop?.connectCTrader || ctraderBusy) return;
+    setCTraderBusy(true);
+    try {
+      const status = await window.journalyDesktop.connectCTrader();
+      setCTraderStatus(status as JarvisCTraderStatus);
+    } catch (error) {
+      setCTraderStatus((current) => ({ ...current, lastError: error instanceof Error ? error.message : String(error) }));
+    } finally {
+      setCTraderBusy(false);
+    }
   }
 
   function toggleLegacyVoiceInput() {
@@ -2208,19 +2640,219 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     recognition.start();
   }
 
+  function stopWakeWordListener(nextState: "paused" | "unsupported" = "paused") {
+    if (wakeWordRestartTimerRef.current !== null) window.clearTimeout(wakeWordRestartTimerRef.current);
+    wakeWordRestartTimerRef.current = null;
+    const recognition = wakeWordRecognitionRef.current;
+    wakeWordRecognitionRef.current = null;
+    try { recognition?.stop(); } catch { /* Recognition may already be stopped. */ }
+    setWakeWordState(nextState);
+  }
+
+  function summonJarvisFromWakeWord(command: string) {
+    const now = Date.now();
+    if (now - wakeWordTriggeredAtRef.current < 3000) return;
+    wakeWordTriggeredAtRef.current = now;
+    wakeWordShouldListenRef.current = false;
+    stopWakeWordListener("paused");
+    const interruptedSpeech = Boolean(speakingMessageId);
+    if (interruptedSpeech) {
+      stopStreamingVoice();
+      audioRef.current?.pause();
+      audioRef.current = null;
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+    }
+    const cleanCommand = command.replace(/^[,;:!?.\s-]+/, "").trim();
+    openDesktopVoiceCompanion(!interruptedSpeech && !cleanCommand);
+    setWakeWordAcknowledgement(cleanCommand ? "Yes, Sir — working on it." : "Yes, Sir — I’m listening.");
+    if (!cleanCommand) {
+      if (interruptedSpeech) window.setTimeout(() => {
+        if (!isListeningRef.current && voicePhaseRef.current === "idle" && !isThinkingRef.current) void toggleVoiceInput(true);
+      }, 180);
+      return;
+    }
+    setLiveVoiceTranscript(cleanCommand);
+    window.setTimeout(() => void askJarvis(cleanCommand), 120);
+  }
+
+  function startWakeWordListener() {
+    if (!wakeWordShouldListenRef.current || wakeWordRecognitionRef.current) return;
+    const speechWindow = window as Window & { SpeechRecognition?: JarvisSpeechRecognitionConstructor; webkitSpeechRecognition?: JarvisSpeechRecognitionConstructor };
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      wakeWordShouldListenRef.current = false;
+      setWakeWordState("unsupported");
+      return;
+    }
+    try {
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+      recognition.onresult = (event) => {
+        const finalResults = Array.from(event.results).filter((result) => result.isFinal !== false);
+        for (const result of finalResults) {
+          const alternative = result[0];
+          const transcript = String(alternative?.transcript || "").trim();
+          const confidence = alternative?.confidence;
+          const wakeMatch = transcript.match(/^(?:hey\s+)?jarvis\b(?:[\s,;:!?.-]+([\s\S]*))?$/i);
+          if (!wakeMatch || (typeof confidence === "number" && confidence > 0 && confidence < 0.65)) continue;
+          summonJarvisFromWakeWord(wakeMatch[1] || "");
+          break;
+        }
+      };
+      recognition.onerror = (event) => {
+        if (event?.error === "not-allowed" || event?.error === "service-not-allowed") {
+          if (wakeWordRecognitionRef.current === recognition) wakeWordRecognitionRef.current = null;
+          wakeWordShouldListenRef.current = false;
+          setWakeWordState("unsupported");
+        }
+      };
+      recognition.onend = () => {
+        if (wakeWordRecognitionRef.current !== recognition) return;
+        wakeWordRecognitionRef.current = null;
+        if (!wakeWordShouldListenRef.current) return;
+        setWakeWordState("starting");
+        wakeWordRestartTimerRef.current = window.setTimeout(startWakeWordListener, 500);
+      };
+      wakeWordRecognitionRef.current = recognition;
+      recognition.start();
+      setWakeWordState("listening");
+    } catch {
+      wakeWordRecognitionRef.current = null;
+      if (wakeWordShouldListenRef.current) wakeWordRestartTimerRef.current = window.setTimeout(startWakeWordListener, 900);
+    }
+  }
+
+  function stopVoiceActivityMonitor() {
+    if (voiceActivityFrameRef.current !== null) window.cancelAnimationFrame(voiceActivityFrameRef.current);
+    voiceActivityFrameRef.current = null;
+    void voiceActivityContextRef.current?.close().catch(() => undefined);
+    voiceActivityContextRef.current = null;
+  }
+
+  function startVoiceActivityMonitor(stream: MediaStream) {
+    stopVoiceActivityMonitor();
+    const audioContext = new AudioContext();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.36;
+    audioContext.createMediaStreamSource(stream).connect(analyser);
+    voiceActivityContextRef.current = audioContext;
+    const samples = new Float32Array(analyser.fftSize);
+    const startedAt = performance.now();
+    let speechStartedAt = 0;
+    let lastSpeechAt = 0;
+    const inspect = () => {
+      if (mediaRecorderRef.current?.state !== "recording") { stopVoiceActivityMonitor(); return; }
+      analyser.getFloatTimeDomainData(samples);
+      let energy = 0;
+      for (const sample of samples) energy += sample * sample;
+      const rms = Math.sqrt(energy / samples.length);
+      const now = performance.now();
+      if (rms >= 0.022) {
+        if (!speechStartedAt) speechStartedAt = now;
+        lastSpeechAt = now;
+      }
+      const heardEnough = speechStartedAt > 0 && now - speechStartedAt >= 320;
+      const naturalPause = lastSpeechAt > 0 && now - lastSpeechAt >= 480;
+      if (heardEnough && naturalPause && now - startedAt >= 700) {
+        setAttachmentError("Got it — sending your voice to Codex…");
+        stopVoiceInput();
+        return;
+      }
+      voiceActivityFrameRef.current = window.requestAnimationFrame(inspect);
+    };
+    void audioContext.resume().finally(() => { voiceActivityFrameRef.current = window.requestAnimationFrame(inspect); });
+  }
+
+  function startInterimVoiceCaptions() {
+    const speechWindow = window as Window & { SpeechRecognition?: JarvisSpeechRecognitionConstructor; webkitSpeechRecognition?: JarvisSpeechRecognitionConstructor };
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) return;
+    try {
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+      recognition.onresult = (event) => {
+        const results = Array.from(event.results);
+        const transcript = results.map((result) => result[0]?.transcript || "").join(" ").trim();
+        const completedTranscript = results.filter((result) => result.isFinal !== false).map((result) => result[0]?.transcript || "").join(" ").trim();
+        if (completedTranscript) fastVoiceTranscriptRef.current = completedTranscript;
+        if (transcript) {
+          setWakeWordAcknowledgement("");
+          setLiveVoiceTranscript(transcript);
+        }
+      };
+      recognition.onerror = () => undefined;
+      recognition.onend = null;
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } catch { /* MediaRecorder transcription remains the reliable fallback. */ }
+  }
+
   function stopVoiceInput() {
+    stopVoiceActivityMonitor();
     if (voiceStopTimerRef.current) {
       window.clearTimeout(voiceStopTimerRef.current);
       voiceStopTimerRef.current = null;
     }
     if (mediaRecorderRef.current?.state === "recording") mediaRecorderRef.current.stop();
-    else speechRecognitionRef.current?.stop();
+    speechRecognitionRef.current?.stop();
   }
 
   function stopContinuousVoice() {
     continuousVoiceRef.current = false;
     setContinuousVoiceActive(false);
     stopVoiceInput();
+  }
+
+  function openDesktopVoiceCompanion(beginListening = true) {
+    if (!isPrivateCodexDesktop || !voiceChatEnabled) return;
+    wakeWordShouldListenRef.current = false;
+    stopWakeWordListener("paused");
+    setIsAmbient(true);
+    setShowDesktopVoiceCompanion(true);
+    setDesktopVoiceCompact(true);
+    setLiveVoiceTranscript("");
+    setLiveJarvisAnswer("");
+    setWakeWordAcknowledgement("");
+    setVoiceReplies(true);
+    continuousVoiceRef.current = true;
+    setContinuousVoiceActive(true);
+    if (beginListening && !isListeningRef.current && voicePhaseRef.current === "idle" && !isThinkingRef.current && !speakingMessageId) window.setTimeout(() => void toggleVoiceInput(true), 180);
+  }
+
+  function closeDesktopVoiceCompanion() {
+    setShowDesktopVoiceCompanion(false);
+    setDesktopVoiceCompact(true);
+    setLiveVoiceTranscript("");
+    setLiveJarvisAnswer("");
+    setWakeWordAcknowledgement("");
+    stopVoiceActivityMonitor();
+    stopStreamingVoice();
+    continuousVoiceRef.current = false;
+    setContinuousVoiceActive(false);
+    if (voiceStopTimerRef.current) window.clearTimeout(voiceStopTimerRef.current);
+    voiceStopTimerRef.current = null;
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === "recording") {
+      recorder.onstop = () => {
+        mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+        mediaRecorderRef.current = null;
+        voiceChunksRef.current = [];
+      };
+      recorder.stop();
+    } else speechRecognitionRef.current?.stop();
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    setIsListening(false);
+    setVoicePhase("idle");
+    audioRef.current?.pause();
+    window.speechSynthesis.cancel();
+    setSpeakingMessageId(null);
   }
 
   function resumeContinuousVoice() {
@@ -2230,26 +2862,30 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
     }, 450);
   }
 
-  async function transcribeVoice(blob: Blob) {
+  async function transcribeVoice(blob: Blob, streamedTranscript = "") {
     setIsListening(false);
     setVoicePhase("transcribing");
     setAttachmentError("Transcribing your voice…");
     try {
-      if (blob.size < 600) throw new Error("That recording was too short. Hold the mic and speak for a moment.");
-      if (!supabase) throw new Error("Jarvis needs an authenticated session for voice chat.");
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) throw new Error("Jarvis needs an authenticated session for voice chat.");
-      const audioData = await blobToDataUrl(blob);
-      const response = await fetch("/api/jarvis/transcribe", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ userId, audioData }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : "Jarvis could not transcribe that recording.");
-      const transcript = typeof payload?.transcript === "string" ? payload.transcript.trim() : "";
+      let transcript = streamedTranscript.trim();
+      if (!transcript) {
+        if (blob.size < 600) throw new Error("That recording was too short. Hold the mic and speak for a moment.");
+        if (!supabase) throw new Error("Jarvis needs an authenticated session for voice chat.");
+        const { data } = await supabase.auth.getSession();
+        const token = data.session?.access_token;
+        if (!token) throw new Error("Jarvis needs an authenticated session for voice chat.");
+        const audioData = await blobToDataUrl(blob);
+        const response = await fetch("/api/jarvis/transcribe", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+          body: JSON.stringify({ userId, audioData }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : "Jarvis could not transcribe that recording.");
+        transcript = typeof payload?.transcript === "string" ? payload.transcript.trim() : "";
+      }
       if (!transcript) throw new Error("I couldn’t hear any words in that recording. Try again a little closer to the microphone.");
+      setLiveVoiceTranscript(transcript);
       setAttachmentError("");
       if (memory.companionSettings.handsFreeVoice) setVoiceReplies(true);
       const spokenPrompt = `${prompt.trim()}${prompt.trim() ? " " : ""}${transcript}`;
@@ -2262,11 +2898,16 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       mediaStreamRef.current = null;
       mediaRecorderRef.current = null;
       voiceChunksRef.current = [];
+      fastVoiceTranscriptRef.current = "";
       setVoicePhase("idle");
     }
   }
 
   async function toggleVoiceInput(fromContinuousLoop = false) {
+    if (!voiceChatEnabled) {
+      setAttachmentError("Voice chat is disabled in desktop mode. Use text chat instead.");
+      return;
+    }
     if (voicePhaseRef.current === "transcribing") return;
     if (isListeningRef.current) {
       if (!fromContinuousLoop) stopContinuousVoice();
@@ -2289,6 +2930,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         mediaStreamRef.current = stream;
         mediaRecorderRef.current = recorder;
         voiceChunksRef.current = [];
+        fastVoiceTranscriptRef.current = "";
         recorder.ondataavailable = (event) => { if (event.data.size) voiceChunksRef.current.push(event.data); };
         recorder.onerror = () => {
           stopContinuousVoice();
@@ -2301,10 +2943,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           if (voiceStopTimerRef.current) window.clearTimeout(voiceStopTimerRef.current);
           voiceStopTimerRef.current = null;
           const recording = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          void transcribeVoice(recording);
+          window.setTimeout(() => void transcribeVoice(recording, fastVoiceTranscriptRef.current), 100);
         };
         recorder.start(250);
-        setAttachmentError("Listening… tap the microphone again when you’re done.");
+        setLiveVoiceTranscript("");
+        if (isPrivateCodexDesktop && (showDesktopVoiceCompanion || fromContinuousLoop)) {
+          startVoiceActivityMonitor(stream);
+          startInterimVoiceCaptions();
+        }
+        setAttachmentError(isPrivateCodexDesktop && (showDesktopVoiceCompanion || fromContinuousLoop) ? "Listening… I’ll send automatically when you pause." : "Listening… tap the microphone again when you’re done.");
         setIsListening(true);
         setVoicePhase("listening");
         voiceStopTimerRef.current = window.setTimeout(stopVoiceInput, 45_000);
@@ -2584,11 +3231,15 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       });
       const lastAssistantText = [...messages].reverse().find((message) => message.role === "jarvis")?.text || "";
       const lastDecision = lastAssistantText.match(/\b(TAKE|SKIP|WATCH|ARMED|INVALIDATED|GOOD LOSS|EXECUTION MISTAKE|RULE VIOLATION)\b/i)?.[1]?.toUpperCase() || null;
-      const response = await fetch("/api/jarvis/chat", {
+      const streamVoiceResponse = isPrivateCodexDesktop && (showDesktopVoiceCompanion || continuousVoiceRef.current) && (voiceReplies || continuousVoiceRef.current);
+      const streamingGeneration = streamVoiceResponse ? beginStreamingVoice(accessToken) : null;
+      if (streamVoiceResponse) setLiveJarvisAnswer("");
+      const response = await fetch(isPrivateCodexDesktop ? `${CODEX_BRIDGE_URL}${streamVoiceResponse ? "/chat-stream" : "/chat"}` : "/api/jarvis/chat", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           userId,
+          conversationKey: selectedChatDate,
           question: cleanPrompt,
           history: recentHistory,
           chartImage: imageForRequest?.dataUrl || (wantsChartReview ? lastChartImage?.dataUrl || persistedLastChart?.dataUrl || activeChartRecord?.screenshot || null : null),
@@ -2598,7 +3249,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
             profile: {
               displayName,
               username: normalizedUsername(username),
-              preferredName: memory.preferredName,
+              preferredName,
               preferences: memory.preferences,
               memories: memory.memories,
               companionSettings: memory.companionSettings,
@@ -2688,7 +3339,42 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
           },
         }), signal: requestController.signal,
       });
-      const payload = await response.json();
+      let payload: Record<string, any>;
+      if (streamVoiceResponse && streamingGeneration !== null) {
+        if (!response.ok || !response.body) {
+          const errorPayload = await response.json().catch(() => ({}));
+          throw new Error(typeof errorPayload?.error === "string" ? errorPayload.error : "Jarvis streaming is unavailable.");
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = "";
+        let streamedAnswer = "";
+        let completedPayload: any = null;
+        const handleLine = (line: string) => {
+          if (!line.trim()) return;
+          const event = JSON.parse(line) as { type?: string; delta?: string; payload?: Record<string, any>; error?: string };
+          if (event.type === "answer_delta" && typeof event.delta === "string") {
+            streamedAnswer += event.delta;
+            setLiveJarvisAnswer(streamedAnswer);
+            queueStreamingVoiceDelta(event.delta, streamingGeneration);
+          } else if (event.type === "complete" && event.payload) completedPayload = event.payload;
+          else if (event.type === "error") throw new Error(event.error || "Codex Jarvis streaming failed.");
+        };
+        while (true) {
+          const { value, done } = await reader.read();
+          pending += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const lines = pending.split("\n");
+          pending = lines.pop() || "";
+          for (const line of lines) handleLine(line);
+          if (done) break;
+        }
+        if (pending.trim()) handleLine(pending);
+        if (!completedPayload || typeof completedPayload.answer !== "string") throw new Error("Jarvis streaming ended before the response completed.");
+        const missingAnswer = completedPayload.answer.startsWith(streamedAnswer) ? completedPayload.answer.slice(streamedAnswer.length) : streamedAnswer ? "" : completedPayload.answer;
+        setLiveJarvisAnswer(completedPayload.answer);
+        queueStreamingVoiceDelta(missingAnswer, streamingGeneration, true);
+        payload = completedPayload;
+      } else payload = await response.json();
       if (!response.ok || typeof payload?.answer !== "string") {
         const error = new Error(payload?.error || "Jarvis is unavailable.") as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
         error.category = payload?.category;
@@ -2696,6 +3382,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         error.fallbackAllowed = payload?.fallbackAllowed === true;
         throw error;
       }
+      if (isPrivateCodexDesktop) setCodexBridgeState("ready");
       setAiHealth((current) => ({
         provider: payload.provider || current?.provider || "OpenAI",
         configuredModel: payload.model || current?.configuredModel || null,
@@ -2771,7 +3458,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       if (!tradeUpdateApplied) {
         const jarvisMessage: JarvisMessage = { id: crypto.randomUUID(), role: "jarvis", text: payload.answer, createdAt: new Date().toISOString() };
         setMessages((current) => [...current, jarvisMessage]);
-        if (voiceReplies || memory.companionSettings.handsFreeVoice) speakJarvisMessage(jarvisMessage);
+        if ((voiceReplies || memory.companionSettings.handsFreeVoice) && streamingGeneration === null) speakJarvisMessage(jarvisMessage);
       }
       if (payload?.proactiveSchedule && Number.isFinite(Number(payload.proactiveSchedule.delaySeconds)) && typeof payload.proactiveSchedule.message === "string") {
         void fetch("/api/jarvis/proactive", {
@@ -2794,6 +3481,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
       }
     } catch (error) {
       const failure = error as Error & { category?: string; status?: number; fallbackAllowed?: boolean };
+      if (isPrivateCodexDesktop && (showDesktopVoiceCompanion || continuousVoiceRef.current)) stopStreamingVoice();
+      if (isPrivateCodexDesktop) setCodexBridgeState("offline");
       if (failure.name === "AbortError") {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: "jarvis", text: "Stopped. I kept the conversation and context—continue whenever you’re ready.", createdAt: new Date().toISOString() }]);
         return;
@@ -2819,12 +3508,171 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         } : {
           id: crypto.randomUUID(),
           role: "jarvis",
-          title: "Conversational AI unavailable",
+          title: isPrivateCodexDesktop ? "Codex Jarvis unavailable" : "Conversational AI unavailable",
           text: failure.status === 401
             ? "Your Journaly session needs to be refreshed. Sign in again, then retry this message."
-            : "I can’t answer that naturally without the conversational model. Your message is still here—retry in a moment and I’ll resume automatically.",
+            : isPrivateCodexDesktop
+              ? "The private Codex brain is not connected. Open Codex Bridge Center from the desktop menu, confirm Codex is signed in, then retry—this desktop will not fall back to the cloud Jarvis API."
+              : "I can’t answer that naturally without the conversational model. Your message is still here—retry in a moment and I’ll resume automatically.",
         },
       ]);
+    } finally {
+      if (requestAbortRef.current === requestController) requestAbortRef.current = null;
+      setIsThinking(false);
+      if (continuousVoiceRef.current && !streamingVoicePlayingRef.current) resumeContinuousVoice();
+    }
+  }
+
+  function collectCodexImages(mode: CodexResearchMode) {
+    const images: Array<{ dataUrl: string; name: string; sourceType: "attached" | "trade" | "backtest" | "journal"; sourceId: string; label: string }> = [];
+    const seen = new Set<string>();
+    let totalCharacters = 0;
+    const add = (candidate: typeof images[number]) => {
+      if (!candidate.dataUrl.startsWith("data:image/") || seen.has(candidate.dataUrl) || images.length >= 12) return;
+      if (candidate.dataUrl.length > 4_200_000 || totalCharacters + candidate.dataUrl.length > 27_000_000) return;
+      seen.add(candidate.dataUrl);
+      totalCharacters += candidate.dataUrl.length;
+      images.push(candidate);
+    };
+
+    if (attachedImage) add({ ...attachedImage, sourceType: "attached", sourceId: "current-upload", label: `User-provided screenshot: ${attachedImage.name}` });
+
+    const activeBacktest = activeContext?.backtestId ? backtests.find((item) => item.id === activeContext.backtestId) : null;
+    if (activeBacktest?.screenshot) add({ dataUrl: activeBacktest.screenshot, name: `${activeBacktest.pair}-${activeBacktest.date}.png`, sourceType: "backtest", sourceId: activeBacktest.id, label: `${activeBacktest.date} ${activeBacktest.pair} ${activeBacktest.setup} ${formatR(activeBacktest.pnl)}` });
+
+    if (["backtest_forensics", "strategy_research", "data_quality", "research_experiment"].includes(mode)) {
+      latestFirst(backtests).forEach((item) => item.screenshot && add({ dataUrl: item.screenshot, name: `${item.pair}-${item.date}.png`, sourceType: "backtest", sourceId: item.id, label: `${item.date} ${item.pair} ${item.setup} ${item.direction} ${formatR(item.pnl)}` }));
+    } else if (["trade_forensics", "chart_review", "decision_checklist", "deep_analysis"].includes(mode)) {
+      const activeTrade = activeContext?.tradeId ? trades.find((item) => item.id === activeContext.tradeId) : null;
+      if (activeTrade?.screenshot) add({ dataUrl: activeTrade.screenshot, name: `${activeTrade.pair}-${activeTrade.date}.png`, sourceType: "trade", sourceId: activeTrade.id, label: `${activeTrade.date} ${activeTrade.pair} ${activeTrade.setup} ${formatR(activeTrade.pnl)}` });
+      latestFirst(trades).forEach((item) => item.screenshot && add({ dataUrl: item.screenshot, name: `${item.pair}-${item.date}.png`, sourceType: "trade", sourceId: item.id, label: `${item.date} ${item.pair} ${item.setup} ${item.direction} ${formatR(item.pnl)}` }));
+      journalEntries.forEach((entry) => {
+        if (!entry.image || !entry.content.startsWith(JARVIS_CHART_PREFIX)) return;
+        try {
+          const value = JSON.parse(entry.content.slice(JARVIS_CHART_PREFIX.length).trim());
+          add({ dataUrl: entry.image, name: String(value.name || "Previous Jarvis chart"), sourceType: "journal", sourceId: entry.id, label: `Saved Jarvis chart captured ${String(value.capturedAt || entry.createdAt || entry.date)}` });
+        } catch { /* Ignore malformed historical chart metadata. */ }
+      });
+    }
+    return images;
+  }
+
+  function normalizeCodexActionDrafts(value: unknown): CodexActionDraft[] {
+    if (!Array.isArray(value)) return [];
+    const allowed = new Set(["trade_update", "forecast_update", "journal_entry", "review_task", "research_task", "data_cleanup"]);
+    return value.flatMap((candidate) => {
+      if (!candidate || typeof candidate !== "object") return [];
+      const item = candidate as Record<string, unknown>;
+      if (!allowed.has(String(item.type)) || typeof item.title !== "string" || typeof item.reason !== "string") return [];
+      return [{ type: String(item.type) as CodexActionDraft["type"], title: item.title.slice(0, 180), reason: item.reason.slice(0, 800), payload: typeof item.payload === "string" ? item.payload.slice(0, 6000) : "{}" }];
+    }).slice(0, 12);
+  }
+
+  function reviewCodexAction(action: CodexActionDraft) {
+    setSelectedChatDate(localDateKey());
+    setPrompt(`Review this Codex ${action.type.replaceAll("_", " ")} proposal. Verify it against Journaly, ask for anything missing, and prepare a confirmation-only draft. Do not save anything yet.\n\nTitle: ${action.title}\nReason: ${action.reason}\nProposed payload: ${action.payload}`);
+    inputRef.current?.focus();
+  }
+
+  function downloadCodexReport(message: JarvisMessage, format: "md" | "doc") {
+    if (!message.codexReport) return;
+    const safeName = (message.title || "codex-research-report").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const metadata = `Generated: ${message.codexReport.generatedAt}\nMode: ${message.codexReport.mode}\nModel: ${message.codexReport.model}\nScreenshots analyzed: ${message.codexReport.imagesAnalyzed}`;
+    const markdown = `# ${message.title || "Codex Research Report"}\n\n${metadata}\n\n${message.text}`;
+    const escapeHtml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    const content = format === "md" ? markdown : `<html><head><meta charset="utf-8"><title>${escapeHtml(message.title || "Codex Research Report")}</title><style>body{font-family:Arial,sans-serif;max-width:900px;margin:48px auto;line-height:1.55;color:#10212b}pre{white-space:pre-wrap;font-family:Arial,sans-serif}</style></head><body><pre>${escapeHtml(markdown)}</pre></body></html>`;
+    const blob = new Blob([content], { type: format === "md" ? "text/markdown;charset=utf-8" : "application/msword;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${safeName || "codex-research-report"}.${format}`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function printCodexReport(message: JarvisMessage) {
+    if (!message.codexReport) return;
+    const escapeHtml = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    const reportWindow = window.open("", "_blank");
+    if (!reportWindow) { setAttachmentError("Allow pop-ups to open the printable Codex report."); return; }
+    reportWindow.opener = null;
+    reportWindow.document.write(`<html><head><title>${escapeHtml(message.title || "Codex Research Report")}</title><style>body{font:15px/1.6 Arial,sans-serif;max-width:900px;margin:42px auto;padding:0 24px;color:#10212b}pre{white-space:pre-wrap;font:inherit}@media print{body{margin:0}}</style></head><body><h1>${escapeHtml(message.title || "Codex Research Report")}</h1><p>Generated ${escapeHtml(message.codexReport.generatedAt)} · ${escapeHtml(message.codexReport.model)} · ${message.codexReport.imagesAnalyzed} screenshots analyzed</p><pre>${escapeHtml(message.text)}</pre><script>window.onload=()=>window.print()<\/script></body></html>`);
+    reportWindow.document.close();
+  }
+
+  async function runCodexResearch(mode: CodexResearchMode = codexResearchMode, requestedFocus = "") {
+    if (isThinking) return;
+    const focus = requestedFocus.trim();
+    const modeDefinition = CODEX_RESEARCH_MODES.find((item) => item.id === mode) || CODEX_RESEARCH_MODES[0];
+    const researchImages = collectCodexImages(mode);
+    const targetDate = localDateKey();
+    const requestController = new AbortController();
+    requestAbortRef.current = requestController;
+    setSelectedChatDate(targetDate);
+    setPrompt("");
+    setAttachmentError("");
+    setShowCodexCenter(false);
+    setIsThinking(true);
+    setCodexBridgeState("analyzing");
+    setMessagesForDate(targetDate, (current) => [...current, {
+      id: crypto.randomUUID(),
+      role: "user",
+      title: `Codex · ${modeDefinition.label}`,
+      text: focus || modeDefinition.description,
+      imagePreview: attachedImage?.dataUrl,
+      attachmentName: attachedImage?.name,
+    }]);
+
+    try {
+      if (normalizedUsername(username) !== OWNER_USERNAME) throw new Error("This private Codex bridge is enabled only for Christian's owner account.");
+      if (!supabase) throw new Error("Journaly authentication is not configured on this device.");
+      const { data, error } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      const accountEmail = data.session?.user.email?.trim().toLowerCase();
+      if (error || !accessToken || accountEmail !== OWNER_EMAIL) throw new Error("Sign in to Christian's Journaly owner account, then retry.");
+
+      const response = await fetch(`${CODEX_BRIDGE_URL}/analyze`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, question: focus, images: researchImages, snapshot: { ...codexAnalysisSnapshot, generatedAt: new Date().toISOString(), accountEmail } }),
+        signal: requestController.signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || typeof payload.reportMarkdown !== "string") throw new Error(typeof payload.error === "string" ? payload.error : "The local Codex bridge did not return a research report.");
+      setCodexBridgeState("ready");
+      const actionDrafts = normalizeCodexActionDrafts(payload.actionDrafts);
+      setMessagesForDate(targetDate, (current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "jarvis",
+        title: typeof payload.title === "string" ? payload.title : `Codex · ${modeDefinition.label}`,
+        text: payload.reportMarkdown,
+        metrics: [
+          { label: "Live trades", value: String(codexAnalysisSnapshot.summary.totalTrades) },
+          { label: "Backtests", value: String(codexAnalysisSnapshot.summary.totalBacktests) },
+          { label: "Screenshots read", value: String(Number(payload.imagesAnalyzed) || 0) },
+          { label: "Safety", value: "Read-only", tone: "good" },
+        ],
+        codexReport: {
+          mode,
+          generatedAt: typeof payload.generatedAt === "string" ? payload.generatedAt : new Date().toISOString(),
+          model: typeof payload.model === "string" ? payload.model : "Codex default",
+          imagesAnalyzed: Number(payload.imagesAnalyzed) || 0,
+          summary: typeof payload.summary === "string" ? payload.summary : "",
+          followUpQuestions: Array.isArray(payload.followUpQuestions) ? payload.followUpQuestions.filter((item: unknown) => typeof item === "string").slice(0, 5) : [],
+          actionDrafts,
+        },
+      }]);
+      if (attachedImage) removeAttachedImage();
+    } catch (error) {
+      if (requestController.signal.aborted) return;
+      setCodexBridgeState("offline");
+      const detail = error instanceof Error ? error.message : "The local Codex bridge is unavailable.";
+      setMessagesForDate(targetDate, (current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "jarvis",
+        title: "Codex bridge needs attention",
+        text: `${detail}\n\nOn Christian's PC, open a terminal in Journaly and run \`npm run codex:bridge\`. For first-time Codex sign-in, run \`npm run codex:login\`, then retry.`,
+      }]);
     } finally {
       if (requestAbortRef.current === requestController) requestAbortRef.current = null;
       setIsThinking(false);
@@ -2868,15 +3716,75 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
         <span className="jarvis-launcher-orbit" />
         <span className="jarvis-launcher-core"><span>J</span></span>
         {unreadProactiveCount ? <span className="jarvis-launcher-unread" aria-label={`${unreadProactiveCount} unread Jarvis message${unreadProactiveCount === 1 ? "" : "s"}`}>{Math.min(unreadProactiveCount, 9)}</span> : null}
-        <span className="jarvis-launcher-label"><strong>Jarvis</strong><small>{aiHealth?.fallbackActive ? "Limited" : "Online"}</small></span>
+        <span className="jarvis-launcher-label"><strong>Jarvis</strong><small>{isPrivateCodexDesktop ? codexUsedPercent === null ? "Codex" : `Codex ${codexUsedPercent}%` : aiHealth?.fallbackActive ? "Limited" : "Online"}</small></span>
       </button>
 
-      {isOpen && isAmbient ? (
+      {isOpen && isPrivateCodexDesktop && showDesktopVoiceCompanion ? (
+        <section className={`jarvis-desktop-voice is-${desktopVoiceState}${desktopVoiceCompact ? " is-compact" : ""}`} role="dialog" aria-modal={!desktopVoiceCompact} aria-label="Jarvis desktop voice conversation">
+          <div className="jarvis-desktop-voice-aurora" aria-hidden="true"><i /><i /><i /></div>
+          <header>
+            <div><span className="jarvis-desktop-voice-live"><i /> JARVIS VOICE</span><small>Private Codex desktop companion</small></div>
+            <div>
+              <span className={`jarvis-wake-word-state is-${wakeWordState}`} title={wakeWordState === "unsupported" ? "Allow microphone and speech recognition to use the Jarvis wake word" : "Say Hey Jarvis or Jarvis"}><Radio size={13} /><strong>{wakeWordState === "listening" ? "Wake on" : wakeWordState === "unsupported" ? "Wake off" : "Wake paused"}</strong></span>
+              <span className={`jarvis-codex-usage${codexUsedPercent !== null && codexUsedPercent >= 80 ? " is-high" : ""}`} title={codexUsageTitle}><Gauge size={13} /><strong>{codexUsedPercent === null ? "--" : `${codexUsedPercent}%`}</strong><small>used</small></span>
+              <label><Volume2 size={14} /><select aria-label="Jarvis voice" value={voicePreset} onChange={(event) => setVoicePreset(event.target.value === "cedar" ? "cedar" : "vale")}><option value="vale">Vale</option><option value="cedar">Cedar</option></select></label>
+              <button type="button" aria-label={desktopVoiceCompact ? "Expand voice companion" : "Float voice companion"} title={desktopVoiceCompact ? "Expand voice companion" : "Float voice companion"} onClick={() => setDesktopVoiceCompact((current) => !current)}>{desktopVoiceCompact ? <Maximize2 size={17} /> : <Minimize2 size={17} />}</button>
+              <button type="button" aria-label="End voice chat" title="End voice chat" onClick={closeDesktopVoiceCompanion}><X size={19} /></button>
+            </div>
+          </header>
+
+          <main>
+            <div className={`jarvis-voice-mascot is-${desktopVoiceState}`} aria-hidden="true">
+              <span className="jarvis-voice-mascot-ring ring-one" />
+              <span className="jarvis-voice-mascot-ring ring-two" />
+              <div className="jarvis-voice-bot">
+                <div className="jarvis-voice-head-cloud"><i /><i /><i /><i /></div>
+                <div className="jarvis-voice-face"><b>›</b><b>_</b><span /></div>
+                <div className="jarvis-voice-body"><span>›_</span></div>
+                <i className="jarvis-voice-arm arm-left" /><i className="jarvis-voice-arm arm-right" />
+                <i className="jarvis-voice-foot foot-left" /><i className="jarvis-voice-foot foot-right" />
+                <span className="jarvis-voice-shadow" />
+              </div>
+            </div>
+
+            <div className="jarvis-desktop-voice-status">
+              <span>{desktopVoiceStatus}</span>
+              <div className="jarvis-desktop-voice-wave" aria-hidden="true">{Array.from({ length: 9 }, (_, index) => <i key={index} />)}</div>
+              <p>{desktopVoiceState === "listening" ? "Speak naturally. Jarvis sends automatically when you pause." : desktopVoiceState === "transcribing" ? "Turning your voice into a message…" : desktopVoiceState === "thinking" ? "Codex is streaming the answer as it works…" : desktopVoiceState === "speaking" ? "Jarvis is speaking while Codex finishes the rest." : "Tap the microphone to continue the conversation."}</p>
+            </div>
+
+            {(wakeWordAcknowledgement || liveJarvisAnswer || liveVoiceTranscript || latestVoiceUserMessage || latestVoiceJarvisMessage) ? (
+              <div className="jarvis-desktop-voice-caption" aria-live="polite">
+                {wakeWordAcknowledgement && !liveVoiceTranscript ? <><span>JARVIS</span><p>{wakeWordAcknowledgement}</p></> : ["thinking", "speaking"].includes(desktopVoiceState) && liveJarvisAnswer ? <><span>JARVIS · LIVE</span><p>{liveJarvisAnswer}</p></> : desktopVoiceState === "speaking" && latestVoiceJarvisMessage ? <><span>JARVIS</span><p>{latestVoiceJarvisMessage.text}</p></> : ["listening", "transcribing"].includes(desktopVoiceState) && liveVoiceTranscript ? <><span>YOU · LIVE</span><p>{liveVoiceTranscript}</p></> : latestVoiceUserMessage ? <><span>YOU</span><p>{latestVoiceUserMessage.text}</p></> : null}
+              </div>
+            ) : null}
+
+            <div className="jarvis-desktop-voice-controls">
+              <button
+                type="button"
+                className="is-primary"
+                disabled={desktopVoiceState === "transcribing"}
+                aria-label={isListening ? "Finish speaking" : isThinking ? "Stop Jarvis thinking" : speakingMessageId ? "Stop Jarvis speaking" : "Speak to Jarvis"}
+                onClick={() => {
+                  if (isListening) stopVoiceInput();
+                  else if (isThinking) requestAbortRef.current?.abort();
+                  else if (speakingMessageId) { stopStreamingVoice(); setSpeakingMessageId(null); resumeContinuousVoice(); }
+                  else void toggleVoiceInput(true);
+                }}
+              >{isListening ? <MicOff size={24} /> : isThinking || speakingMessageId ? <Square size={20} /> : <Mic size={24} />}</button>
+              <button type="button" className="is-end" onClick={closeDesktopVoiceCompanion}>End</button>
+            </div>
+            {attachmentError ? <small className="jarvis-desktop-voice-error">{attachmentError}</small> : null}
+          </main>
+        </section>
+      ) : null}
+
+      {isOpen && isAmbient && !showDesktopVoiceCompanion ? (
         <section className="jarvis-ambient" role="dialog" aria-modal="false" aria-label="Ambient Jarvis chat">
           <header className="jarvis-ambient-header">
-            <div><span className="jarvis-ambient-core"><BrainCircuit size={17} /></span><span><strong>JARVIS</strong><small><i /> Ambient link online</small></span></div>
+            <div><span className="jarvis-ambient-core"><BrainCircuit size={17} /></span><span><strong>JARVIS</strong><small><i /> Ambient link online{isPrivateCodexDesktop && codexUsedPercent !== null ? ` · Codex ${codexUsedPercent}% used` : ""}</small></span></div>
             <nav aria-label="Ambient Jarvis controls">
-              <button type="button" title={continuousVoiceActive ? "Stop continuous voice" : "Start continuous voice"} aria-label={continuousVoiceActive ? "Stop continuous voice" : "Start continuous voice"} className={continuousVoiceActive ? "is-active" : ""} onClick={() => continuousVoiceActive ? stopContinuousVoice() : void toggleVoiceInput(false)}>{continuousVoiceActive ? <MicOff size={16} /> : <Mic size={16} />}</button>
+              {voiceChatEnabled ? <button type="button" title={isPrivateCodexDesktop ? "Open desktop voice companion" : continuousVoiceActive ? "Stop continuous voice" : "Start continuous voice"} aria-label={isPrivateCodexDesktop ? "Open desktop voice companion" : continuousVoiceActive ? "Stop continuous voice" : "Start continuous voice"} className={continuousVoiceActive ? "is-active" : ""} onClick={() => isPrivateCodexDesktop ? openDesktopVoiceCompanion() : continuousVoiceActive ? stopContinuousVoice() : void toggleVoiceInput(false)}>{continuousVoiceActive ? <MicOff size={16} /> : <Mic size={16} />}</button> : null}
               <button type="button" title="Open Jarvis Command Center" aria-label="Open Jarvis Command Center" onClick={() => setIsAmbient(false)}><Maximize2 size={16} /></button>
               <button type="button" title="Close Jarvis" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={17} /></button>
             </nav>
@@ -2888,14 +3796,14 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <span>{message.role === "jarvis" ? "JARVIS" : "YOU"}</span>
                 {message.title ? <strong>{message.title}</strong> : null}
                 {message.text ? <JarvisRichText text={message.text} compact /> : message.imagePreview ? <p>Image attached</p> : null}
-                {message.role === "jarvis" ? <button type="button" onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={12} /> : <Volume2 size={12} />}{speakingMessageId === message.id ? " Stop" : " Listen"}</button> : null}
+                {message.role === "jarvis" && voiceChatEnabled ? <button type="button" onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={12} /> : <Volume2 size={12} />}{speakingMessageId === message.id ? " Stop" : " Listen"}</button> : null}
               </article>
             )) : <div className="jarvis-ambient-welcome"><BrainCircuit size={23} /><strong>I’m with you, {preferredName}.</strong><p>Scroll through Journaly and talk to me from here. I keep the same memory and context as Command Center.</p></div>}
             {isThinking ? <div className="jarvis-ambient-thinking"><span /><span /><span /><small>Thinking…</small></div> : null}
           </div>
           {(tradeDraft || forecastDraft || positionSizingDraft || positionProfileDraft) ? <button className="jarvis-ambient-action" type="button" onClick={() => setIsAmbient(false)}><Check size={14} /> Action ready · review in Command Center <ChevronRight size={14} /></button> : null}
           <form className="jarvis-ambient-composer" onSubmit={submitPrompt}>
-            <button className={`jarvis-ambient-mic${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : "Speak to Jarvis"} onClick={() => void toggleVoiceInput(false)}>{isListening ? <MicOff size={17} /> : voicePhase === "transcribing" ? <RefreshCcw size={17} /> : <Mic size={17} />}</button>
+            {voiceChatEnabled ? <button className={`jarvis-ambient-mic${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isPrivateCodexDesktop ? "Open desktop voice companion" : isListening ? "Stop recording" : "Speak to Jarvis"} aria-label={isPrivateCodexDesktop ? "Open desktop voice companion" : isListening ? "Stop recording" : "Speak to Jarvis"} onClick={() => isPrivateCodexDesktop ? openDesktopVoiceCompanion() : void toggleVoiceInput(false)}>{isListening ? <MicOff size={17} /> : voicePhase === "transcribing" ? <RefreshCcw size={17} /> : <Mic size={17} />}</button> : null}
             {attachedImage ? <div className="jarvis-ambient-attachment"><img src={attachedImage.dataUrl} alt="Pasted chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove pasted image"><X size={13} /></button></div> : null}
             <textarea ref={compactInputRef} rows={1} value={prompt} placeholder={isListening ? "Listening…" : attachedImage ? "Ask Jarvis about this chart…" : "Talk to Jarvis while you work…"} onChange={(event) => setPrompt(event.target.value)} onPaste={pasteImage} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askJarvis(prompt); } }} />
             {isThinking ? <button className="jarvis-ambient-send is-stop" type="button" aria-label="Stop Jarvis" onClick={() => requestAbortRef.current?.abort()}><Square size={14} /></button> : <button className="jarvis-ambient-send" type="submit" disabled={!prompt.trim() && !attachedImage} aria-label="Send to Jarvis"><ArrowUp size={17} /></button>}
@@ -2913,15 +3821,38 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <div><strong>JARVIS</strong><small>Journaly intelligence system</small></div>
             </div>
             <div className="jarvis-header-status">
-              <span><i /> {!aiHealth ? "Checking conversational AI" : aiHealth.apiReachable ? "Conversational AI online" : "AI connection needs attention"}</span>
+              <span><i /> {desktopCodexPaused ? "Text chat only · Codex paused" : isPrivateCodexDesktop ? "Pure Codex conversation" : !aiHealth ? "Checking conversational AI" : aiHealth.apiReachable ? "Conversational AI online" : "AI connection needs attention"}</span>
+              <span className={`is-codex-${codexBridgeState}`}>Codex · {isPrivateCodexDesktop ? codexBridgeState === "analyzing" ? "analyzing" : codexBridgeState === "offline" ? "offline" : "desktop brain" : codexBridgeState === "analyzing" ? "analyzing" : codexBridgeState === "ready" ? "ready" : codexBridgeState === "offline" ? "bridge offline" : "private bridge"}</span>
               <span>{session.label} · {session.timeLabel}</span>
             </div>
             <div className="jarvis-header-actions">
-              <button className={`jarvis-voice-toggle${voiceReplies ? " is-active" : ""}`} type="button" title={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} aria-label={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} onClick={() => setVoiceReplies((current) => !current)}>{voiceReplies ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+              {isPrivateCodexDesktop ? <span className={`jarvis-codex-usage${codexUsedPercent !== null && codexUsedPercent >= 80 ? " is-high" : ""}`} title={codexUsageTitle}><Gauge size={14} /><strong>{codexUsageLabel}</strong><small>{codexLeftPercent === null ? "waiting" : `${codexLeftPercent}% left`}</small></span> : null}
+              {isPrivateCodexDesktop ? <span className={`jarvis-wake-word-state is-${wakeWordState}`} title={wakeWordState === "unsupported" ? "Wake word unavailable—check microphone permission" : "Say Hey Jarvis or Jarvis while Journaly is open"}><Radio size={14} /><strong>{wakeWordState === "listening" ? "Say “Jarvis”" : wakeWordState === "unsupported" ? "Wake unavailable" : "Wake paused"}</strong></span> : null}
+              {!desktopCodexPaused ? <button className="jarvis-codex-trigger" type="button" disabled={isThinking} title="Open the private Codex research center" onClick={() => setShowCodexCenter(true)}><BrainCircuit size={17} /><span>{codexBridgeState === "analyzing" ? "Researching…" : "Codex research"}</span></button> : null}
+              {voiceChatEnabled && isPrivateCodexDesktop ? <button className="jarvis-desktop-voice-launch" type="button" title="Open desktop voice companion" onClick={() => openDesktopVoiceCompanion()}><Mic size={16} /><span>Voice chat</span></button> : null}
+              {voiceChatEnabled ? <label className="jarvis-voice-preset" title="Choose Jarvis's spoken reply voice"><Volume2 size={15} /><span>Voice</span><select aria-label="Jarvis voice" value={voicePreset} onChange={(event) => setVoicePreset(event.target.value === "cedar" ? "cedar" : "vale")}><option value="vale">Vale</option><option value="cedar">Cedar</option></select></label> : null}
+              {voiceChatEnabled ? <button className={`jarvis-voice-toggle${voiceReplies ? " is-active" : ""}`} type="button" title={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} aria-label={voiceReplies ? "Turn off spoken Jarvis replies" : "Turn on spoken Jarvis replies"} onClick={() => setVoiceReplies((current) => !current)}>{voiceReplies ? <Volume2 size={18} /> : <VolumeX size={18} />}</button> : null}
               <button className="jarvis-close" type="button" title="Return to ambient Jarvis" aria-label="Return to ambient Jarvis" onClick={() => setIsAmbient(true)}><Minimize2 size={19} /></button>
               <button className="jarvis-close" type="button" aria-label="Close Jarvis" onClick={() => setIsOpen(false)}><X size={20} /></button>
             </div>
           </header>
+
+          {showCodexCenter ? (
+            <section className="jarvis-codex-center" role="dialog" aria-modal="true" aria-label="Codex Research Center">
+              <div className="jarvis-codex-center-shell">
+                <header><div><span><BrainCircuit size={18} /> Private research workspace</span><h2>Codex Research Center</h2><p>Choose how Codex should interrogate your complete Journaly dataset. Record changes remain approval-only and broker execution stays locked.</p></div><button type="button" aria-label="Close Codex Research Center" onClick={() => setShowCodexCenter(false)}><X size={19} /></button></header>
+                <div className="jarvis-codex-mode-grid">
+                  {CODEX_RESEARCH_MODES.map((mode) => <button type="button" className={codexResearchMode === mode.id ? "is-selected" : ""} key={mode.id} onClick={() => setCodexResearchMode(mode.id)}><span>{mode.label}</span><small>{mode.description}</small><i>{codexResearchMode === mode.id ? <Check size={13} /> : <ChevronRight size={13} />}</i></button>)}
+                </div>
+                <div className="jarvis-codex-run-panel">
+                  <div><strong>{CODEX_RESEARCH_MODES.find((item) => item.id === codexResearchMode)?.label}</strong><p>{prompt.trim() || "Use the current composer text as an optional research focus, or run the complete mode as configured."}</p></div>
+                  <div className="jarvis-codex-evidence"><span><b>{codexAnalysisSnapshot.summary.totalBacktests}</b> backtests</span><span><b>{codexAnalysisSnapshot.summary.totalTrades}</b> live trades</span><span><b>{collectCodexImages(codexResearchMode).length}</b> screenshots queued</span></div>
+                  {attachedImage ? <div className="jarvis-codex-attached"><img src={attachedImage.dataUrl} alt="Screenshot queued for Codex" /><span><strong>{attachedImage.name}</strong><small>Actual pixels will be attached to Codex—not just a screenshot flag.</small></span></div> : <p className="jarvis-codex-image-note"><ImagePlus size={15} /> Attach or paste a chart in the composer if you want Codex to inspect a new screenshot.</p>}
+                  <footer><button type="button" onClick={() => setShowCodexCenter(false)}>Cancel</button><button className="is-primary" type="button" disabled={isThinking} onClick={() => void runCodexResearch(codexResearchMode, prompt)}><BrainCircuit size={16} /> Run deep research</button></footer>
+                </div>
+              </div>
+            </section>
+          ) : null}
 
           <div className="jarvis-layout">
             <aside className="jarvis-rail">
@@ -2967,7 +3898,8 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   <button type="button" aria-pressed={memory.companionSettings.sensitiveMemoryEnabled} className={memory.companionSettings.sensitiveMemoryEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("sensitiveMemoryEnabled", !memory.companionSettings.sensitiveMemoryEnabled)}><span><strong>Sensitive memory</strong><small>{memory.companionSettings.sensitiveMemoryEnabled ? "Allowed when relevant" : "Not added to durable memory"}</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.proactiveFollowups} className={memory.companionSettings.proactiveFollowups ? "is-enabled" : ""} onClick={() => updateCompanionSetting("proactiveFollowups", !memory.companionSettings.proactiveFollowups)}><span><strong>Natural follow-ups</strong><small>Remember to ask how things went</small></span><i /></button>
                   <button type="button" aria-pressed={memory.companionSettings.autonomyMode === "assist"} className={memory.companionSettings.autonomyMode === "assist" ? "is-enabled" : ""} onClick={() => updateCompanionSetting("autonomyMode", memory.companionSettings.autonomyMode === "assist" ? "observe" : "assist")}><span><strong>Assisted autonomy</strong><small>{memory.companionSettings.autonomyMode === "assist" ? "Fill calculators and profiles for you" : "Suggest changes, then wait for approval"}</small></span><i /></button>
-                  <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) { setVoiceReplies(true); continuousVoiceRef.current = true; setContinuousVoiceActive(true); void toggleVoiceInput(true); } else stopContinuousVoice(); }}><span><strong>Continuous voice</strong><small>{continuousVoiceActive ? "Listening → answering aloud → listening again" : memory.companionSettings.handsFreeVoice ? "Ready — tap a microphone to begin" : "Hands-free turn-taking is off"}</small></span><i /></button>
+                  {voiceChatEnabled ? <button type="button" aria-pressed={memory.companionSettings.handsFreeVoice} className={memory.companionSettings.handsFreeVoice ? "is-enabled" : ""} onClick={() => { const enabled = !memory.companionSettings.handsFreeVoice; updateCompanionSetting("handsFreeVoice", enabled); if (enabled) { setVoiceReplies(true); continuousVoiceRef.current = true; setContinuousVoiceActive(true); void toggleVoiceInput(true); } else stopContinuousVoice(); }}><span><strong>Continuous voice</strong><small>{continuousVoiceActive ? "Listening → answering aloud → listening again" : memory.companionSettings.handsFreeVoice ? "Ready — tap a microphone to begin" : "Hands-free turn-taking is off"}</small></span><i /></button> : null}
+                  <button type="button" aria-pressed={memory.companionSettings.wakeWordEnabled} className={memory.companionSettings.wakeWordEnabled ? "is-enabled" : ""} onClick={() => updateCompanionSetting("wakeWordEnabled", !memory.companionSettings.wakeWordEnabled)}><span><strong>“Hey Jarvis” wake word</strong><small>{wakeWordState === "listening" ? "Always listening while Journaly is open" : wakeWordState === "unsupported" ? "Microphone or speech recognition permission is unavailable" : memory.companionSettings.wakeWordEnabled ? "Pauses while Jarvis is active, then resumes" : "Wake word is off"}</small></span><i /></button>
                 </div>
                 {memory.memories.length ? memory.memories.slice().reverse().map((item) => <div className="jarvis-memory-item" key={`${item.category}:${item.key}`}><span><strong>{item.key.replaceAll("_", " ")}</strong><small>{item.value}</small><em>{item.category.replaceAll("_", " ")} · {item.source === "inferred" ? "learned pattern" : "you told Jarvis"}{item.followUpAt ? ` · follow up ${new Date(item.followUpAt).toLocaleDateString()}` : ""}{Date.now() - new Date(item.updatedAt).getTime() > 90 * 86400000 ? " · review" : ""}</em></span><div><button type="button" title="Edit this memory" aria-label={`Edit ${item.key.replaceAll("_", " ")}`} onClick={() => editMemory(item)}><RefreshCcw size={12} /></button><button type="button" title="Forget this memory" aria-label={`Forget ${item.key.replaceAll("_", " ")}`} onClick={() => forgetMemory(item)}><Trash2 size={13} /></button></div></div>) : <p>No durable personal memories yet. Say “remember this” whenever something matters.</p>}
                 {memory.memories.some((item) => !["trading_rule", "risk_rule", "mistake", "terminology", "ui_preference"].includes(item.category)) ? <button className="jarvis-forget-personal" type="button" onClick={forgetAllPersonalMemories}><Trash2 size={12} /> Forget all personal memories</button> : null}
@@ -2984,7 +3916,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                   </p>
                 </div>
                 <div><Check size={13} /><p><strong>Trade journal</strong><small>{trades.length} records indexed</small></p></div>
-                <div><Check size={13} /><p><strong>Backtest journal</strong><small>{backtests.length} records indexed · 137 charts audited</small></p></div>
+                <div><Check size={13} /><p><strong>Backtest journal</strong><small>{backtests.length} records indexed · {backtests.filter((item) => Boolean(item.screenshot)).length} charts available</small></p></div>
                 <div><Check size={13} /><p><strong>Post-trade reviews</strong><small>{reviewedTrades.length} quality labels</small></p></div>
                 <div><Check size={13} /><p><strong>Forecasts</strong><small>{forecasts.length} decisions indexed</small></p></div>
                 <div><Check size={13} /><p><strong>Trade Archive + Edge Lab</strong><small>All views connected · deterministic calculations</small></p></div>
@@ -3033,6 +3965,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                     <h1>{greeting}, {preferredName}.</h1>
                     <p>Talk to me naturally about trading or life. I can remember the people, plans, habits, goals, and stories that matter to you—while keeping you in control of what stays.</p>
                     <div className="jarvis-command-grid">
+                      <button className="jarvis-codex-command" type="button" disabled={isThinking} onClick={() => setShowCodexCenter(true)}><BrainCircuit size={18} /><span><strong>Codex Research Center</strong><small>14 research modes · full backtests · screenshot vision · read-only</small></span><ChevronRight size={15} /></button>
                       {quickCommands.map(({ label, prompt: commandPrompt, icon: Icon }) => (
                         <button type="button" key={label} onClick={() => askJarvis(commandPrompt)}><Icon size={18} /><span>{label}</span><ChevronRight size={15} /></button>
                       ))}
@@ -3050,9 +3983,18 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                           {message.attachmentName ? <small className="jarvis-attachment-name"><Paperclip size={11} /> {message.attachmentName}</small> : null}
                           {message.text ? <JarvisRichText text={message.text} /> : null}
                           {message.metrics?.length ? <div className="jarvis-response-metrics">{message.metrics.map((metric) => <div className={metric.tone ? `is-${metric.tone}` : ""} key={`${metric.label}-${metric.value}`}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}</div> : null}
+                          {message.codexReport ? (
+                            <section className="jarvis-codex-report-tools">
+                              <header><BrainCircuit size={14} /><span>Codex research artifact</span><small>{message.codexReport.imagesAnalyzed} screenshot{message.codexReport.imagesAnalyzed === 1 ? "" : "s"} inspected</small></header>
+                              {message.codexReport.summary ? <p>{message.codexReport.summary}</p> : null}
+                              {message.codexReport.followUpQuestions.length ? <div className="jarvis-codex-followups"><strong>Continue the investigation</strong>{message.codexReport.followUpQuestions.map((question) => <button type="button" key={question} onClick={() => { setPrompt(question); inputRef.current?.focus(); }}>{question}<ChevronRight size={13} /></button>)}</div> : null}
+                              {message.codexReport.actionDrafts.length ? <div className="jarvis-codex-drafts"><strong>Approval-only drafts</strong>{message.codexReport.actionDrafts.map((action, index) => <article key={`${action.type}:${action.title}:${index}`}><span>{action.type.replaceAll("_", " ")}</span><b>{action.title}</b><p>{action.reason}</p><button type="button" onClick={() => reviewCodexAction(action)}>Review with Jarvis</button></article>)}</div> : null}
+                              <footer><button type="button" onClick={() => downloadCodexReport(message, "md")}>Download Markdown</button><button type="button" onClick={() => downloadCodexReport(message, "doc")}>Download Word</button><button type="button" onClick={() => printCodexReport(message)}>Print / Save PDF</button></footer>
+                            </section>
+                          ) : null}
                           {message.role === "jarvis" ? (
                             <div className="jarvis-feedback">
-                              <button type="button" aria-label={speakingMessageId === message.id ? "Stop speaking" : "Read this reply aloud"} title={speakingMessageId === message.id ? "Stop speaking" : "Read aloud"} onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />} {speakingMessageId === message.id ? "Stop" : "Listen"}</button>
+                              {voiceChatEnabled ? <button type="button" aria-label={speakingMessageId === message.id ? "Stop speaking" : "Read this reply aloud"} title={speakingMessageId === message.id ? "Stop speaking" : "Read aloud"} onClick={() => speakJarvisMessage(message)}>{speakingMessageId === message.id ? <VolumeX size={13} /> : <Volume2 size={13} />} {speakingMessageId === message.id ? "Stop" : "Listen"}</button> : null}
                               {messageFeedback[message.id] ? <small><Check size={12} /> Feedback saved</small> : (
                                 <>
                                   <button type="button" onClick={() => void saveMessageFeedback(message, "helpful")}><ThumbsUp size={13} /> Helpful</button>
@@ -3164,7 +4106,7 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
               <form className={`jarvis-composer${attachedImage ? " has-attachment" : ""}`} onSubmit={submitPrompt}>
                 <input ref={fileInputRef} className="jarvis-file-input" type="file" accept="image/png,image/jpeg,image/webp" onChange={chooseImage} />
                 <button className="jarvis-attach" type="button" title="Attach a chart screenshot" aria-label="Attach a chart screenshot" onClick={() => fileInputRef.current?.click()}><ImagePlus size={19} /></button>
-                <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-pressed={isListening} onClick={() => void toggleVoiceInput(false)}>{isListening ? <MicOff size={18} /> : voicePhase === "transcribing" ? <RefreshCcw size={18} /> : <Mic size={18} />}</button>
+                {voiceChatEnabled ? <button className={`jarvis-voice-input${isListening ? " is-listening" : ""}${voicePhase === "transcribing" ? " is-transcribing" : ""}`} type="button" disabled={voicePhase === "transcribing"} title={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-label={isListening ? "Stop recording" : voicePhase === "transcribing" ? "Transcribing voice" : "Speak to Jarvis"} aria-pressed={isListening} onClick={() => void toggleVoiceInput(false)}>{isListening ? <MicOff size={18} /> : voicePhase === "transcribing" ? <RefreshCcw size={18} /> : <Mic size={18} />}</button> : null}
                 {attachedImage ? <div className="jarvis-attachment-preview"><img src={attachedImage.dataUrl} alt="Chart ready to send" /><span><strong>{attachedImage.name}</strong><small>Ready for Jarvis vision</small></span><button type="button" onClick={removeAttachedImage} aria-label="Remove attached image"><X size={14} /></button></div> : null}
                 <textarea
                   ref={inputRef}
@@ -3229,6 +4171,12 @@ export default function Jarvis({ userId, username, displayName, trades, backtest
                 <header><Gauge size={16} /><span>Execution pulse</span></header>
                 <div className="jarvis-quality-gauge" style={{ "--jarvis-gauge": `${qualityRate * 3.6}deg` } as CSSProperties}><strong>{qualityRate}%</strong><small>Good</small></div>
                 <p>{reviewedTrades.length ? `${goodTrades} Good executions from ${reviewedTrades.length} reviewed trades.` : "Rate trades to activate your quality pulse."}</p>
+                <div className="jarvis-ctrader-pulse">
+                  <div className="jarvis-ctrader-pulse-heading"><span>cTrader bridge</span><i className={ctraderStatus?.authenticated ? "is-online" : ctraderStatus?.configured ? "is-ready" : ""} /></div>
+                  <strong>{ctraderStatus?.authenticated ? `Connected · ${ctraderStatus.environment || "live"}` : ctraderStatus?.configured ? "Authorization needed" : isPrivateCodexDesktop ? "Configuration needed" : "Desktop bridge needed"}</strong>
+                  <small>{ctraderStatus?.selectedAccount?.brokerTitleShort || ctraderStatus?.lastError || (isPrivateCodexDesktop ? "No broker account connected. Orders remain confirmation-only." : "Open Journaly Codex Desktop to connect securely.")}</small>
+                  {!ctraderStatus?.authenticated ? <button type="button" onClick={() => void connectCTraderFromPulse()} disabled={ctraderBusy || !ctraderStatus?.configured || !isPrivateCodexDesktop}>{ctraderBusy ? "Opening authorization…" : isPrivateCodexDesktop ? "Connect cTrader" : "Desktop connection required"}</button> : <small className="jarvis-ctrader-safe">Preview → explicit confirmation → broker execution</small>}
+                </div>
               </section>
               <section className="jarvis-context-card is-latest">
                 <header><TrendingUp size={16} /><span>Latest trade</span></header>

@@ -132,9 +132,9 @@ alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_timeframe_check;
 alter table public.daytrade_backtests
   alter column timeframe set default '5M';
-update public.daytrade_backtests set timeframe = '5M' where timeframe <> '5M';
+update public.daytrade_backtests set timeframe = '5M' where timeframe not in ('5M', '15M') or timeframe is null;
 alter table public.daytrade_backtests
-  add constraint daytrade_backtests_timeframe_check check (timeframe = '5M') not valid;
+  add constraint daytrade_backtests_timeframe_check check (timeframe in ('5M', '15M')) not valid;
 
 alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_pair_gbpusd_check;
@@ -145,11 +145,11 @@ alter table public.daytrade_backtests
 -- can use either supported pair without being overwritten.
 update public.daytrade_backtests
 set pair = 'GBPUSD'
-where created_at < timestamptz '2026-07-29 23:15:00+00';
+where pair <> 'GBPUSD' or pair is null;
 
 alter table public.daytrade_backtests
   add constraint daytrade_backtests_pair_check
-  check (pair in ('GBPUSD', 'EURUSD', 'EURGBP')) not valid;
+  check (pair = 'GBPUSD') not valid;
 
 alter table public.daytrade_backtests
   drop constraint if exists daytrade_backtests_trading_day_check;

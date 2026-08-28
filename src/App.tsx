@@ -9639,11 +9639,104 @@ function EdgeDiscovery({
     });
     return scoped.slice(0, 36);
   }, [data, focus, minimumSamples]);
-  const eligibleRows = data.filter((row) => row.liveSamples >= minimumSamples);
-  const validated = eligibleRows.filter((row) => row.status === "Validated").length;
-  const diverging = eligibleRows.filter((row) => row.status === "Diverging").length;
-  const strongest = eligibleRows.find((row) => row.liveExpectancy > 0);
-  const weakest = [...eligibleRows].sort((a, b) => a.liveExpectancy - b.liveExpectancy)[0];
+  const automaticAnalysis = useMemo(() => {
+    type AutomaticInsight = {
+      id: string;
+      tone: "positive" | "warning" | "neutral";
+      label: string;
+      title: string;
+      evidence: string;
+      action: string;
+    };
+    const eligibleRows = data.filter((row) => row.liveSamples >= minimumSamples);
+    const validatedRows = eligibleRows.filter((row) => row.status === "Validated");
+    const divergingRows = eligibleRows.filter((row) => row.status === "Diverging");
+    const strongest = eligibleRows.find((row) => row.liveExpectancy > 0);
+    const weakest = [...eligibleRows].filter((row) => row.liveExpectancy <= 0).sort((a, b) => a.liveExpectancy - b.liveExpectancy)[0];
+    const conflict = [...divergingRows].sort((a, b) => {
+      const aGap = Math.abs(a.liveExpectancy - (a.backtestExpectancy || 0));
+      const bGap = Math.abs(b.liveExpectancy - (b.backtestExpectancy || 0));
+      return bGap - aGap;
+    })[0];
+    const executionLeak = [...eligibleRows]
+      .filter((row) => row.reviewedTrades >= 5 && row.goodExecutionRate !== null && row.goodExecutionRate < 60)
+      .sort((a, b) => (a.goodExecutionRate || 0) - (b.goodExecutionRate || 0))[0];
+    const insights: AutomaticInsight[] = [];
+
+    if (strongest) {
+      const remaining = Math.max(0, 10 - strongest.liveSamples);
+      insights.push({
+        id: `opportunity:${strongest.id}`,
+        tone: strongest.status === "Validated" ? "positive" : "neutral",
+        label: strongest.status === "Validated" ? "Most reliable edge" : "Best emerging pattern",
+        title: strongest.label,
+        evidence: `${formatNumber(strongest.liveExpectancy)}R live expectancy from ${strongest.liveSamples} trades${strongest.backtestExpectancy === null ? ", with no matching backtest sample yet" : `; matching backtests average ${formatNumber(strongest.backtestExpectancy)}R across ${strongest.backtestSamples} tests`}.`,
+        action: strongest.status === "Validated"
+          ? "Keep this condition in your active playbook and protect the same execution process. Do not increase risk from this analysis alone."
+          : remaining > 0
+            ? `Treat it as a hypothesis. Collect ${remaining} more clean live trade${remaining === 1 ? "" : "s"} before promoting it to a core edge.`
+            : "Keep collecting matching backtests and live trades until both datasets agree.",
+      });
+    }
+
+    if (weakest && weakest.liveSamples >= 5) {
+      insights.push({
+        id: `leak:${weakest.id}`,
+        tone: "warning",
+        label: "Priority leak",
+        title: weakest.label,
+        evidence: `${formatNumber(weakest.liveExpectancy)}R expectancy and ${formatNumber(weakest.liveTotalR)}R total across ${weakest.liveSamples} live trades, with a ${formatNumber(weakest.liveMaxDrawdown)}R drawdown.`,
+        action: "Review the screenshots and rule adherence for this condition before taking it again. Look for one repeatable entry or management mistake—not a strategy rewrite.",
+      });
+    }
+
+    if (conflict) {
+      insights.push({
+        id: `conflict:${conflict.id}`,
+        tone: "warning",
+        label: "Live vs backtest conflict",
+        title: conflict.label,
+        evidence: `Live expectancy is ${formatNumber(conflict.liveExpectancy)}R, while ${conflict.backtestSamples} matching backtests average ${formatNumber(conflict.backtestExpectancy || 0)}R. The datasets point in opposite directions.`,
+        action: "Do not trust this condition as an edge yet. Compare live execution, spread, timing, and setup labeling against the backtest sample.",
+      });
+    }
+
+    if (executionLeak && insights.every((insight) => !insight.id.endsWith(executionLeak.id))) {
+      insights.push({
+        id: `execution:${executionLeak.id}`,
+        tone: "warning",
+        label: "Execution quality warning",
+        title: executionLeak.label,
+        evidence: `Only ${executionLeak.goodExecutionRate}% of ${executionLeak.reviewedTrades} reviewed trades were rated Good in this condition.`,
+        action: "Separate strategy edge from execution quality: review the Mid and Bad trades, then write one checklist rule that would have prevented the most common error.",
+      });
+    }
+
+    if (!insights.length) {
+      insights.push({
+        id: "sample-building",
+        tone: "neutral",
+        label: "Still learning",
+        title: "Journaly needs a larger repeatable sample",
+        evidence: `No condition currently meets the ${minimumSamples}-trade analysis threshold.`,
+        action: "Keep logging setup, pair, time, direction, result, and execution quality. Journaly will update this verdict automatically.",
+      });
+    }
+
+    const headline = validatedRows.length
+      ? `${validatedRows.length} condition${validatedRows.length === 1 ? " has" : "s have"} positive live and backtest evidence.`
+      : strongest
+        ? "You have promising patterns, but none are validated strongly enough yet."
+        : "There is not enough repeated data to call an edge yet.";
+
+    return {
+      eligibleRows,
+      validated: validatedRows.length,
+      diverging: divergingRows.length,
+      headline,
+      insights: insights.slice(0, 4),
+    };
+  }, [data, minimumSamples]);
 
   return (
     <section className="edge-discovery-panel">
@@ -9664,16 +9757,30 @@ function EdgeDiscovery({
       <div className="edge-discovery-summary" aria-label="Edge Discovery summary">
         <article><span>Live source</span><strong>{liveTrades}</strong><small>trades analyzed</small></article>
         <article><span>Backtest source</span><strong>{backtests}</strong><small>tests compared</small></article>
-        <article><span>Validated edges</span><strong>{validated}</strong><small>positive live + backtest</small></article>
-        <article><span>Diverging signals</span><strong>{diverging}</strong><small>live and tested disagree</small></article>
+        <article><span>Validated edges</span><strong>{automaticAnalysis.validated}</strong><small>positive live + backtest</small></article>
+        <article><span>Diverging signals</span><strong>{automaticAnalysis.diverging}</strong><small>live and tested disagree</small></article>
       </div>
 
-      {strongest || weakest ? (
-        <div className="edge-discovery-callouts">
-          {strongest ? <p><span>Strongest current read</span><strong>{strongest.label}</strong><em>{formatNumber(strongest.liveExpectancy)}R expectancy across {strongest.liveSamples} live trades</em></p> : null}
-          {weakest && weakest.liveExpectancy <= 0 ? <p className="is-leak"><span>Largest execution leak</span><strong>{weakest.label}</strong><em>{formatNumber(weakest.liveExpectancy)}R expectancy across {weakest.liveSamples} live trades</em></p> : null}
+      <section className="edge-auto-analysis" aria-label="Automatic Journaly analysis">
+        <header>
+          <div><Sparkles size={18} /><span>Journaly Analysis</span><em>Automatic</em></div>
+          <strong>{automaticAnalysis.headline}</strong>
+          <p>Recalculated whenever your trades, backtests, quality reviews, or sample threshold change.</p>
+        </header>
+        <div className="edge-auto-insight-grid">
+          {automaticAnalysis.insights.map((insight) => (
+            <article className={`is-${insight.tone}`} key={insight.id}>
+              <div className="edge-auto-insight-title">
+                {insight.tone === "positive" ? <TrendingUp size={17} /> : insight.tone === "warning" ? <TriangleAlert size={17} /> : <FlaskConical size={17} />}
+                <span>{insight.label}</span>
+              </div>
+              <h4>{insight.title}</h4>
+              <p>{insight.evidence}</p>
+              <footer><strong>What to do next</strong><span>{insight.action}</span></footer>
+            </article>
+          ))}
         </div>
-      ) : null}
+      </section>
 
       <div className="edge-discovery-toolbar" aria-label="Edge Discovery focus">
         {(["all", "opportunities", "leaks"] as const).map((option) => (
@@ -9681,7 +9788,7 @@ function EdgeDiscovery({
             {option === "all" ? "All signals" : option === "opportunities" ? "Opportunities" : "Leaks"}
           </button>
         ))}
-        <span>{visibleRows.length} of {eligibleRows.length} conditions shown</span>
+        <span>{visibleRows.length} of {automaticAnalysis.eligibleRows.length} conditions shown</span>
       </div>
 
       {visibleRows.length ? (

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Journaly Codex Bridge Center</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #020912; color: #dffbff; }
+      * { box-sizing: border-box; }
+      body { min-height: 100vh; margin: 0; overflow: hidden; background: radial-gradient(circle at 12% 0%, rgba(13,148,136,.2), transparent 34%), radial-gradient(circle at 100% 70%, rgba(14,116,144,.18), transparent 40%), #020912; }
+      main { display: grid; min-height: 100vh; grid-template-rows: auto auto 1fr auto; gap: 18px; padding: 28px; }
+      header { display: flex; align-items: center; gap: 14px; }
+      .mark { display: grid; width: 48px; height: 48px; place-items: center; border: 1px solid rgba(94,234,212,.36); border-radius: 15px; color: #5eead4; background: rgba(13,148,136,.13); box-shadow: 0 0 30px rgba(45,212,191,.13); font-size: 21px; }
+      h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; } header p { margin: 4px 0 0; color: #5f8494; font-size: 12px; }
+      .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .cards article:nth-child(3) { grid-column: 1 / -1; }
+      article { padding: 16px; border: 1px solid rgba(125,211,252,.14); border-radius: 15px; background: rgba(6,24,36,.78); box-shadow: inset 0 1px rgba(255,255,255,.025); }
+      article header { justify-content: space-between; gap: 10px; color: #7197a7; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: #64748b; box-shadow: 0 0 12px currentColor; }
+      .dot.ready { color: #2dd4bf; background: currentColor; } .dot.error { color: #fb7185; background: currentColor; }
+      article strong { display: block; margin-top: 18px; font-size: 17px; } article p { min-height: 34px; margin: 7px 0 0; color: #648797; font-size: 12px; line-height: 1.45; }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+      button { min-height: 34px; padding: 0 12px; border: 1px solid rgba(103,232,249,.18); border-radius: 9px; color: #9ddfea; background: rgba(34,211,238,.06); font: inherit; font-size: 11px; font-weight: 800; cursor: pointer; }
+      button.primary { border-color: rgba(94,234,212,.34); color: #ccfbf1; background: rgba(13,148,136,.16); } button:hover:not(:disabled) { border-color: rgba(103,232,249,.48); background: rgba(34,211,238,.12); } button:disabled { opacity: .5; cursor: wait; }
+      .console { min-height: 0; overflow: auto; padding: 14px; border: 1px solid rgba(125,211,252,.1); border-radius: 13px; color: #79a5b5; background: rgba(1,7,13,.86); font: 11px/1.55 "Cascadia Code", Consolas, monospace; white-space: pre-wrap; }
+      footer { display: flex; align-items: center; justify-content: space-between; color: #456a7b; font-size: 10px; } footer span:last-child { color: #4f8f89; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><div class="mark">✦</div><div><h1>Codex Bridge Center</h1><p>Private desktop intelligence for Christian’s Journaly account</p></div></header>
+      <section class="cards">
+        <article><header><span>Local bridge</span><i id="bridge-dot" class="dot"></i></header><strong id="bridge-title">Checking…</strong><p id="bridge-detail">Verifying the private localhost service.</p><div class="actions"><button id="restart-bridge">Restart bridge</button><button id="open-journaly" class="primary">Open Journaly</button></div></article>
+        <article><header><span>Codex session</span><i id="codex-dot" class="dot"></i></header><strong id="codex-title">Checking…</strong><p id="codex-detail">Looking for your authenticated ChatGPT Codex session.</p><div class="actions"><button id="check-codex">Check again</button><button id="login-codex" class="primary">Sign in to Codex</button></div></article>
+        <article><header><span>cTrader broker bridge</span><i id="ctrader-dot" class="dot"></i></header><strong id="ctrader-title">Checking…</strong><p id="ctrader-detail">Local OAuth and broker connection status.</p><div class="actions"><button id="connect-ctrader" class="primary">Connect cTrader</button><button id="stop-ctrader">Stop authorization</button></div></article>
+      </section>
+      <pre id="console" class="console">Journaly Codex Desktop is starting…</pre>
+      <footer><span>127.0.0.1 only · owner verification · persistent Codex · confirmation-only writes</span><span>christian.angelo.desamparado@gmail.com</span></footer>
+    </main>
+    <script>
+      const api = window.journalyDesktop;
+      const consoleElement = document.querySelector("#console");
+      const buttons = [...document.querySelectorAll("button")];
+      function appendOutput(text) { consoleElement.textContent = `${consoleElement.textContent}\n${text}`.trim(); consoleElement.scrollTop = consoleElement.scrollHeight; }
+      function render(status) {
+        document.querySelector("#bridge-dot").className = `dot ${status.bridgeReady ? "ready" : "error"}`;
+        document.querySelector("#bridge-title").textContent = status.bridgeReady ? "Bridge ready" : "Bridge needs attention";
+        document.querySelector("#bridge-detail").textContent = status.bridgeMessage;
+        document.querySelector("#codex-dot").className = `dot ${status.codexLoggedIn ? "ready" : status.codexChecked ? "error" : ""}`;
+        document.querySelector("#codex-title").textContent = status.codexLoggedIn ? "Signed in with ChatGPT" : status.codexChecked ? "Codex sign-in needed" : "Checking…";
+        document.querySelector("#codex-detail").textContent = status.codexMessage;
+        const broker = status.ctrader || {};
+        document.querySelector("#ctrader-dot").className = `dot ${broker.authenticated ? "ready" : broker.configured ? "" : "error"}`;
+        document.querySelector("#ctrader-title").textContent = broker.authenticated ? `Authenticated · ${broker.environment || "unknown"}` : broker.configured ? `Ready · ${broker.environment || "unknown"}` : "Configuration needed";
+        document.querySelector("#ctrader-detail").textContent = broker.lastError || `${broker.endpoint || "cTrader"} · ${broker.scope || "accounts"} scope · no orders are enabled by this screen.`;
+      }
+      async function working(task) { buttons.forEach((button) => { button.disabled = true; }); try { const result = await task(); if (result) render(result); } catch (error) { appendOutput(error.message || String(error)); } finally { buttons.forEach((button) => { button.disabled = false; }); } }
+      document.querySelector("#restart-bridge").addEventListener("click", () => working(() => api.restartBridge()));
+      document.querySelector("#check-codex").addEventListener("click", () => working(() => api.checkCodex()));
+      document.querySelector("#login-codex").addEventListener("click", () => working(() => api.loginCodex()));
+      document.querySelector("#open-journaly").addEventListener("click", () => api.openJournaly());
+      document.querySelector("#connect-ctrader").addEventListener("click", () => working(() => api.connectCTrader()));
+      document.querySelector("#stop-ctrader").addEventListener("click", () => working(() => api.stopCTrader()));
+      api.onStatus(render); api.onCodexOutput(appendOutput); api.getStatus().then(render);
+    </script>
+  </body>
+</html>

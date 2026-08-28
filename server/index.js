@@ -1843,7 +1843,11 @@ function buildJarvisContextGraph(data = {}) {
   [tradeId, forecastId, backtestId].forEach((id) => addEdge(pairId, id, "focuses_on"));
   if (tradeId && forecastId) addEdge(forecastId, tradeId, "became_trade");
 
-  const chartId = null;
+  const edgeChart = session.edgeBrowserContext && typeof session.edgeBrowserContext === "object" ? session.edgeBrowserContext : null;
+  const chartId = edgeChart?.url
+    ? addNode(`chart:${edgeChart.observedAt || "current"}`, "chart", `${normalizePair(edgeChart.pair || session.activePair || "Chart")} ${edgeChart.timeframe || ""}`.trim(), { url: edgeChart.url, pair: normalizePair(edgeChart.pair || session.activePair || ""), timeframe: edgeChart.timeframe || null, observedAt: edgeChart.observedAt || null })
+    : null;
+  addEdge(chartId, tradeId || forecastId || backtestId || pairId, "provides_evidence_for");
 
   if (session.lastJarvisDecision) {
     const decisionId = addNode(`decision:${session.lastJarvisDecision}:${String(session.lastDecisionAt || "current")}`, "decision", session.lastJarvisDecision, { current: true });
@@ -3286,18 +3290,28 @@ async function handleVoice(request, env) {
   const authorization = await authorizeOwner(request, env, body?.userId);
   if (authorization.error) return authorization.error;
   const text = typeof body?.text === "string" ? body.text.trim().slice(0, 4096) : "";
+  const voicePreset = body?.voicePreset === "vale" ? "vale" : "cedar";
   if (!text) return json({ error: "Speech text is required." }, 400);
   if (!env.OPENAI_API_KEY) return json({ error: "Dedicated Jarvis voice is not configured." }, 503);
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST",
     headers: { authorization: `Bearer ${env.OPENAI_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: env.OPENAI_JARVIS_VOICE_MODEL || "gpt-4o-mini-tts", voice: env.OPENAI_JARVIS_VOICE || "cedar", input: text, response_format: "mp3", speed: 0.98, instructions: "Speak like a calm, highly capable personal AI companion: warm, concise, confident, natural, and never theatrical or robotic." }),
+    body: JSON.stringify({
+      model: env.OPENAI_JARVIS_VOICE_MODEL || "gpt-4o-mini-tts",
+      voice: voicePreset === "vale" ? env.OPENAI_JARVIS_VALE_VOICE || "marin" : env.OPENAI_JARVIS_VOICE || "cedar",
+      input: text,
+      response_format: "mp3",
+      speed: voicePreset === "vale" ? 1.01 : 0.98,
+      instructions: voicePreset === "vale"
+        ? "Use a Vale-like Codex companion delivery: clear, warm, youthful, composed, quietly confident, natural, and conversational. Keep the rhythm fluid and intelligent; never sound theatrical, announcer-like, or robotic."
+        : "Speak like a calm, highly capable personal AI companion: warm, concise, confident, natural, and never theatrical or robotic.",
+    }),
   });
   if (!response.ok) {
     const error = await response.json().catch(() => null);
     return json({ error: error?.error?.message || "Jarvis voice could not generate audio." }, response.status);
   }
-  return new Response(response.body, { status: 200, headers: { "content-type": "audio/mpeg", "cache-control": "no-store" } });
+  return new Response(response.body, { status: 200, headers: { "content-type": "audio/mpeg", "cache-control": "no-store", "x-jarvis-voice-preset": voicePreset } });
 }
 
 function decodeVoiceAudio(value) {
