@@ -5116,7 +5116,7 @@ export default function App() {
         <div className="top-actions">
           <MarketSessionBadge session={marketSession} />
           <button className="user-pill" type="button" onClick={() => setIsProfileOpen(true)}>
-            {accountProfile.avatar ? <img src={accountProfile.avatar} alt="" /> : <span>{accountProfile.displayName.slice(0, 1)}</span>}
+            {accountProfile.avatar ? <img src={accountProfile.avatar} alt="" decoding="async" /> : <span>{accountProfile.displayName.slice(0, 1)}</span>}
             <strong>{accountProfile.displayName || currentUser.email}</strong>
           </button>
           <button
@@ -5362,7 +5362,7 @@ export default function App() {
 
                 {editingJournalEntry?.image && !journalForm.removeImage ? (
                   <div className="journal-existing-image">
-                    <img src={editingJournalEntry.image} alt="Current journal attachment" />
+                    <img src={editingJournalEntry.image} alt="Current journal attachment" decoding="async" />
                     <button type="button" className="text-action" onClick={() => setJournalForm((current) => ({ ...current, imageFile: null, removeImage: true }))}>
                       Remove current image
                     </button>
@@ -5452,7 +5452,7 @@ export default function App() {
                             aria-label={`View image for journal entry from ${formatMonthDayYear(entry.date)}`}
                             onClick={() => imageIndex >= 0 && openImageViewer(journalImageItems, imageIndex)}
                           >
-                            <img src={entry.image} alt={`Journal attachment from ${formatMonthDayYear(entry.date)}`} loading="lazy" />
+                            <img src={entry.image} alt={`Journal attachment from ${formatMonthDayYear(entry.date)}`} loading="lazy" decoding="async" />
                             <span><Maximize2 size={15} /> View image</span>
                           </button>
                         ) : null}
@@ -7331,7 +7331,12 @@ export default function App() {
               >
                 <X size={18} />
               </button>
-              <img src={imageViewer.items[imageViewer.index]?.src} alt={imageViewer.items[imageViewer.index]?.alt} />
+              <img
+                src={imageViewer.items[imageViewer.index]?.src}
+                alt={imageViewer.items[imageViewer.index]?.alt}
+                decoding="async"
+                fetchPriority="high"
+              />
             </div>
           </div>
         ) : null}
@@ -8104,7 +8109,7 @@ function AccountProfileDialog({
         <div className="profile-editor">
           <div className="avatar-editor">
             <div className="avatar-preview">
-              {profile.avatar ? <img src={profile.avatar} alt="" /> : <span>{profile.displayName.slice(0, 1)}</span>}
+              {profile.avatar ? <img src={profile.avatar} alt="" decoding="async" /> : <span>{profile.displayName.slice(0, 1)}</span>}
             </div>
             <label className="secondary-action avatar-upload">
               <ImagePlus size={16} />
@@ -8289,7 +8294,7 @@ function MissingConfigScreen({ missing }: { missing: string[] }) {
 function Brand({ className, onHome }: { className: string; onHome?: () => void }) {
   return (
     <a className={className} href="#" aria-label="Journaly OS home" onClick={onHome}>
-      <img src={logoUrl} alt="" />
+      <img src={logoUrl} alt="" decoding="async" fetchPriority="high" />
       <span>
         <strong>Journaly OS</strong>
         <small>Trading journal</small>
@@ -9030,7 +9035,7 @@ function TradeImageGallery({
         <div className="image-gallery-grid" aria-live="polite">
           {items.map((item, index) => (
             <button className="gallery-card" key={item.id} type="button" onClick={() => onOpenImage(index)}>
-              <img src={item.src} alt={item.alt} />
+              <img src={item.src} alt={item.alt} loading="lazy" decoding="async" />
               <span>
                 <strong>{item.title}</strong>
                 <small>{item.meta}</small>
@@ -10857,7 +10862,7 @@ function TradeAnalysisPanel({
                         setLinkedTradeId(drawing.tradeId);
                       }}
                     >
-                      <img src={drawing.image} alt={`${drawing.pair} ${drawing.setup} saved analysis`} />
+                      <img src={drawing.image} alt={`${drawing.pair} ${drawing.setup} saved analysis`} loading="lazy" decoding="async" />
                       <span><strong>{drawing.pair}</strong><small>{drawing.setup}</small></span>
                       <time dateTime={drawing.savedAt}>{new Date(drawing.savedAt).toLocaleString()}</time>
                       {linkedTrade ? <em>Linked · {linkedTrade.pair} {formatMonthDayYear(linkedTrade.date)}</em> : null}
@@ -10873,7 +10878,7 @@ function TradeAnalysisPanel({
               </div>
               {selectedDrawing ? (
                 <aside className="analysis-history-detail">
-                  <img src={selectedDrawing.image} alt={`${selectedDrawing.pair} selected analysis`} />
+                  <img src={selectedDrawing.image} alt={`${selectedDrawing.pair} selected analysis`} decoding="async" />
                   <div>
                     <span>Link this analysis</span>
                     <strong>{selectedDrawing.pair} · {selectedDrawing.setup}</strong>
@@ -11830,7 +11835,7 @@ function ResearchModule({
                     </div>
                     {sample.image ? (
                       <button className="research-sample-image" type="button" onClick={() => onOpenImage(imageItems, imageIndex)}>
-                        <img src={sample.image} alt={`${sample.pair} research sample`} />
+                        <img src={sample.image} alt={`${sample.pair} research sample`} loading="lazy" decoding="async" />
                       </button>
                     ) : null}
                     <strong className={Number(sample.pnl) >= 0 ? "positive-r" : "negative-r"}>{formatNumber(Number(sample.pnl))}R</strong>
@@ -12273,7 +12278,7 @@ function ForecastLog({
                   </label>
                 </div>
               </div>
-              {entry.screenshot || entry.postImage ? <div className="forecast-thumbnails">{entry.screenshot ? <button type="button" onClick={() => onOpenImage(images, 0)}><img src={entry.screenshot} alt={`${entry.pair} forecast chart`} /><span>Forecast</span></button> : null}{entry.postImage ? <button type="button" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><img src={entry.postImage} alt={`${entry.pair} outcome chart`} /><span>Outcome</span></button> : null}</div> : null}
+              {entry.screenshot || entry.postImage ? <div className="forecast-thumbnails">{entry.screenshot ? <button type="button" onClick={() => onOpenImage(images, 0)}><img src={entry.screenshot} alt={`${entry.pair} forecast chart`} loading="lazy" decoding="async" /><span>Forecast</span></button> : null}{entry.postImage ? <button type="button" onClick={() => onOpenImage(images, entry.screenshot ? 1 : 0)}><img src={entry.postImage} alt={`${entry.pair} outcome chart`} loading="lazy" decoding="async" /><span>Outcome</span></button> : null}</div> : null}
             </article>
           );
         })}
@@ -12373,7 +12378,7 @@ function TradeCard({
       <div className="trade-card-media">
         {trade.screenshot ? (
           <button className="shot-button" type="button" onClick={onViewImage}>
-            <img className="trade-shot" src={trade.screenshot} alt={`${trade.pair} trade screenshot`} />
+            <img className="trade-shot" src={trade.screenshot} alt={`${trade.pair} trade screenshot`} loading="lazy" decoding="async" />
           </button>
         ) : (
           <div className="trade-shot" aria-label="No screenshot" />
