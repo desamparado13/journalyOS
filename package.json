@@ -3,39 +3,14 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "main": "desktop/main.mjs",
   "description": "Premium trading journal for FX execution review.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build && node scripts/prepare-sites-build.mjs",
-    "analyze:jarvis-images": "node scripts/analyze-jarvis-reference-images.mjs",
-    "analyze:jarvis-backtests": "node scripts/analyze-jarvis-backtests.mjs",
-    "test:jarvis": "node scripts/test-jarvis-api.mjs",
-    "test:trade-update": "node scripts/test-jarvis-trade-update.mjs",
-    "test:action-engine": "node scripts/test-jarvis-action-engine.mjs",
-    "test:latency-routing": "node scripts/test-jarvis-latency-routing.mjs",
-    "test:interaction": "node scripts/test-jarvis-interaction-mode.mjs",
-    "test:daily-chat": "node scripts/test-jarvis-daily-chat.mjs",
-    "test:voice": "node scripts/test-jarvis-voice.mjs",
-    "test:position-sizing": "node scripts/test-position-sizing.mjs",
-    "test:streaks": "node scripts/test-jarvis-streaks.mjs",
-    "test:edge-views": "node scripts/test-jarvis-edge-views.mjs",
-    "test:proactive": "node scripts/test-jarvis-proactive.mjs",
-    "test:monitoring": "node scripts/test-jarvis-monitoring.mjs",
-    "test:autopilot": "node scripts/test-jarvis-autopilot-routine.mjs",
-    "test:codex-bridge": "node scripts/test-codex-bridge.mjs",
-    "codex:login": "codex login",
-    "codex:bridge": "node bridge/jarvis-codex-bridge.mjs",
-    "desktop:prepare": "node scripts/prepare-desktop-config.mjs",
-    "desktop:start": "npm run desktop:prepare && electron .",
-    "test:desktop": "npm run desktop:prepare && electron . --smoke-test",
-    "desktop:build": "npm run desktop:prepare && electron-builder --win portable && node scripts/update-desktop-shortcut.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@openai/codex": "0.149.0",
     "@supabase/supabase-js": "^2.105.4",
-    "@vercel/functions": "^3.9.3",
     "@vitejs/plugin-react": "^5.1.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
@@ -46,9 +21,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.2.7",
-    "@types/react-dom": "^19.2.3",
-    "electron": "43.4.1",
-    "electron-builder": "26.15.3"
+    "@types/react-dom": "^19.2.3"
   },
   "keywords": [
     "trading-journal",
@@ -60,26 +33,5 @@
     "vercel"
   ],
   "author": "",
-  "license": "UNLICENSED",
-  "build": {
-    "appId": "com.journalyos.codexdesktop",
-    "productName": "Journaly Codex Desktop",
-    "asar": false,
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "desktop/**/*",
-      "bridge/**/*",
-      "broker/**/*",
-      "dist/**/*",
-      "assets/journaly-os-logo-512.png",
-      "package.json"
-    ],
-    "win": {
-      "target": "portable",
-      "icon": "assets/journaly-os-logo-512.png",
-      "artifactName": "Journaly-Codex-Desktop-${version}-Windows.${ext}"
-    }
-  }
+  "license": "UNLICENSED"
 }

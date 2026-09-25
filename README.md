@@ -26,8 +26,6 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
 
 Run `supabase-schema.sql` once in the Supabase SQL editor to create the `trades`, `backtests`, and Journal tables plus row-level security policies. Then run `supabase-trade-decisions.sql` to create the Discipline log table, followed by `supabase-journal-entries.sql` to enable secure Journal links to Discipline entries.
 
-Run `supabase-jarvis-decision-intelligence.sql` to enable Jarvis's auditable decision-case ledger. Chart questions and Jarvis assessments then dual-write as linked evidence events; the app remains compatible while this optional migration is pending.
-
 If you already created the table before the importer existed, run the latest `supabase-schema.sql` again. It includes additive `alter table ... add column if not exists` statements for Journaly V2 import metadata.
 
 If the app cannot load Discipline entries because `public.trade_decisions` is missing, run `supabase-trade-decisions.sql` against the Supabase project configured in `.env.local`. The script reloads the API schema cache when it finishes.
@@ -76,22 +74,6 @@ Build for production:
 
 ```powershell
 npm.cmd run build
-```
-
-## Journaly Codex Desktop
-
-The Windows desktop app opens Journaly and starts Christian's private localhost Codex bridge automatically. It includes a native Bridge Center for Codex sign-in and service health, so no separate terminal is needed during normal use.
-
-Inside Jarvis, **Codex Research Center** provides complete journal analysis, deep backtest forensics, targeted and periodic reviews, trade/strategy/behavior research, data auditing, experiment design, screenshot vision, decision checklists, approval-only action drafts, coaching plans, and Markdown/Word/printable PDF reports. Codex runs against a bounded owner-authenticated snapshot in an ephemeral read-only directory; it cannot place broker orders or silently edit Journaly.
-
-```powershell
-npm.cmd run desktop:start
-```
-
-Build the portable Windows app:
-
-```powershell
-npm.cmd run desktop:build
 ```
 
 ## Notes

@@ -1,21 +1,4 @@
 {
   "cleanUrls": true,
-  "trailingSlash": false,
-  "functions": {
-    "api/jarvis/*.js": {
-      "maxDuration": 60
-    }
-  },
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Permissions-Policy", "value": "microphone=(self)" }
-      ]
-    }
-  ],
-  "crons": [
-    { "path": "/api/jarvis/routine-morning", "schedule": "30 22 * * *" },
-    { "path": "/api/jarvis/routine-evening", "schedule": "30 10 * * *" }
-  ]
+  "trailingSlash": false
 }

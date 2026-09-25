@@ -39,15 +39,12 @@ import {
   Target,
   TrendingDown,
   TrendingUp,
-  BellRing,
   X,
 } from "lucide-react";
 import { CSSProperties, Fragment, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase, supabaseConfig } from "./supabaseClient";
 import DayTradeJournal, { DayTradeView, dayTradeNavigation } from "./DayTradeJournal";
-import Jarvis, { JARVIS_ACTION_RECEIPT_PREFIX, JARVIS_CHART_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_LEARNING_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX } from "./Jarvis";
-import PushoverAlerts from "./PushoverAlerts";
 import logoUrl from "../assets/logo.svg";
 
 const THEME_KEY = "journaly-os-theme";
@@ -59,7 +56,6 @@ const SETUP_VARIABLES_KEY = "journaly-os-setup-variables";
 const ANALYSIS_HISTORY_DB = "journaly-os-analysis-history";
 const ANALYSIS_HISTORY_STORE = "drawings";
 const ACCOUNT_PROFILE_KEY = "journaly-os-account-profile";
-const JARVIS_OWNER_EMAIL = "christian.angelo.desamparado@gmail.com";
 const AI_COACH_USAGE_KEY = "journaly-os-ai-coach-usage";
 const AI_COACH_HISTORY_KEY = "journaly-os-ai-coach-history";
 const DARA_WINDOW_KEY = "journaly-os-dara-window";
@@ -326,8 +322,7 @@ type AppView =
   | "backtest-comparison"
   | "backtesting-analytics"
   | "add-backtest"
-  | "view-backtests"
-  | "jarvis-events";
+  | "view-backtests";
 
 const appViews: readonly AppView[] = [
   "dashboard",
@@ -354,7 +349,6 @@ const appViews: readonly AppView[] = [
   "backtesting-analytics",
   "add-backtest",
   "view-backtests",
-  "jarvis-events",
 ];
 
 type SessionUser = {
@@ -434,14 +428,6 @@ type TradeDecision = {
   resultR: number;
   createdAt: string;
   updatedAt: string;
-};
-type ForecastReviewSyncState = "reviewing" | "reviewed" | "error";
-type ForecastReviewRecord = {
-  forecastId: string;
-  reviewedAt: string;
-  confidence: "Low" | "Medium" | "High";
-  eligibleForAggregate: boolean;
-  learningCandidate: string;
 };
 type PersonalJournalEntry = {
   id: string;
@@ -2450,7 +2436,6 @@ export default function App() {
   const [tradeAdviceIndex, setTradeAdviceIndex] = useState(0);
   const [isTradeAdviceLibraryOpen, setIsTradeAdviceLibraryOpen] = useState(false);
   const [tradeDecisions, setTradeDecisions] = useState<TradeDecision[]>([]);
-  const [forecastReviewSync, setForecastReviewSync] = useState<Record<string, ForecastReviewSyncState>>({});
   const [decisionForm, setDecisionForm] = useState<TradeDecisionFormState>(tradeDecisionDefaults);
   const [backtestForm, setBacktestForm] = useState<BacktestFormState>(backtestDefaults);
   const [isSavingBacktest, setIsSavingBacktest] = useState(false);
@@ -2504,7 +2489,6 @@ export default function App() {
   const [sessionNow, setSessionNow] = useState(() => new Date());
   const lastLoadedUserId = useRef<string | null>(null);
   const journalLoadedUserId = useRef<string | null>(null);
-  const forecastReviewAttempted = useRef(new Set<string>());
   const pairAdviceLoadedUserId = useRef<string | null>(null);
   const marketSession = useMemo(() => getMarketSession(sessionNow), [sessionNow]);
   const licenseState = useMemo(() => getLicenseState(currentUser), [currentUser]);
@@ -2518,32 +2502,9 @@ export default function App() {
     ? journalEntries.find((entry) => entry.id === journalForm.id) || null
     : null;
   const dailyJournalEntries = useMemo(
-    () => journalEntries.filter((entry) => entry.kind === "daily" && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ACTION_RECEIPT_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix))),
+    () => journalEntries.filter((entry) => entry.kind === "daily" && !entry.content.startsWith("[[")),
     [journalEntries],
   );
-  const forecastReviews = useMemo(() => {
-    const records = new Map<string, ForecastReviewRecord>();
-    journalEntries.forEach((entry) => {
-      if (!entry.content.startsWith(JARVIS_FORECAST_REVIEW_PREFIX)) return;
-      try {
-        const parsed = JSON.parse(entry.content.slice(JARVIS_FORECAST_REVIEW_PREFIX.length).trim()) as Partial<ForecastReviewRecord>;
-        if (parsed.forecastId) records.set(parsed.forecastId, parsed as ForecastReviewRecord);
-      } catch {
-        // Ignore malformed internal evidence records instead of exposing them in Forecast.
-      }
-    });
-    return records;
-  }, [journalEntries]);
-  useEffect(() => {
-    if (!currentUser || journalLoadedUserId.current !== currentUser.id) return;
-    const missing = tradeDecisions
-      .filter((entry) => entry.status !== "Waiting" && !forecastReviews.has(entry.id) && !forecastReviewAttempted.current.has(entry.id))
-      .slice(0, 2);
-    missing.forEach((entry) => {
-      forecastReviewAttempted.current.add(entry.id);
-      void triggerForecastReview(entry.id, { quiet: true });
-    });
-  }, [currentUser, forecastReviews, tradeDecisions]);
   const monthlyJournalEntries = useMemo(
     () => journalEntries.filter((entry) => entry.kind === "monthly"),
     [journalEntries],
@@ -2906,28 +2867,6 @@ export default function App() {
       takeProfitPrice: Number(positionCalculator.takeProfitPrice || 0),
     });
   }, [positionCalculator]);
-
-  const jarvisPositionSizing = useMemo(() => {
-    const positiveNumber = (value: string) => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null;
-    const quote = getQuoteCurrency(positionCalculator.pair);
-    return {
-      pair: positionCalculator.pair,
-      accountBalance: positiveNumber(positionCalculator.accountBalance),
-      riskPercent: positiveNumber(positionCalculator.riskPercent),
-      entryPrice: positiveNumber(positionCalculator.entryPrice),
-      stopLossPrice: positiveNumber(positionCalculator.stopLossPrice),
-      takeProfitPrice: positiveNumber(positionCalculator.takeProfitPrice),
-      quoteToUsdRate: quote === "USD" ? 1 : positiveNumber(positionCalculator.quoteToUsdRate),
-      profiles: profileRows.map((row) => ({
-        id: row.id,
-        balance: Number(row.balance || 0),
-        type: row.type,
-        platform: row.platform,
-        riskPercent: Number(row.riskPercent || 0),
-      })),
-      profileMode,
-    };
-  }, [positionCalculator, profileMode, profileRows]);
 
   const tradeAnalyticsYears = useMemo(() => {
     return ["All", ...Array.from(new Set(trades.map((trade) => trade.date.slice(0, 4)))).sort().reverse()];
@@ -3324,10 +3263,6 @@ export default function App() {
       .sort((a, b) => Math.max(Math.abs(b.actualR), Math.abs(b.testedR)) - Math.max(Math.abs(a.actualR), Math.abs(a.testedR)));
     const [year, month] = backtestComparisonMonth.split("-").map(Number);
     const monthEnded = new Date(year, month, 1).getTime() <= new Date().setHours(0, 0, 0, 0);
-    const resolvedForecasts = tradeDecisions.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && entry.status !== "Waiting");
-    const reviewedForecasts = resolvedForecasts.filter((entry) => forecastReviews.has(entry.id));
-    const monthJournalEntries = journalEntries.filter((entry) => entry.date.startsWith(backtestComparisonMonth) && ![JARVIS_LEARNING_PREFIX, JARVIS_FORECAST_REVIEW_PREFIX, JARVIS_FEEDBACK_PREFIX, JARVIS_MEMORY_SYNC_PREFIX, JARVIS_SESSION_SYNC_PREFIX, JARVIS_CHAT_SYNC_PREFIX, JARVIS_WORKSPACE_PREFIX, JARVIS_JOURNEY_PREFIX, JARVIS_CHART_PREFIX, JARVIS_ROUTINE_PREFIX, JARVIS_PROACTIVE_PREFIX, JARVIS_ACTION_RECEIPT_PREFIX, JARVIS_GOOGLE_DRIVE_PREFIX].some((prefix) => entry.content.startsWith(prefix)));
-
     return {
       actual,
       tested,
@@ -3338,17 +3273,8 @@ export default function App() {
       rGap: actual.totalR - tested.totalR,
       winRateGap: actual.winRate - tested.winRate,
       expectancyGap: actual.expectancy - tested.expectancy,
-      jarvisEvidence: {
-        ready: monthEnded && liveItems.length > 0 && testedItems.length > 0,
-        liveTrades: liveItems.length,
-        backtests: testedItems.length,
-        resolvedForecasts: resolvedForecasts.length,
-        reviewedForecasts: reviewedForecasts.length,
-        journalEntries: monthJournalEntries.length,
-        setupCount: new Set([...liveItems.map((item) => item.setup), ...testedItems.map((item) => item.setup)]).size,
-      },
     };
-  }, [backtestComparisonMonth, backtests, forecastReviews, journalEntries, tradeDecisions, trades]);
+  }, [backtestComparisonMonth, backtests, trades]);
 
   const filteredBacktests = useMemo(() => {
     return backtests
@@ -4184,106 +4110,6 @@ export default function App() {
     setPendingTradeLock({ ...tradeForm });
   }
 
-  async function triggerForecastReview(forecastId: string, options: { quiet?: boolean } = {}) {
-    if (!currentUser || !supabase) return;
-    setForecastReviewSync((current) => ({ ...current, [forecastId]: "reviewing" }));
-    try {
-      const { data } = await supabase.auth.getSession();
-      const accessToken = data.session?.access_token;
-      if (!accessToken) throw new Error("Your Journaly session has expired.");
-      const response = await fetch("/api/jarvis/forecast-review", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ userId: currentUser.id, forecastId }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || "Jarvis could not review this forecast.");
-      await loadJournalEntries({ silent: true });
-      setForecastReviewSync((current) => ({ ...current, [forecastId]: payload?.reviewed ? "reviewed" : "reviewed" }));
-    } catch (error) {
-      setForecastReviewSync((current) => ({ ...current, [forecastId]: "error" }));
-      if (!options.quiet) showToast({ tone: "error", title: "Jarvis review pending", message: error instanceof Error ? error.message : "The forecast was saved, but its automatic review needs a retry." });
-    }
-  }
-
-  async function handleJarvisForecastChanged(forecast?: { id: string; status: TradeDecisionStatus }) {
-    const refreshed = await loadTradeDecisions(forecast);
-    if (forecast?.id) void triggerForecastReview(forecast.id);
-    return refreshed;
-  }
-
-  function handleJarvisPositionSizingApply(action: {
-    ready: boolean;
-    calculationMode?: "calculator" | "profiles";
-    profileMode?: "main" | "half" | null;
-    pair: string | null;
-    accountBalance: number | null;
-    riskPercent: number | null;
-    entryPrice: number | null;
-    stopLossPrice: number | null;
-    takeProfitPrice: number | null;
-    quoteToUsdRate: number | null;
-  }) {
-    if (!action.ready) return;
-    setPositionCalculator((current) => ({
-      pair: action.pair || current.pair,
-      accountBalance: action.accountBalance === null ? current.accountBalance : String(action.accountBalance),
-      riskPercent: action.riskPercent === null ? current.riskPercent : String(action.riskPercent),
-      entryPrice: action.entryPrice === null ? current.entryPrice : String(action.entryPrice),
-      stopLossPrice: action.stopLossPrice === null ? current.stopLossPrice : String(action.stopLossPrice),
-      takeProfitPrice: action.takeProfitPrice === null ? "" : String(action.takeProfitPrice),
-      quoteToUsdRate: action.quoteToUsdRate === null ? current.quoteToUsdRate : String(action.quoteToUsdRate),
-    }));
-    if (action.calculationMode === "profiles" && action.profileMode) setProfileMode(action.profileMode);
-    setTradingMode("swing");
-    setActiveView("position-sizing");
-    showToast({ tone: "success", title: action.calculationMode === "profiles" ? "Profile sizing ready" : "Position sizing ready", message: action.calculationMode === "profiles" ? "Jarvis filled Entry, SL, and TP for every saved profile. No broker order was placed." : "Jarvis filled the calculator. No broker order was placed." });
-  }
-
-  function handleJarvisPositionProfileApply(action: {
-    operation: "add" | "update" | "delete" | "set_mode";
-    ready: boolean;
-    rowId: string | null;
-    profileMode: "main" | "half" | null;
-    balance: number | null;
-    type: string | null;
-    platform: string | null;
-    riskPercent: number | null;
-  }) {
-    if (!action.ready) return;
-    if (action.operation === "set_mode" && action.profileMode) {
-      setProfileMode(action.profileMode);
-    } else {
-      setProfileRows((current) => {
-        let next = current;
-        if (action.operation === "add" && action.balance && action.riskPercent) {
-          next = [...current, {
-            id: crypto.randomUUID(),
-            balance: String(action.balance),
-            type: action.type || "Account",
-            platform: action.platform || "Unspecified",
-            riskPercent: String(action.riskPercent),
-          }];
-        } else if (action.operation === "update" && action.rowId) {
-          next = current.map((row) => row.id === action.rowId ? {
-            ...row,
-            balance: action.balance === null ? row.balance : String(action.balance),
-            type: action.type || row.type,
-            platform: action.platform || row.platform,
-            riskPercent: action.riskPercent === null ? row.riskPercent : String(action.riskPercent),
-          } : row);
-        } else if (action.operation === "delete" && action.rowId) {
-          next = current.filter((row) => row.id !== action.rowId);
-        }
-        localStorage.setItem(PROFILE_SIZING_KEY, JSON.stringify(next));
-        return next;
-      });
-    }
-    setTradingMode("swing");
-    setActiveView("position-sizing");
-    showToast({ tone: "success", title: "Profile updated", message: "Jarvis applied and saved the Position Sizing profile change." });
-  }
-
   async function handleForecastSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!currentUser || !supabase) return;
@@ -4335,7 +4161,6 @@ export default function App() {
       title: existing ? "Forecast updated" : "Forecast saved",
       message: `${saved.pair} is now ${saved.status.toLowerCase()}.`,
     });
-    void triggerForecastReview(saved.id);
   }
 
   async function handleForecastStatusChange(entry: TradeDecision, status: TradeDecisionStatus) {
@@ -4360,7 +4185,6 @@ export default function App() {
     const saved = toTradeDecision(data as TradeDecisionRow);
     setTradeDecisions((current) => current.map((item) => (item.id === saved.id ? saved : item)));
     showToast({ tone: "success", title: `${saved.pair} updated`, message: `Forecast marked ${saved.status.toLowerCase()}.` });
-    void triggerForecastReview(saved.id);
   }
 
   async function handleForecastPostImageChange(entry: TradeDecision, file: File) {
@@ -5273,14 +5097,6 @@ export default function App() {
             <FlaskConical size={18} />
             Backtest
           </button>
-          {currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? <button
-            className={activeView === "jarvis-events" ? "is-active" : ""}
-            type="button"
-            onClick={() => setActiveView("jarvis-events")}
-          >
-            <BellRing size={18} />
-            Pushover alerts
-          </button> : null}
             </>
           ) : (
             dayTradeNavigation.map(({ view, label, icon: Icon }) => (
@@ -6104,10 +5920,6 @@ export default function App() {
               onRemoveTrader={(id) => updateTraderFriends(traderFriends.filter((friend) => friend.id !== id))}
             />
           </section>
-        ) : null}
-
-        {activeView === "jarvis-events" && currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
-          <PushoverAlerts userId={currentUser.id} displayName={accountProfile.displayName || "Pot"} />
         ) : null}
 
         {activeView === "add-trade" || activeView === "position-sizing" || activeView === "trade-analysis" ? (
@@ -7027,8 +6839,6 @@ export default function App() {
             {activeView === "discipline" ? (
               <ForecastLog
                 entries={tradeDecisions}
-                reviews={forecastReviews}
-                reviewSync={forecastReviewSync}
                 form={decisionForm}
                 isSyncing={isSyncing}
                 onFormChange={setDecisionForm}
@@ -7036,7 +6846,6 @@ export default function App() {
                 onEdit={editForecast}
                 onDelete={deleteForecast}
                 onStatusChange={handleForecastStatusChange}
-                onReview={triggerForecastReview}
                 onPostImageChange={handleForecastPostImageChange}
                 onOpenImage={(items, index) => openImageViewer(items, index)}
                 onClear={() => setDecisionForm(tradeDecisionDefaults())}
@@ -7134,34 +6943,6 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-
-                <section className={`jarvis-reconciliation-status${monthlyBacktestComparison.jarvisEvidence.ready ? " is-ready" : ""}`} aria-label="Jarvis monthly reconciliation status">
-                  <div className="jarvis-reconciliation-heading">
-                    <span><Brain size={17} /> Jarvis evidence</span>
-                    <strong>{monthlyBacktestComparison.jarvisEvidence.ready ? "Reconciliation ready" : "Building evidence"}</strong>
-                  </div>
-                  <p>
-                    Jarvis now combines this live-vs-replay comparison with resolved forecasts and journal evidence. It refreshes automatically whenever you add or edit a trade, backtest, forecast, or note.
-                  </p>
-                  <div className="jarvis-reconciliation-inputs">
-                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.liveTrades}</strong> live</span>
-                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.backtests}</strong> replay</span>
-                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.reviewedForecasts}/{monthlyBacktestComparison.jarvisEvidence.resolvedForecasts}</strong> forecast reviews</span>
-                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.journalEntries}</strong> journal entries</span>
-                    <span><strong>{monthlyBacktestComparison.jarvisEvidence.setupCount}</strong> setups compared</span>
-                  </div>
-                  <div className="jarvis-evidence-legend" aria-label="Jarvis evidence labels">
-                    <span className="is-observed">Observed</span>
-                    <span className="is-supported">Supported</span>
-                    <span className="is-hypothesis">Hypothesis · requires review</span>
-                    <button
-                      type="button"
-                      onClick={() => window.dispatchEvent(new CustomEvent("journaly:ask-jarvis", { detail: { prompt: `Jarvis, reconcile my live trading against my backtests for ${formatMonthLabel(backtestComparisonMonth)} (${backtestComparisonMonth}). Show the biggest pair, setup, and session gaps, connect the resolved forecasts and journal notes, and clearly separate observed facts, supported findings, and hypotheses.` } }))}
-                    >
-                      <MessageSquareText size={13} /> Ask Jarvis about this month
-                    </button>
-                  </div>
-                </section>
 
                 {!monthlyBacktestComparison.hasActual || !monthlyBacktestComparison.hasBacktest ? (
                   <div className="comparison-empty-note">
@@ -7610,24 +7391,6 @@ export default function App() {
         ) : null}
         </main>
       </div>
-      {currentUser.email.trim().toLowerCase() === JARVIS_OWNER_EMAIL ? (
-        <Jarvis
-          key={currentUser.id}
-          userId={currentUser.id}
-          username={currentUser.email}
-          displayName={accountProfile.displayName || currentUser.email.split("@")[0]}
-          trades={trades}
-          backtests={backtests}
-          forecasts={tradeDecisions}
-          session={marketSession}
-          journalEntries={journalEntries}
-          positionSizing={jarvisPositionSizing}
-          onTradeCreated={loadTrades}
-          onForecastChanged={handleJarvisForecastChanged}
-          onPositionSizingApply={handleJarvisPositionSizingApply}
-          onPositionProfileApply={handleJarvisPositionProfileApply}
-        />
-      ) : null}
     </div>
   );
 }
@@ -12318,8 +12081,6 @@ function summarizeTraderPreview(trades: Trade[]) {
 
 function ForecastLog({
   entries,
-  reviews,
-  reviewSync,
   form,
   isSyncing,
   onFormChange,
@@ -12327,14 +12088,11 @@ function ForecastLog({
   onEdit,
   onDelete,
   onStatusChange,
-  onReview,
   onPostImageChange,
   onOpenImage,
   onClear,
 }: {
   entries: TradeDecision[];
-  reviews: Map<string, ForecastReviewRecord>;
-  reviewSync: Record<string, ForecastReviewSyncState>;
   form: TradeDecisionFormState;
   isSyncing: boolean;
   onFormChange: (form: TradeDecisionFormState) => void;
@@ -12342,7 +12100,6 @@ function ForecastLog({
   onEdit: (entry: TradeDecision) => void;
   onDelete: (entry: TradeDecision) => void;
   onStatusChange: (entry: TradeDecision, status: TradeDecisionStatus) => Promise<void>;
-  onReview: (forecastId: string) => Promise<void>;
   onPostImageChange: (entry: TradeDecision, file: File) => Promise<void>;
   onOpenImage: (items: ImageViewerItem[], index: number) => void;
   onClear: () => void;
@@ -12376,7 +12133,7 @@ function ForecastLog({
       <div className="forecast-hero">
         <div>
           <span className="forecast-kicker"><Target size={14} /> Pre-trade intelligence</span>
-          <h3>Forecast the idea. Update the outcome. Let Jarvis learn the pattern.</h3>
+          <h3>Forecast the idea. Update the outcome. Review the pattern.</h3>
           <p>Capture the setup before the move, then mark it Taken, Invalidated, or Skipped when the market decides.</p>
         </div>
         <button className="primary-action" type="button" onClick={() => openForecastForm()}><Plus size={17} />New forecast</button>
@@ -12478,8 +12235,6 @@ function ForecastLog({
         {!isSyncing && filteredEntries.length === 0 ? (
           <div className="empty-state"><strong>No forecasts match this view</strong><p>Create an idea before the move or choose another month and status.</p><button className="primary-action" type="button" onClick={() => openForecastForm()}><Plus size={16} />New forecast</button></div>
         ) : filteredEntries.slice(0, visibleCount).map((entry) => {
-          const review = reviews.get(entry.id);
-          const reviewState = reviewSync[entry.id];
           const images: ImageViewerItem[] = [
             entry.screenshot ? { id: `${entry.id}-pre`, src: entry.screenshot, alt: `${entry.pair} pre-trade chart`, title: `${entry.pair} pre image`, meta: `${entry.setup} / ${formatOrdinalDate(entry.date)}` } : null,
             entry.postImage ? { id: `${entry.id}-post`, src: entry.postImage, alt: `${entry.pair} post-trade chart`, title: `${entry.pair} post image`, meta: `${formatNumber(entry.resultR)}R result` } : null,
@@ -12496,15 +12251,6 @@ function ForecastLog({
                 </header>
                 <div className="forecast-card-title"><div><strong>{entry.pair}</strong><span>{entry.direction} · {entry.setup}</span></div></div>
                 {entry.notes || entry.entryPlan || entry.reasonToTake || entry.reasonCancelled ? <p className="forecast-summary">{entry.notes || entry.entryPlan || entry.reasonToTake || entry.reasonCancelled}</p> : <p className="forecast-summary is-empty">No forecast entry yet.</p>}
-                {entry.status === "Waiting" ? (
-                  <div className="forecast-review-state is-observation"><Brain size={14} /><span><strong>Observation only</strong>Jarvis waits for a resolved status before learning.</span></div>
-                ) : reviewState === "reviewing" ? (
-                  <div className="forecast-review-state is-reviewing"><RefreshCcw size={14} /><span><strong>Jarvis is reviewing</strong>Separating thesis, outcome, and execution evidence.</span></div>
-                ) : review ? (
-                  <div className="forecast-review-state is-reviewed" title={review.learningCandidate}><CheckCircle2 size={14} /><span><strong>Jarvis reviewed · {review.confidence} confidence</strong>{review.eligibleForAggregate ? "Eligible for aggregate learning" : "Saved as evidence, excluded from aggregate learning"}</span></div>
-                ) : (
-                  <button className={`forecast-review-state is-pending${reviewState === "error" ? " is-error" : ""}`} type="button" onClick={() => void onReview(entry.id)}><TriangleAlert size={14} /><span><strong>{reviewState === "error" ? "Review needs retry" : "Review pending"}</strong>Tap to let Jarvis process this resolved forecast.</span></button>
-                )}
                 <div className="forecast-status-actions" aria-label={`Update ${entry.pair} forecast status`}>
                   {decisionStatuses.map((status) => <button className={`is-${status.toLowerCase()}`} type="button" key={status} aria-pressed={entry.status === status} disabled={isSyncing} onClick={() => void onStatusChange(entry, status)}>{status === "Waiting" ? <Clock3 size={14} /> : status === "Taken" ? <CheckCircle2 size={14} /> : status === "Invalidated" ? <CircleSlash2 size={14} /> : <ShieldCheck size={14} />}{status}</button>)}
                 </div>
