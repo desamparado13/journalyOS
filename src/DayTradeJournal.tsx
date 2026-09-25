@@ -785,12 +785,7 @@ export default function DayTradeJournal({
             <button className="daytrade-chart-close" type="button" aria-label="Close chart viewer" onClick={() => setChartViewerId(null)}>
               <X size={20} />
             </button>
-            <img
-              src={chartViewerTrade.image}
-              alt={`${chartViewerTrade.entryType} chart from ${chartViewerTrade.date}`}
-              decoding="async"
-              fetchPriority="high"
-            />
+            <img src={chartViewerTrade.image} alt={`${chartViewerTrade.entryType} chart from ${chartViewerTrade.date}`} />
           </div>
         </div>
       ) : null}
